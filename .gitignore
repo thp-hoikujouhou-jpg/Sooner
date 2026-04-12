@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+projects/*/node_modules/
+projects/*/build/
+projects/*/.dart_tool/
+.firebase/

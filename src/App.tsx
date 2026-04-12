@@ -1,0 +1,2335 @@
+import React, { useState, useEffect, useRef, Component, type ErrorInfo, type ReactNode } from "react";
+import { 
+  FolderTree, 
+  Terminal as TerminalIcon, 
+  Play, 
+  Save, 
+  Plus, 
+  MessageSquare, 
+  Settings as SettingsIcon, 
+  Zap, 
+  CheckCircle2, 
+  Circle, 
+  AlertCircle,
+  ChevronRight,
+  ChevronDown,
+  FileCode,
+  Folder,
+  Send,
+  Loader2,
+  X,
+  Globe,
+  Upload,
+  Key,
+  History,
+  RefreshCw,
+  Eye,
+  Download,
+  Trash2,
+  MoreVertical,
+  Square,
+  Package
+} from "lucide-react";
+
+function CodeIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="m18 16 4-4-4-4" /><path d="m6 8-4 4 4 4" /><path d="m14.5 4-5 16" />
+    </svg>
+  );
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; retries: number }> {
+  state = { hasError: false, retries: 0 };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn("ErrorBoundary caught (auto-recovering):", error.message);
+    if (this.state.retries < 3) {
+      setTimeout(() => this.setState(prev => ({ hasError: false, retries: prev.retries + 1 })), 50);
+    }
+  }
+  render() {
+    if (this.state.hasError && this.state.retries >= 3) {
+      return (
+        <div style={{ padding: 40, color: "#E4E3E0", background: "#0A0A0A", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+          <h1 style={{ color: "#38BDF8", marginBottom: 16 }}>Something went wrong</h1>
+          <button onClick={() => this.setState({ hasError: false, retries: 0 })} style={{ padding: "8px 24px", background: "#38BDF8", color: "black", borderRadius: 8, fontWeight: "bold", border: "none", cursor: "pointer" }}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+import { motion } from "motion/react";
+import Editor from "@monaco-editor/react";
+import axios from "axios";
+import html2canvas from "html2canvas";
+import { GoogleGenAI, Type } from "@google/genai";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import { FileNode, Project, AgentStep, ChatMessage } from "./types";
+import { clsx, type ClassValue } from "clsx";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { twMerge } from "tailwind-merge";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as Tabs from "@radix-ui/react-tabs";
+import {
+  auth,
+  isConfigured as firebaseConfigured,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  GithubAuthProvider,
+  type User,
+} from "./firebase";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+function LandingPage({ onSkip }: { onSkip: () => void }) {
+  const [mode, setMode] = useState<"landing" | "login" | "signup">("landing");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth) return;
+    setLoading(true);
+    setError("");
+    try {
+      if (mode === "signup") {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err: any) {
+      setError(err.message?.replace("Firebase: ", "") || "Authentication failed");
+    }
+    setLoading(false);
+  };
+
+  const handleGoogle = async () => {
+    if (!auth) return;
+    try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (err: any) { setError(err.message || "Google sign-in failed"); }
+  };
+
+  const handleGithub = async () => {
+    if (!auth) return;
+    try { await signInWithPopup(auth, new GithubAuthProvider()); } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
+  };
+
+  if (mode === "landing") {
+    return (
+      <div className="min-h-screen bg-[#09090B] text-white flex flex-col overflow-hidden relative">
+        {/* Speed lines background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#38BDF8]/[0.03] blur-[120px]" />
+          <div className="absolute top-0 left-0 w-full h-full" style={{
+            backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 50%, rgba(56,189,248,0.015) 50%, rgba(56,189,248,0.015) 51%)`,
+            backgroundSize: '120px 100%',
+            animation: 'slideRight 20s linear infinite',
+          }} />
+          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/20 to-transparent" style={{ top: '20%' }} />
+          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/10 to-transparent" style={{ top: '50%' }} />
+          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/20 to-transparent" style={{ top: '80%' }} />
+        </div>
+        <style>{`@keyframes slideRight{0%{transform:translateX(-120px)}100%{transform:translateX(0)}}`}</style>
+
+        <header className="relative z-10 flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <Zap className="w-6 h-6 text-[#38BDF8]" />
+              <div className="absolute inset-0 w-6 h-6 bg-[#38BDF8]/20 blur-md rounded-full" />
+            </div>
+            <span className="font-black text-lg tracking-tight">Sooner</span>
+            <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold ml-0.5 border border-[#38BDF8]/20">BETA</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {firebaseConfigured ? (
+              <>
+                <button onClick={() => setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">Sign In</button>
+                <button onClick={() => setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">Get Started</button>
+              </>
+            ) : (
+              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">Launch IDE</button>
+            )}
+          </div>
+        </header>
+
+        <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-8 text-center">
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-4 py-1.5 mb-8 backdrop-blur-sm">
+              <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#38BDF8] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[#38BDF8]"></span></span>
+              <span className="text-xs text-[#38BDF8] font-semibold">Beta Now Available</span>
+            </div>
+            <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-[1.05] mb-6">
+              Ship{" "}
+              <span className="relative">
+                <span className="text-[#38BDF8]">faster</span>
+                <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-[#38BDF8] to-[#38BDF8]/0 rounded-full" />
+              </span>
+              <br />
+              <span className="text-white/90">than ever</span>
+            </h1>
+            <p className="text-lg text-[#71717A] max-w-xl mx-auto mb-10 leading-relaxed">
+              Sooner is the fastest way to go from idea to production. 
+              Describe what you want — AI writes, previews, and ships your code in seconds.
+            </p>
+            <div className="flex items-center justify-center gap-4">
+              {firebaseConfigured ? (
+                <button onClick={() => setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                  Get Started Free <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                </button>
+              ) : (
+                <button onClick={onSkip} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                  Launch IDE <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                </button>
+              )}
+            </div>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
+            {[
+              { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
+              { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
+              { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
+            ].map((f, i) => (
+              <motion.div key={i} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 + i * 0.1 }}
+                className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] transition-all group">
+                <span className="text-2xl block mb-3">{f.icon}</span>
+                <h3 className="font-bold text-base mb-2 group-hover:text-[#38BDF8] transition-colors">{f.title}</h3>
+                <p className="text-sm text-[#71717A] leading-relaxed">{f.desc}</p>
+              </motion.div>
+            ))}
+          </motion.div>
+        </main>
+
+        <footer className="relative z-10 px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
+          Sooner IDE Beta — Build faster, ship sooner
+        </footer>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#09090B] text-white flex items-center justify-center relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-[#38BDF8]/[0.04] blur-[100px]" />
+      </div>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="relative z-10 w-full max-w-md p-8">
+        <div className="flex items-center justify-center gap-2.5 mb-8">
+          <div className="relative">
+            <Zap className="w-7 h-7 text-[#38BDF8]" />
+            <div className="absolute inset-0 w-7 h-7 bg-[#38BDF8]/20 blur-md rounded-full" />
+          </div>
+          <span className="font-black text-xl tracking-tight">Sooner</span>
+        </div>
+        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 backdrop-blur-sm">
+          <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? "Welcome back" : "Create account"}</h2>
+          <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? "Sign in to your Sooner account" : "Start building with Sooner"}</p>
+
+          <div className="flex gap-3 mb-6">
+            <button onClick={handleGoogle} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
+              <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              Google
+            </button>
+            <button onClick={handleGithub} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
+              <Globe className="w-4 h-4" />
+              GitHub
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 h-px bg-[#252525]" />
+            <span className="text-xs text-[#555]">or</span>
+            <div className="flex-1 h-px bg-[#252525]" />
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required
+              className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-[#38BDF8]" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required minLength={6}
+              className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-[#38BDF8]" />
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full py-2.5 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : mode === "login" ? "Sign In" : "Create Account"}
+            </button>
+          </form>
+
+          <p className="text-xs text-[#8E9299] text-center mt-4">
+            {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+            <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }} className="text-[#38BDF8] hover:underline font-bold">
+              {mode === "login" ? "Sign up" : "Sign in"}
+            </button>
+          </p>
+        </div>
+        <button onClick={() => setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">Back to home</button>
+      </motion.div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(firebaseConfigured);
+  const [skipAuth, setSkipAuth] = useState(!firebaseConfigured);
+
+  useEffect(() => {
+    if (!auth || !firebaseConfigured) { setAuthLoading(false); return; }
+    const unsub = onAuthStateChanged(auth, (user) => { setAuthUser(user); setAuthLoading(false); });
+    return unsub;
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+      </div>
+    );
+  }
+
+  if (firebaseConfigured && !authUser && !skipAuth) {
+    return <LandingPage onSkip={() => setSkipAuth(true)} />;
+  }
+
+  return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
+}
+
+function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
+  const [projects, setProjects] = useState<string[]>([]);
+  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileNode[]>([]);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string>("");
+  const [terminalMap, setTerminalMap] = useState<Record<string, string[]>>({});
+  const terminalOutput = activeProject ? (terminalMap[activeProject] || []) : [];
+  const setTerminalOutput = (updater: string[] | ((prev: string[]) => string[])) => {
+    if (!activeProject) return;
+    setTerminalMap(prev => {
+      const current = prev[activeProject] || [];
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return { ...prev, [activeProject]: next };
+    });
+  };
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // New States
+  const [geminiKey, setGeminiKey] = useState(() => {
+    const saved = localStorage.getItem("gemini_key");
+    if (saved) return saved;
+    return process.env.GEMINI_API_KEY || "";
+  });
+  const [githubToken, setGithubToken] = useState(localStorage.getItem("github_token") || "");
+  const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">(() => {
+    return (localStorage.getItem("aether_api_provider") as any) || "gemini";
+  });
+  const [apiBaseUrl, setApiBaseUrl] = useState(localStorage.getItem("aether_api_base_url") || "");
+  const [vercelKey, setVercelKey] = useState(localStorage.getItem("aether_vercel_key") || "");
+  const [customKey, setCustomKey] = useState(localStorage.getItem("aether_custom_key") || "");
+  const [selectedModel, setSelectedModel] = useState(localStorage.getItem("aether_selected_model") || "gemini-2.5-flash-preview-04-17");
+  const [runningPort, setRunningPort] = useState<number | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCloneOpen, setIsCloneOpen] = useState(false);
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [cloneName, setCloneName] = useState("");
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
+  const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix" | "auto-preview">("chat");
+  const [language, setLanguage] = useState<"en" | "ja">(() => {
+    return (localStorage.getItem("aether_language") as "en" | "ja") || "en";
+  });
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [isPackagesOpen, setIsPackagesOpen] = useState(false);
+  const [packages, setPackages] = useState<{ dependencies: Record<string, string>; devDependencies: Record<string, string> }>({ dependencies: {}, devDependencies: {} });
+  const [newPkgName, setNewPkgName] = useState("");
+  const [newPkgVersion, setNewPkgVersion] = useState("");
+  const [projectRunning, setProjectRunning] = useState(false);
+  const [projectType, setProjectType] = useState<string>("static");
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const toggleFolder = (path: string) => {
+    setOpenFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const translations = {
+    en: {
+      projects: "Projects",
+      files: "Files",
+      settings: "Settings",
+      save: "Save",
+      preview: "Preview",
+      editor: "Editor",
+      chat: "Chat",
+      plan: "Plan",
+      code: "Code",
+      fix: "Fix",
+      autoPreview: "Auto-Preview",
+      clear: "Clear",
+      placeholderChat: "Ask a question...",
+      placeholderPlan: "Describe a feature to plan...",
+      placeholderCode: "Describe code to write...",
+      placeholderFix: "Describe a bug to fix...",
+      placeholderAuto: "Build and preview automatically...",
+      agentTitle: "AI Developer Agent",
+      pipeline: "Execution Pipeline",
+      idle: "Idle",
+      active: "Active",
+      noProjects: "No projects found",
+      noFiles: "No files yet. Create a project or upload files.",
+      apiKey: "Gemini API Key",
+      githubToken: "GitHub Personal Access Token",
+      language: "Language",
+      saveChanges: "Save Changes",
+      testConnection: "Test Connection",
+      testing: "Testing...",
+      missingKey: "Missing Key",
+      download: "Download Project",
+      delete: "Delete",
+      stop: "Stop",
+      confirmDelete: "Are you sure you want to delete this file?",
+      confirmDeleteProject: "Are you sure you want to delete this project and all its files?",
+      uploadProject: "Upload Project (ZIP)",
+      editMode: "Edit Mode",
+      suggestions: "Suggestions",
+      executionComplete: "Execution complete.",
+      deleteProject: "Delete Project",
+      deleteFile: "Delete File",
+      usingSettingsKey: "Settings Key",
+      usingEnvKey: "Env Key",
+      apiProvider: "API Provider",
+      apiBaseUrl: "API Base URL",
+      apiBaseUrlPlaceholder: "e.g. https://your-gateway-url.vercel.app/api/...",
+      model: "Model",
+      fetchModels: "Fetch Models",
+      fetchingModels: "Fetching...",
+      noModels: "Enter API Key and fetch models",
+      packages: "Packages",
+      addPackage: "Add Package",
+      packageName: "Package name",
+      version: "Version",
+      noPackages: "No packages. Add one above.",
+      dependencies: "Dependencies",
+      devDependencies: "Dev Dependencies",
+      runServer: "Run Server",
+      stopServer: "Stop Server",
+      serverRunning: "Running",
+    },
+    ja: {
+      projects: "プロジェクト",
+      files: "ファイル",
+      settings: "設定",
+      save: "保存",
+      preview: "プレビュー",
+      editor: "エディタ",
+      chat: "チャット",
+      plan: "プラン",
+      code: "コード",
+      fix: "修正",
+      autoPreview: "自動プレビュー",
+      clear: "クリア",
+      placeholderChat: "質問を入力...",
+      placeholderPlan: "機能を計画...",
+      placeholderCode: "コードを生成...",
+      placeholderFix: "バグを修正...",
+      placeholderAuto: "自動ビルド＆プレビュー...",
+      agentTitle: "AI開発エージェント",
+      pipeline: "実行パイプライン",
+      idle: "待機中",
+      active: "実行中",
+      noProjects: "プロジェクトが見つかりません",
+      noFiles: "ファイルがありません。プロジェクトを作成するかアップロードしてください。",
+      apiKey: "Gemini APIキー",
+      githubToken: "GitHubアクセストークン",
+      language: "言語",
+      saveChanges: "変更を保存",
+      testConnection: "接続テスト",
+      testing: "テスト中...",
+      missingKey: "キーがありません",
+      download: "プロジェクトをダウンロード",
+      delete: "削除",
+      stop: "停止",
+      confirmDelete: "このファイルを削除してもよろしいですか？",
+      confirmDeleteProject: "このプロジェクトとすべてのファイルを削除してもよろしいですか？",
+      uploadProject: "プロジェクトをアップロード (ZIP)",
+      editMode: "編集モード",
+      suggestions: "提案",
+      executionComplete: "実行が完了しました。",
+      deleteProject: "プロジェクトを削除",
+      deleteFile: "ファイルを削除",
+      usingSettingsKey: "設定キー使用中",
+      usingEnvKey: "環境変数キー使用中",
+      apiProvider: "APIプロバイダー",
+      apiBaseUrl: "APIベースURL",
+      apiBaseUrlPlaceholder: "例: https://your-gateway-url.vercel.app/api/...",
+      model: "モデル",
+      fetchModels: "モデル取得",
+      fetchingModels: "取得中...",
+      noModels: "APIキーを入力してモデルを取得",
+      packages: "パッケージ",
+      addPackage: "パッケージ追加",
+      packageName: "パッケージ名",
+      version: "バージョン",
+      noPackages: "パッケージがありません。上のフォームから追加してください。",
+      dependencies: "依存関係",
+      devDependencies: "開発用依存関係",
+      runServer: "サーバー起動",
+      stopServer: "サーバー停止",
+      serverRunning: "実行中",
+    }
+  };
+
+  const t = translations[language];
+
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const clearChat = () => {
+    setMessages([]);
+    if (activeProject) {
+      axios.post(`/api/projects/${activeProject}/chat`, { messages: [] }).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (geminiKey) {
+      localStorage.setItem("gemini_key", geminiKey);
+    } else {
+      localStorage.removeItem("gemini_key");
+    }
+  }, [geminiKey]);
+
+  useEffect(() => {
+    localStorage.setItem("github_token", githubToken);
+  }, [githubToken]);
+
+  useEffect(() => {
+    localStorage.setItem("aether_api_provider", apiProvider);
+  }, [apiProvider]);
+
+  useEffect(() => {
+    if (apiBaseUrl) localStorage.setItem("aether_api_base_url", apiBaseUrl);
+    else localStorage.removeItem("aether_api_base_url");
+  }, [apiBaseUrl]);
+  useEffect(() => {
+    if (vercelKey) localStorage.setItem("aether_vercel_key", vercelKey);
+    else localStorage.removeItem("aether_vercel_key");
+  }, [vercelKey]);
+  useEffect(() => {
+    if (customKey) localStorage.setItem("aether_custom_key", customKey);
+    else localStorage.removeItem("aether_custom_key");
+  }, [customKey]);
+
+  useEffect(() => {
+    localStorage.setItem("aether_selected_model", selectedModel);
+  }, [selectedModel]);
+
+  useEffect(() => {
+    localStorage.setItem("aether_language", language);
+  }, [language]);
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  useEffect(() => {
+    if (activeProject) {
+      fetchFiles();
+      axios.get(`/api/projects/${activeProject}/chat`)
+        .then(res => setMessages(res.data))
+        .catch(() => setMessages([]));
+      axios.get(`/api/projects/${activeProject}/detect-type`)
+        .then(res => {
+          setProjectType(res.data.detected || "static");
+          setProjectRunning(!!res.data.running);
+          if (res.data.port) setRunningPort(res.data.port);
+          else setRunningPort(null);
+        })
+        .catch(() => { setProjectType("static"); setProjectRunning(false); setRunningPort(null); });
+    } else {
+      setFiles([]);
+      setMessages([]);
+      setProjectType("static");
+      setProjectRunning(false);
+    }
+  }, [activeProject]);
+
+  // Auto-build for Flutter & auto-start for devserver when preview tab is active
+  useEffect(() => {
+    if (!activeProject || activeTab !== "preview") return;
+    let cancelled = false;
+    const autoSetup = async () => {
+      // Flutter auto-build
+      await buildAndPreview();
+      if (cancelled) return;
+
+      // Devserver auto-start
+      try {
+        const res = await axios.get(`/api/projects/${activeProject}/detect-type`);
+        if (cancelled) return;
+        if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
+          setTerminalOutput(prev => [...prev, language === "ja"
+            ? "> 依存関係のインストール・サーバー起動中..."
+            : "> Installing dependencies & starting server..."]);
+          await startProject();
+        }
+      } catch {}
+    };
+    autoSetup();
+    return () => { cancelled = true; };
+  }, [activeProject, activeTab]);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    if (!activeProject || messages.length === 0) return;
+    const timer = setTimeout(() => {
+      axios.post(`/api/projects/${activeProject}/chat`, { messages })
+        .catch(err => console.error("Failed to save chat", err));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [messages, activeProject]);
+
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [terminalOutput]);
+
+  const fetchProjects = async () => {
+    try {
+      const res = await axios.get("/api/projects");
+      setProjects(res.data);
+      if (res.data.length > 0 && !activeProject) {
+        setActiveProject(res.data[0]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch projects", e);
+    }
+  };
+
+  const fetchFiles = async () => {
+    if (!activeProject) return;
+    try {
+      const res = await axios.get(`/api/projects/${activeProject}/files`);
+      setFiles(res.data);
+    } catch (e) {
+      console.error("Failed to fetch files", e);
+    }
+  };
+
+  const createProject = async () => {
+    if (!newProjectName) return;
+    try {
+      await axios.post("/api/projects", { name: newProjectName });
+      await fetchProjects();
+      setActiveProject(newProjectName);
+      setIsNewProjectOpen(false);
+      setNewProjectName("");
+    } catch (e) {
+      console.error("Failed to create project", e);
+      alert("Failed to create project");
+    }
+  };
+
+  const openFile = async (path: string) => {
+    if (!activeProject) return;
+    try {
+      const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: path } });
+      setActiveFile(path);
+      setFileContent(res.data.content);
+    } catch (e) {
+      console.error("Failed to open file", e);
+    }
+  };
+
+  const saveFile = async () => {
+    if (!activeProject || !activeFile) return;
+    try {
+      await axios.post(`/api/projects/${activeProject}/file`, { filePath: activeFile, content: fileContent });
+      // Show success toast or something
+    } catch (e) {
+      alert("Failed to save file");
+    }
+  };
+
+  const runCommand = async (command: string) => {
+    if (!activeProject) return;
+    setTerminalOutput(prev => [...prev, `> ${command}`]);
+    try {
+      const res = await axios.post(`/api/projects/${activeProject}/terminal`, { command });
+      if (res.data.stdout) setTerminalOutput(prev => [...prev, res.data.stdout]);
+      if (res.data.stderr) setTerminalOutput(prev => [...prev, `Error: ${res.data.stderr}`]);
+    } catch (e) {
+      setTerminalOutput(prev => [...prev, "Failed to execute command"]);
+    }
+  };
+
+  const fetchPackages = async () => {
+    if (!activeProject) return;
+    try {
+      const res = await axios.get(`/api/projects/${activeProject}/packages`);
+      setPackages(res.data);
+    } catch {
+      setPackages({ dependencies: {}, devDependencies: {} });
+    }
+  };
+
+  const addPackage = async () => {
+    if (!activeProject || !newPkgName.trim()) return;
+    try {
+      await axios.post(`/api/projects/${activeProject}/packages`, { name: newPkgName.trim(), version: newPkgVersion.trim() || "latest" });
+      setNewPkgName("");
+      setNewPkgVersion("");
+      fetchPackages();
+      fetchFiles();
+    } catch (e) {
+      alert("Failed to add package");
+    }
+  };
+
+  const removePackage = async (name: string) => {
+    if (!activeProject) return;
+    try {
+      await axios.delete(`/api/projects/${activeProject}/packages`, { data: { name } });
+      fetchPackages();
+      fetchFiles();
+    } catch (e) {
+      alert("Failed to remove package");
+    }
+  };
+
+  const startProject = async () => {
+    if (!activeProject) return;
+    setTerminalOutput(prev => [...prev, `> Starting ${projectType} server... (installing dependencies if needed)`]);
+    try {
+      const res = await axios.post(`/api/projects/${activeProject}/run`);
+      if (res.data.status === "install-failed") {
+        setTerminalOutput(prev => [...prev, ...(res.data.lines || []), "npm install failed."]);
+        return;
+      }
+      if (res.data.status === "started" || res.data.status === "already-running" || res.data.status === "installing") {
+        setProjectRunning(true);
+        if (res.data.port) setRunningPort(res.data.port);
+        setTerminalOutput(prev => [...prev, `Server running on port ${res.data.port} (${res.data.type})`]);
+        // Poll logs
+        let seen = 0;
+        const poll = async () => {
+          if (!activeProject) return;
+          try {
+            const logRes = await axios.get(`/api/projects/${activeProject}/run-logs?since=${seen}`);
+            if (logRes.data.lines?.length > 0) {
+              setTerminalOutput(prev => [...prev, ...logRes.data.lines]);
+            }
+            seen = logRes.data.total || seen;
+            if (logRes.data.status === "running") {
+              setTimeout(poll, 2000);
+            } else {
+              setProjectRunning(false);
+            }
+          } catch {}
+        };
+        setTimeout(poll, 1000);
+      } else if (res.data.status === "static") {
+        setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドは検出されませんでした。" : "No backend detected."]);
+      }
+    } catch (e) {
+      setTerminalOutput(prev => [...prev, "Failed to start project server."]);
+    }
+  };
+
+  const stopProject = async () => {
+    if (!activeProject) return;
+    try {
+      await axios.post(`/api/projects/${activeProject}/stop`);
+      setProjectRunning(false);
+      setRunningPort(null);
+      setTerminalOutput(prev => [...prev, language === "ja" ? "サーバーを停止しました。" : "Server stopped."]);
+    } catch {
+      setTerminalOutput(prev => [...prev, "Failed to stop server."]);
+    }
+  };
+
+  const isFlutterProject = () => {
+    const hasFile = (name: string): boolean => {
+      const check = (nodes: FileNode[]): boolean => nodes.some(n => n.name === name || (n.children && check(n.children)));
+      return check(files);
+    };
+    return hasFile("pubspec.yaml");
+  };
+
+  const pollBuildStatus = (project: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      let seen = 0;
+      const poll = async () => {
+        try {
+          const res = await axios.get(`/api/projects/${project}/build-status?since=${seen}`);
+          const { status, lines, total } = res.data;
+          if (lines && lines.length > 0) {
+            setTerminalOutput(prev => [...prev, ...lines]);
+          }
+          seen = total || seen;
+          if (status === "success") { resolve(true); return; }
+          if (status === "failed") { resolve(false); return; }
+          setTimeout(poll, 1000);
+        } catch {
+          resolve(false);
+        }
+      };
+      poll();
+    });
+  };
+
+  const buildAndPreview = async () => {
+    if (!activeProject) return true;
+    if (!isFlutterProject()) return true;
+
+    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking build..."]);
+    try {
+      const res = await axios.post(`/api/projects/${activeProject}/build-preview`);
+      const { status } = res.data;
+
+      if (status === "already-built") {
+        setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
+        return true;
+      }
+
+      if (status === "build-started" || status === "building") {
+        setTerminalOutput(prev => [...prev, "Flutter: Building... (this may take a minute)"]);
+        return await pollBuildStatus(activeProject);
+      }
+
+      return true;
+    } catch {
+      setTerminalOutput(prev => [...prev, language === "ja"
+        ? "ビルドチェックに失敗しました。サーバーを再起動してください。"
+        : "Build check failed. Please restart the server."]);
+      return false;
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeProject || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      try {
+        await axios.post(`/api/projects/${activeProject}/upload`, { fileName: file.name, content });
+        fetchFiles();
+        setTerminalOutput(prev => [...prev, `Uploaded file: ${file.name}`]);
+      } catch (e) {
+        alert("Upload failed");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleClone = async () => {
+    if (!repoUrl || !cloneName) return;
+    try {
+      setTerminalOutput(prev => [...prev, `Cloning ${repoUrl}...`]);
+      await axios.post("/api/projects/clone", { repoUrl, name: cloneName, token: githubToken });
+      fetchProjects();
+      setActiveProject(cloneName);
+      setIsCloneOpen(false);
+      setRepoUrl("");
+      setCloneName("");
+    } catch (e: any) {
+      alert(`Clone failed: ${e.response?.data?.error || e.message}`);
+    }
+  };
+
+  const getEffectiveBaseUrl = (): string | undefined => {
+    if (apiProvider === "vercel-ai-gateway" && apiBaseUrl) return apiBaseUrl;
+    if (apiProvider === "custom" && apiBaseUrl) return apiBaseUrl;
+    return undefined;
+  };
+
+  const getActiveApiKey = (): string => {
+    if (apiProvider === "vercel-ai-gateway") return vercelKey || geminiKey;
+    if (apiProvider === "custom") return customKey || geminiKey;
+    return geminiKey || process.env.GEMINI_API_KEY || "";
+  };
+
+  const createAiClient = (key?: string) => {
+    const activeKey = key || getActiveApiKey();
+    const baseUrl = getEffectiveBaseUrl();
+    return new GoogleGenAI(baseUrl ? { apiKey: activeKey, httpOptions: { baseUrl } } : { apiKey: activeKey });
+  };
+
+  const fetchModels = async () => {
+    const key = getActiveApiKey();
+    if (!key) return;
+    setIsFetchingModels(true);
+    try {
+      const ai = createAiClient();
+      const result = await ai.models.list();
+      const modelNames: string[] = [];
+      for await (const model of result) {
+        const name = model.name?.replace("models/", "") || "";
+        if (name) modelNames.push(name);
+      }
+      modelNames.sort();
+      if (modelNames.length === 0) {
+        setAvailableModels(["gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-05-06", "gemini-2.0-flash"]);
+      } else {
+        setAvailableModels(modelNames);
+      }
+    } catch {
+      setAvailableModels(["gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-05-06", "gemini-2.0-flash"]);
+    }
+    setIsFetchingModels(false);
+  };
+
+  const testApiKey = async () => {
+    const key = getActiveApiKey();
+    if (!key) return;
+    setIsTestingKey(true);
+    try {
+      const testAi = createAiClient();
+      await testAi.models.generateContent({
+        model: selectedModel || "gemini-2.5-flash-preview-04-17",
+        contents: "Hi",
+      });
+      alert("API Key is valid!");
+      fetchModels();
+    } catch (e: any) {
+      alert(`API Key test failed: ${e.message}`);
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
+
+  const stopAgent = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsAgentRunning(false);
+      updateLastStep("failed", "Stopped by user");
+    }
+  };
+
+  const deleteFile = async (filePath: string) => {
+    if (!activeProject) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: t.deleteFile,
+      message: t.confirmDelete,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/api/projects/${activeProject}/file`, { data: { filePath } });
+          fetchFiles();
+          if (activeFile === filePath) {
+            setActiveFile(null);
+            setFileContent("");
+          }
+          if (filePath === ".aether_chat.json") {
+            setMessages([]);
+          }
+          setConfirmDialog(null);
+        } catch (error) {
+          console.error("Failed to delete file:", error);
+          setConfirmDialog(null);
+        }
+      }
+    });
+  };
+
+  const downloadProject = async () => {
+    if (!activeProject) return;
+    const zip = new JSZip();
+    
+    const addFilesToZip = async (nodes: FileNode[], currentPath = "") => {
+      for (const node of nodes) {
+        if (node.type === "file") {
+          const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: node.path } });
+          zip.file(node.path, res.data.content);
+        } else if (node.children) {
+          await addFilesToZip(node.children, node.path);
+        }
+      }
+    };
+
+    await addFilesToZip(files);
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, `${activeProject}.zip`);
+  };
+
+  const deleteProject = async (projectName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: t.deleteProject,
+      message: t.confirmDeleteProject,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/api/projects/${projectName}`);
+          await fetchProjects();
+          if (activeProject === projectName) {
+            setActiveProject(null);
+            setFiles([]);
+          }
+          setConfirmDialog(null);
+        } catch (e) {
+          console.error("Failed to delete project", e);
+          setConfirmDialog(null);
+        }
+      }
+    });
+  };
+
+  const uploadProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const zip = new JSZip();
+    const contents = await zip.loadAsync(file);
+    const projectName = file.name.replace(".zip", "");
+
+    try {
+      await axios.post("/api/projects", { name: projectName });
+      for (const [path, fileData] of Object.entries(contents.files)) {
+        if (!fileData.dir) {
+          const content = await fileData.async("string");
+          await axios.post(`/api/projects/${projectName}/file`, { filePath: path, content });
+        }
+      }
+      await fetchProjects();
+      setActiveProject(projectName);
+    } catch (e) {
+      console.error("Failed to upload project", e);
+    }
+  };
+
+  const handleAgentAction = async (overrideInput?: string) => {
+    const effectiveInput = overrideInput ?? input;
+    if (!effectiveInput) return;
+    
+    const currentKey = getActiveApiKey();
+    if (!currentKey) {
+      setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIキーが設定されていません。設定画面でAPIキーを入力してください。" : "API Key is missing. Please set it in Settings." }]);
+      setIsSettingsOpen(true);
+      return;
+    }
+    
+    const ai = createAiClient();
+    const userMsg: ChatMessage = { role: "user", content: effectiveInput };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    const currentInput = effectiveInput;
+    setInput("");
+    setIsAgentRunning(true);
+    setAgentSteps([]);
+    abortControllerRef.current = new AbortController();
+
+    // Context Selection (Prompt Caching simulation)
+    // We pick the last 10 messages + any messages containing keywords from the current input
+    // To prevent token limit errors, we strictly limit the total content length
+    const keywords = currentInput.toLowerCase().split(/\s+/).filter(k => k.length > 3);
+    let totalLength = 0;
+    const MAX_HISTORY_LENGTH = 100000; // Safe limit to avoid 1M token error
+
+    const relevantHistory = messages.slice().reverse().filter((m, idx) => {
+      if (totalLength > MAX_HISTORY_LENGTH) return false;
+      
+      const isRelevant = idx < 10 || keywords.some(k => m.content.toLowerCase().includes(k));
+      if (isRelevant) {
+        totalLength += m.content.length;
+        return true;
+      }
+      return false;
+    }).reverse();
+
+    // Also truncate newMessages if they are too long
+    const cappedMessages = newMessages.slice(-20); // Keep only last 20 for the direct contents field
+
+    const historyContext = relevantHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
+
+    // Language instructions
+    const langInstruction = language === "ja" ? "回答は日本語で行ってください。ただし技術用語やコード内のコメントは英語でも構いません。" : "Respond in English.";
+
+    try {
+      // 1. Decide: Chat or Code?
+      addStep("plan", "Analyzing request and history...");
+      
+      let decisionType = agentMode === "chat" ? "chat" : "code";
+
+      if (decisionType === "chat" || !activeProject) {
+        if (decisionType === "code" && !activeProject) {
+          setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "アクティブなプロジェクトがありません。プロジェクトを作成または選択してください。" : "I can't modify code without an active project. Please create or select a project first." }]);
+          updateLastStep("failed", "No active project.");
+          return;
+        }
+
+        updateLastStep("completed", "Generating response...");
+        let chatResponse;
+        try {
+          chatResponse = await ai.models.generateContent({
+            model: selectedModel,
+            contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+            config: { 
+              systemInstruction: `You are Sooner AI. You are helpful, technical, and concise. 
+              ${langInstruction}
+              Conversation History Context:
+              ${historyContext}
+              
+              Use this context to maintain continuity. If the user asks about a previous plan, refer to it.`
+            }
+          });
+        } catch (e: any) {
+          if (e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED")) {
+            chatResponse = await ai.models.generateContent({
+              model: selectedModel,
+              contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+              config: { 
+                systemInstruction: "You are Sooner AI. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context."
+              }
+            });
+          } else {
+            throw e;
+          }
+        }
+        if (!abortControllerRef.current?.signal.aborted) {
+          setMessages(prev => [...prev, { role: "assistant", content: chatResponse.text || "" }]);
+          updateLastStep("completed", "Answered.");
+        }
+      } else {
+        // 2. Plan for Code
+        updateLastStep("completed", `Creating execution plan (${agentMode} mode)...`);
+        let planResponse;
+        const planPrompt = `
+        You are an expert developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
+        You MUST follow the conversation history and the user's request to determine the correct language/framework.
+        
+        CONVERSATION HISTORY:
+        ${historyContext}
+
+        CURRENT REQUEST: ${currentInput}
+ 
+        CURRENT PROJECT STATE:
+        Files: ${JSON.stringify(files)}
+        Active Project: ${activeProject}
+        
+        MODE: ${agentMode}
+        
+        FRAMEWORK DETECTION:
+        - Detect the framework/language from the user's request and existing project files.
+        - Use EXACTLY the framework the user asks for. Do NOT default to React unless the user asks for it.
+        - For Flutter: Use Dart, create lib/main.dart, pubspec.yaml, and web/index.html. The web/index.html MUST use the new Flutter loader API: _flutter.loader.load() (NOT the deprecated loadEntrypoint).
+        - For React: Use .tsx files, create index.html with <script type="module" src="./src/main.tsx"></script>, use Tailwind CDN.
+        - For Vue: Use .vue SFC files with <template>, <script>, <style>. Create index.html with <script type="module" src="./src/main.js"></script>. Import from "vue".
+        - For Svelte: Use .svelte files. Create index.html with appropriate setup.
+        - For Angular: Use .ts files with standard Angular structure.
+        - For Python: Create .py files and appropriate project structure.
+        - For plain HTML/CSS/JS: Create standard web files.
+
+        PREVIEW ENVIRONMENT (for web-based projects):
+        - The preview serves index.html from the project root (or build/web/, public/, dist/).
+        - ON-THE-FLY transpilation is available for .ts, .tsx, .jsx, .vue, .svelte files.
+        - IMPORTANT: npm packages are resolved via esm.sh CDN automatically. Any bare import (e.g. "three", "gsap", "chart.js") works in preview without npm install.
+        - If using npm packages, create a package.json with dependencies listed so the preview can build an import map.
+        - For React projects: ESM imports for react, react-dom are pre-mapped to CDNs. Tailwind CDN is auto-injected.
+        - For Vue projects: "vue" is pre-mapped to CDN. Use Vue 3 composition API or options API.
+        - For Three.js/GSAP/etc: Just import them normally (e.g. import * as THREE from "three"). They resolve to esm.sh automatically.
+        - Always use RELATIVE paths (e.g., './src/main.tsx', not '/src/main.tsx').
+        - For Flutter web: create web/index.html as the entry point.
+        
+        BACKEND PROJECTS:
+        - The preview can run backend servers (Node.js, Python, Go, Rust).
+        - For Node.js: Create package.json with "scripts": { "start": "node server.js" } or "dev" script. The server MUST listen on the port from process.env.PORT.
+        - For Python (Flask/FastAPI): Create app.py or main.py + requirements.txt. Use port from os.environ.get("PORT", 4001).
+        - For Go: Create go.mod + main.go. Read port from os.Getenv("PORT").
+        - CRITICAL: The server MUST use the PORT environment variable, not a hardcoded port.
+        - Backend servers are auto-detected and started when the user clicks Preview.
+        
+        INSTRUCTIONS FOR MODES:
+        - 'plan': Just describe the steps in the JSON 'description' fields.
+        - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
+        - 'fix': Analyze the history for errors and provide targeted fixes.
+        - 'auto-preview': Build a complete app that works immediately in the preview.
+        
+        IMPORTANT: 
+        1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').
+        2. Check existing files for missing dependencies or imports and fix them.
+        3. If the user previously discussed a plan in 'Chat' or 'Plan' mode, EXECUTE that plan now.
+        4. Use the language/framework the user explicitly requests. NEVER force React if not asked.
+ 
+        Return a JSON array of actions:
+        { action: "write_file" | "run_command", path?: string, content?: string, command?: string, description: string }[]
+        
+        Return ONLY the JSON array. No markdown, no extra text.`;
+
+        try {
+          planResponse = await ai.models.generateContent({
+            model: selectedModel,
+            contents: planPrompt,
+            config: { 
+              responseMimeType: "application/json",
+              systemInstruction: "You are a world-class software developer. Use the exact language and framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. For other frameworks, follow their best practices. NEVER force a specific framework unless the user asks for it."
+            }
+          });
+        } catch (e: any) {
+          planResponse = await ai.models.generateContent({
+            model: selectedModel,
+            contents: planPrompt,
+            config: { 
+              responseMimeType: "application/json",
+              systemInstruction: "You are a world-class software developer. Use the exact language and framework the user requests. Follow professional project patterns for the chosen technology."
+            }
+          });
+        }
+        
+        let plan;
+        try {
+          let text = planResponse.text;
+          if (text.includes("```json")) {
+            text = text.split("```json")[1].split("```")[0].trim();
+          } else if (text.includes("```")) {
+            text = text.split("```")[1].split("```")[0].trim();
+          }
+          plan = JSON.parse(text);
+          if (!Array.isArray(plan)) {
+            throw new Error("AI plan is not an array");
+          }
+        } catch (e) {
+          console.error("JSON Parse Error", e, planResponse.text);
+          throw new Error("Failed to parse AI plan. The response was not valid JSON array.");
+        }
+        updateLastStep("completed", "Plan generated based on history.");
+
+        if (agentMode === "plan") {
+          if (!abortControllerRef.current?.signal.aborted) {
+            setMessages(prev => [...prev, { role: "assistant", content: "I've drafted a plan based on our conversation. Switch to 'Code' mode to apply these changes:\n\n" + plan.map((s: any) => `- ${s.description}`).join("\n") }]);
+          }
+        } else {
+          // 3. Execute
+          for (const step of plan) {
+            if (abortControllerRef.current?.signal.aborted) break;
+            addStep(step.action === "write_file" ? "code" : "test", step.description);
+            
+            if (step.action === "write_file") {
+              await axios.post(`/api/projects/${activeProject}/file`, { filePath: step.path, content: step.content });
+              setTerminalOutput(prev => [...prev, `Agent: Wrote ${step.path}`]);
+            } else if (step.action === "run_command") {
+              const res = await axios.post(`/api/projects/${activeProject}/terminal`, { command: step.command });
+              setTerminalOutput(prev => [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean));
+            }
+            
+            updateLastStep("completed", `Done: ${step.description}`);
+          }
+
+          fetchFiles();
+          
+          if (agentMode === "auto-preview") {
+            addStep("test", language === "ja" ? "ビルドチェック中..." : "Checking build requirements...");
+            const buildOk = await buildAndPreview();
+            updateLastStep("completed", language === "ja" ? "ビルドチェック完了" : "Build check complete");
+
+            addStep("test", language === "ja" ? "自動プレビューを起動中..." : "Launching Auto-Preview...");
+            setActiveTab("preview");
+            
+            setTimeout(() => {
+              const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+              if (iframe) iframe.src = iframe.src;
+              updateLastStep("completed", language === "ja" ? "プレビューが更新されました。" : "Preview updated.");
+            }, 500);
+          }
+          
+          if (!abortControllerRef.current?.signal.aborted) {
+            const completionMsg = language === "ja" ? `実行が完了しました。${agentMode === "auto-preview" ? "プレビューが更新されました。" : "結果を確認してください。"}` : `I've executed the changes in ${agentMode} mode. ${agentMode === "auto-preview" ? "The preview has been updated." : "You can check the results now."}`;
+            setMessages(prev => [...prev, { role: "assistant", content: completionMsg }]);
+          }
+
+          // Automatic Visual Review Loop for auto-preview
+          if (agentMode === "auto-preview") {
+            const runVisualReview = async (iteration = 1) => {
+              if (iteration > 5 || abortControllerRef.current?.signal.aborted) {
+                if (iteration > 5) {
+                  setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "ビジュアルの最適化を完了しました。" : "Visual optimization complete." }]);
+                }
+                return;
+              }
+
+              addStep("test", language === "ja" ? `スクリーンショットを取得して分析中 (回数: ${iteration})...` : `Capturing screenshot and analyzing (Iteration: ${iteration})...`);
+              
+              const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+              let screenshotBase64 = "";
+
+              if (iframe && iframe.contentDocument) {
+                try {
+                  const canvas = await html2canvas(iframe.contentDocument.body);
+                  screenshotBase64 = canvas.toDataURL("image/png").split(",")[1];
+                } catch (e) {
+                  console.error("Screenshot capture failed:", e);
+                }
+              }
+
+              const collectFiles = async (nodes: FileNode[]): Promise<{ path: string; content: string }[]> => {
+                const results: { path: string; content: string }[] = [];
+                for (const f of nodes) {
+                  if (f.type === "file") {
+                    const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: f.path } });
+                    results.push({ path: f.path, content: res.data.content });
+                  } else if (f.children) {
+                    results.push(...await collectFiles(f.children));
+                  }
+                }
+                return results;
+              };
+              const currentFiles = await collectFiles(files);
+
+              const visualPrompt = `
+              You are a world-class UI/UX auditor. Review the provided screenshot and code for visual bugs, layout issues, or design inconsistencies.
+              
+              FILES:
+              ${JSON.stringify(currentFiles)}
+
+              If everything looks perfect and matches professional design standards, return an empty array [].
+              If there are issues, return a JSON array of fixes:
+              { action: "write_file", path: string, content: string, description: string }[]
+              
+              Focus on:
+              1. Responsive design (mobile/desktop)
+              2. Color contrast and accessibility
+              3. Spacing and alignment
+              4. Professional typography
+              5. Visual bugs (broken images, overlapping text, etc.)
+              `;
+              
+              try {
+                const parts: any[] = [{ text: visualPrompt }];
+                if (screenshotBase64) {
+                  parts.push({
+                    inlineData: {
+                      mimeType: "image/png",
+                      data: screenshotBase64
+                    }
+                  });
+                }
+
+                const visualRes = await ai.models.generateContent({
+                  model: selectedModel,
+                  contents: [{ role: "user", parts }],
+                  config: { responseMimeType: "application/json" }
+                });
+                
+                let text = visualRes.text;
+                if (text.includes("```json")) {
+                  text = text.split("```json")[1].split("```")[0].trim();
+                } else if (text.includes("```")) {
+                  text = text.split("```")[1].split("```")[0].trim();
+                }
+                
+                const fixes = JSON.parse(text);
+                if (fixes.length > 0) {
+                  addStep("code", language === "ja" ? `ビジュアルの問題を自動修正中 (${iteration})...` : `Auto-fixing visual issues (${iteration})...`);
+                  for (const fix of fixes) {
+                    await axios.post(`/api/projects/${activeProject}/file`, { filePath: fix.path, content: fix.content });
+                  }
+                  fetchFiles();
+                  if (iframe) iframe.src = iframe.src;
+                  updateLastStep("completed", language === "ja" ? `ビジュアル修正 (${iteration}) を適用しました。` : `Visual fixes (${iteration}) applied.`);
+                  
+                  // Recursive call for next iteration
+                  setTimeout(() => runVisualReview(iteration + 1), 3000);
+                } else {
+                  updateLastStep("completed", language === "ja" ? "ビジュアルチェック完了（問題なし）" : "Visual check complete (no issues).");
+                }
+              } catch (e) {
+                console.error("Visual review error:", e);
+                updateLastStep("failed", "Visual review failed.");
+              }
+            };
+
+            setTimeout(() => runVisualReview(1), 3000);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(error);
+      if (error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("API key not valid") || error.message?.includes("quota")) {
+        updateLastStep("failed", "Paused.");
+        if (!abortControllerRef.current?.signal.aborted) {
+          setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIの制限に達しました。しばらくしてから再試行してください。" : "API rate limit reached. Please try again shortly." }]);
+        }
+        return; 
+      }
+      
+      let errorMsg = "Error occurred.";
+      if (error.message?.includes("INVALID_ARGUMENT") || error.message?.includes("token count exceeds")) {
+        errorMsg = "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
+      }
+      updateLastStep("failed", "Execution failed.");
+      if (!abortControllerRef.current?.signal.aborted) {
+        setMessages(prev => [...prev, { role: "assistant", content: errorMsg }]);
+      }
+    } finally {
+      setIsAgentRunning(false);
+    }
+  };
+
+  const addStep = (type: AgentStep["type"], message: string) => {
+    setAgentSteps(prev => [...prev, {
+      id: Math.random().toString(36).substring(2, 11),
+      type,
+      status: "running",
+      message,
+      timestamp: Date.now()
+    }]);
+  };
+
+  const updateLastStep = (status: AgentStep["status"], message: string) => {
+    setAgentSteps(prev => {
+      const next = [...prev];
+      if (next.length > 0) {
+        next[next.length - 1] = { ...next[next.length - 1], status, message };
+      }
+      return next;
+    });
+  };
+
+  return (
+    <ErrorBoundary>
+    <div className="flex h-screen w-screen bg-[#0A0A0A] text-[#E4E3E0] font-sans overflow-hidden selection:bg-[#38BDF8] selection:text-black">
+      {/* Sidebar */}
+      <motion.div 
+        initial={false}
+        animate={{ width: isSidebarOpen ? 300 : 0 }}
+        className="flex flex-col border-r border-[#1A1A1A] bg-[#0F0F0F] relative overflow-hidden"
+      >
+        <div className="p-4 border-bottom border-[#1A1A1A] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-[#38BDF8]" />
+            <span className="font-bold tracking-tight uppercase text-xs">Sooner IDE</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setIsCloneOpen(true)} title="Clone from GitHub" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
+              <Globe className="w-4 h-4" />
+            </button>
+            <button onClick={() => setIsNewProjectOpen(true)} title="New Project" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-4">
+          {/* Project Selector */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-2">
+              <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.projects}</label>
+              <button 
+                onClick={() => document.getElementById("project-upload")?.click()}
+                className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                title={t.uploadProject}
+              >
+                <Upload className="w-3 h-3" />
+              </button>
+              <input type="file" id="project-upload" onChange={uploadProject} className="hidden" accept=".zip" />
+            </div>
+            {projects.length > 0 ? projects.map(p => (
+              <div key={p} className="group relative">
+                <button 
+                  onClick={() => setActiveProject(p)}
+                  className={cn(
+                    "w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-center gap-2 pr-16",
+                    activeProject === p ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
+                  )}
+                >
+                  <Folder className="w-4 h-4" />
+                  <span className="truncate">{p}</span>
+                </button>
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); downloadProject(); }}
+                    className="p-1 hover:bg-[#252525] rounded text-[#8E9299]"
+                    title={t.download}
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteProject(p); }}
+                    className="p-1 hover:bg-[#252525] rounded text-red-500"
+                    title={t.deleteProject}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <div className="px-3 py-2 text-xs text-[#8E9299] italic">{t.noProjects}</div>
+            )}
+          </div>
+
+          {/* File Explorer */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-2">
+              <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.files}</label>
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => { setIsPackagesOpen(true); fetchPackages(); }}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.packages}
+                >
+                  <Package className="w-3 h-3" />
+                </button>
+                <button 
+                  onClick={downloadProject}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.download}
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title="Upload File"
+                >
+                  <Upload className="w-3 h-3" />
+                </button>
+              </div>
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+            </div>
+            <div className="px-1">
+              {files.length > 0 ? files.map(node => (
+                <FileTreeNode 
+                  key={node.path} 
+                  node={node} 
+                  onSelect={openFile} 
+                  activeFile={activeFile} 
+                  onDelete={deleteFile}
+                  language={language}
+                />
+              )) : (
+                <div className="px-2 py-4 text-[10px] text-[#8E9299] text-center border border-dashed border-[#1A1A1A] rounded">
+                  {t.noFiles}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A] space-y-1">
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1A1A1A] text-sm text-[#8E9299] transition-colors"
+          >
+            <SettingsIcon className="w-4 h-4" />
+            {t.settings}
+          </button>
+          {user && (
+            <div className="flex items-center gap-2 px-3 py-2">
+              <div className="w-6 h-6 rounded-full bg-[#38BDF8]/20 flex items-center justify-center text-[10px] font-bold text-[#38BDF8]">
+                {(user.displayName || user.email || "U")[0].toUpperCase()}
+              </div>
+              <span className="text-xs text-[#8E9299] truncate flex-1">{user.email}</span>
+              <button onClick={onSignOut} className="text-[10px] text-red-400 hover:underline">
+                {language === "ja" ? "ログアウト" : "Sign out"}
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar */}
+        <div className="h-12 border-b border-[#1A1A1A] flex items-center justify-between px-4 bg-[#0F0F0F]">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+            >
+              <FolderTree className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-2 text-xs text-[#8E9299]">
+              <span className="opacity-50">{activeProject || "No Project"}</span>
+              {activeFile && (
+                <>
+                  <ChevronRight className="w-3 h-3 opacity-30" />
+                  <span className="text-[#E4E3E0]">{activeFile}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={saveFile}
+              className="flex items-center gap-2 px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] rounded text-xs transition-colors"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {t.save}
+            </button>
+            <button 
+              onClick={async () => {
+                if (activeTab === "editor") {
+                  if (projectType !== "static" && !projectRunning) {
+                    await startProject();
+                    await new Promise(r => setTimeout(r, 2000));
+                  }
+                  const ok = await buildAndPreview();
+                  if (ok !== false) {
+                    setActiveTab("preview");
+                    setTimeout(() => {
+                      const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+                      if (iframe) iframe.src = iframe.src;
+                    }, 500);
+                  }
+                } else {
+                  setActiveTab("editor");
+                }
+              }}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1 rounded text-xs font-bold transition-colors",
+                activeTab === "preview" ? "bg-[#38BDF8] text-white" : "bg-[#1A1A1A] text-[#8E9299] hover:bg-[#252525]"
+              )}
+            >
+              <span style={{ display: activeTab === "preview" ? "inline" : "none" }}><CodeIcon className="w-3.5 h-3.5" /></span>
+              <span style={{ display: activeTab !== "preview" ? "inline" : "none" }}><Eye className="w-3.5 h-3.5" /></span>
+              {activeTab === "preview" ? t.editor : t.preview}
+            </button>
+          </div>
+        </div>
+
+        {/* Editor & Terminal Split */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 relative">
+              <Tabs.Content value="editor" className="absolute inset-0 outline-none">
+                <Editor
+                  height="100%"
+                  theme="vs-dark"
+                  path={activeFile || "no-file-selected.txt"}
+                  defaultLanguage="typescript"
+                  value={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner AI to build something!"}
+                  onChange={(v) => setFileContent(v || "")}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    backgroundColor: "#0A0A0A",
+                    lineNumbers: activeFile ? "on" : "off",
+                    roundedSelection: false,
+                    scrollBeyondLastLine: false,
+                    readOnly: !activeFile,
+                    padding: { top: 20 }
+                  }}
+                />
+              </Tabs.Content>
+
+              <Tabs.Content value="preview" className="absolute inset-0 bg-white outline-none">
+                {activeProject ? (
+                  <>
+                    <div className="absolute top-2 right-2 z-10 flex gap-2">
+                      <button 
+                        onClick={() => {
+                          const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+                          if (iframe) iframe.src = iframe.src;
+                        }}
+                        className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
+                        title="Refresh Preview"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <iframe 
+                      id="preview-frame"
+                      src={`/preview/${activeProject}/`}
+                      className="w-full h-full border-none"
+                      title="Project Preview"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+                    />
+                  </>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-[#0A0A0A] text-[#8E9299]">
+                    Select a project to preview
+                  </div>
+                )}
+              </Tabs.Content>
+            </div>
+
+            {/* Terminal */}
+            <div className="h-48 border-t border-[#1A1A1A] bg-[#0A0A0A] flex flex-col">
+              <div className="flex items-center gap-2 px-4 py-1.5 border-b border-[#1A1A1A] bg-[#0F0F0F]">
+                <TerminalIcon className="w-3.5 h-3.5 text-[#8E9299]" />
+                <span className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">Terminal</span>
+                {projectType !== "static" && (
+                  <div className="ml-auto flex items-center gap-2">
+                    {projectRunning && (
+                      <span className="flex items-center gap-1 text-[10px] text-green-400">
+                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                        {t.serverRunning}
+                      </span>
+                    )}
+                    {!projectRunning ? (
+                      <button
+                        onClick={startProject}
+                        className="flex items-center gap-1 px-2 py-0.5 bg-green-500/10 border border-green-500/30 text-green-400 rounded text-[10px] hover:bg-green-500/20 transition-colors"
+                        title={t.runServer}
+                      >
+                        <Play className="w-3 h-3" /> {t.runServer}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={stopProject}
+                        className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-[10px] hover:bg-red-500/20 transition-colors"
+                        title={t.stopServer}
+                      >
+                        <Square className="w-3 h-3" /> {t.stopServer}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-1">
+                {terminalOutput.map((line, i) => (
+                  <div key={i} className={cn(
+                    line.startsWith(">") ? "text-[#38BDF8]" : 
+                    line.startsWith("Error:") ? "text-red-400" : "text-[#8E9299]"
+                  )}>
+                    {line}
+                  </div>
+                ))}
+                <div ref={terminalEndRef} />
+              </div>
+            </div>
+          </Tabs.Root>
+        </div>
+      </div>
+
+      {/* Right Panel: AI Agent */}
+      <div className="w-[400px] border-l border-[#1A1A1A] bg-[#0F0F0F] flex flex-col">
+        <div className="p-4 border-b border-[#1A1A1A] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-[#38BDF8]" />
+            <span className="text-[10px] uppercase tracking-widest font-bold">{t.agentTitle}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={cn(
+              "w-2 h-2 rounded-full",
+              isAgentRunning ? "bg-green-500 animate-pulse" : "bg-[#1A1A1A]"
+            )} />
+            <span className="text-[10px] text-[#8E9299]">{isAgentRunning ? t.active : t.idle}</span>
+            {isAgentRunning && (
+              <button 
+                onClick={stopAgent}
+                className="p-1 hover:bg-[#1A1A1A] rounded text-red-500 ml-2"
+                title={t.stop}
+              >
+                <Square className="w-3 h-3 fill-current" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Chat & Steps */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Chat Messages */}
+          <div className="space-y-4">
+            {messages.map((msg, i) => (
+              <React.Fragment key={i}>
+                <div className={cn(
+                  "p-3 rounded-lg text-sm break-words",
+                  msg.role === "user" ? "bg-[#1A1A1A] ml-4" : "bg-[#151515] mr-4 border border-[#1A1A1A]"
+                )}>
+                  <div className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1">
+                    {msg.role === "user" ? "You" : "Sooner AI"}
+                  </div>
+                  <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                </div>
+                
+                {/* Render Pipeline after the user message if it's the last one and agent is running */}
+                {msg.role === "user" && i === messages.length - 1 && isAgentRunning && agentSteps.length > 0 && (
+                  <div className="space-y-3 py-2 ml-4">
+                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299] flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {t.pipeline}
+                    </label>
+                    <div className="space-y-2 border-l border-[#1A1A1A] pl-4">
+                      {agentSteps.map((step) => (
+                        <div key={step.id} className="flex items-start gap-3 group">
+                          <div className="mt-1">
+                            {step.status === "running" ? (
+                              <Loader2 className="w-3 h-3 text-[#38BDF8] animate-spin" />
+                            ) : step.status === "completed" ? (
+                              <CheckCircle2 className="w-3 h-3 text-green-500" />
+                            ) : step.status === "failed" ? (
+                              <AlertCircle className="w-3 h-3 text-red-500" />
+                            ) : (
+                              <Circle className="w-3 h-3 text-[#1A1A1A]" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-[11px] font-medium text-[#E4E3E0]">{step.message}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Suggestions for Auto-Preview */}
+                {msg.role === "assistant" && i === messages.length - 1 && agentMode === "auto-preview" && !isAgentRunning && (
+                  <div className="ml-4 mt-2 space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.suggestions}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        language === "ja" ? "デザインを洗練させて" : "Refine the design",
+                        language === "ja" ? "レスポンシブ対応にして" : "Make it responsive",
+                        language === "ja" ? "ダークモードを追加して" : "Add dark mode support"
+                      ].map((suggestion, idx) => (
+                        <button 
+                          key={idx}
+                          onClick={() => { handleAgentAction(suggestion); }}
+                          className="px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] border border-[#252525] rounded-full text-[10px] text-[#8E9299] hover:text-white transition-all"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A]">
+          <div className="flex flex-wrap gap-1 mb-3">
+            {[
+              { id: "chat", label: t.chat, icon: MessageSquare },
+              { id: "plan", label: t.plan, icon: FolderTree },
+              { id: "code", label: t.code, icon: CodeIcon },
+              { id: "fix", label: t.fix, icon: AlertCircle },
+              { id: "auto-preview", label: t.autoPreview, icon: Play },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                onClick={() => setAgentMode(mode.id as any)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-all border",
+                  agentMode === mode.id 
+                    ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" 
+                    : "bg-[#1A1A1A] border-[#252525] text-[#8E9299] hover:border-[#333]"
+                )}
+              >
+                <mode.icon className="w-3 h-3" />
+                {mode.label}
+              </button>
+            ))}
+            <button 
+              onClick={clearChat}
+              className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold text-[#8E9299] hover:text-white transition-colors"
+            >
+              <History className="w-3 h-3" />
+              {t.clear}
+            </button>
+          </div>
+          <div className="relative">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleAgentAction();
+                }
+              }}
+              placeholder={
+                agentMode === "chat" ? t.placeholderChat :
+                agentMode === "plan" ? t.placeholderPlan :
+                agentMode === "code" ? t.placeholderCode :
+                agentMode === "fix" ? t.placeholderFix : t.placeholderAuto
+              }
+              className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl p-3 pr-12 text-sm focus:outline-none focus:border-[#38BDF8] transition-colors resize-none h-24"
+            />
+            <button 
+              onClick={() => handleAgentAction()}
+              disabled={!input || isAgentRunning}
+              className="absolute bottom-3 right-3 p-2 bg-[#38BDF8] text-white rounded-lg hover:bg-[#0EA5E9] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="mt-2 text-[10px] text-[#8E9299] text-center">
+            {agentMode === "auto-preview" ? (language === "ja" ? "Soonerがコードを生成し、自動的にプレビューに切り替えます。" : "Sooner will code and switch to preview automatically.") : (language === "ja" ? "Enterキーで送信" : "Press Enter to send.")}
+          </div>
+        </div>
+      </div>
+      {/* Modals */}
+      <>
+        {isPackagesOpen && (
+          <Dialog.Root open={isPackagesOpen} onOpenChange={setIsPackagesOpen}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0A0A0A] border border-[#252525] rounded-2xl p-6 z-50 w-[480px] max-h-[80vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Package className="w-5 h-5 text-[#38BDF8]" /> {t.packages}
+                  </h2>
+                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                    <X className="w-4 h-4" />
+                  </Dialog.Close>
+                </div>
+
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newPkgName}
+                    onChange={(e) => setNewPkgName(e.target.value)}
+                    placeholder={t.packageName}
+                    className="flex-1 bg-[#1A1A1A] border border-[#252525] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
+                    onKeyDown={(e) => { if (e.key === "Enter") addPackage(); }}
+                  />
+                  <input
+                    type="text"
+                    value={newPkgVersion}
+                    onChange={(e) => setNewPkgVersion(e.target.value)}
+                    placeholder={t.version}
+                    className="w-24 bg-[#1A1A1A] border border-[#252525] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
+                    onKeyDown={(e) => { if (e.key === "Enter") addPackage(); }}
+                  />
+                  <button
+                    onClick={addPackage}
+                    className="px-3 py-2 bg-[#38BDF8] text-white rounded-lg text-sm font-bold hover:bg-[#0EA5E9] transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-[#555] mb-4">
+                  {language === "ja"
+                    ? "パッケージは esm.sh CDN 経由でプレビューに自動読み込みされます。npm install は不要です。"
+                    : "Packages are auto-loaded via esm.sh CDN in preview. No npm install needed."}
+                </p>
+
+                {Object.keys(packages.dependencies).length > 0 && (
+                  <div className="mb-4">
+                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-2 block">{t.dependencies}</label>
+                    <div className="space-y-1">
+                      {Object.entries(packages.dependencies).map(([name, ver]) => (
+                        <div key={name} className="flex items-center justify-between bg-[#1A1A1A] rounded-lg px-3 py-2">
+                          <span className="text-sm">{name} <span className="text-[#8E9299]">@{ver}</span></span>
+                          <button onClick={() => removePackage(name)} className="text-[#8E9299] hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(packages.devDependencies).length > 0 && (
+                  <div className="mb-4">
+                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-2 block">{t.devDependencies}</label>
+                    <div className="space-y-1">
+                      {Object.entries(packages.devDependencies).map(([name, ver]) => (
+                        <div key={name} className="flex items-center justify-between bg-[#1A1A1A] rounded-lg px-3 py-2">
+                          <span className="text-sm">{name} <span className="text-[#8E9299]">@{ver}</span></span>
+                          <button onClick={() => removePackage(name)} className="text-[#8E9299] hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(packages.dependencies).length === 0 && Object.keys(packages.devDependencies).length === 0 && (
+                  <p className="text-center text-[#8E9299] text-sm py-4">{t.noPackages}</p>
+                )}
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
+        {isSettingsOpen && (
+          <Dialog.Root open={isSettingsOpen} onOpenChange={(open) => {
+            setIsSettingsOpen(open);
+            if (open && availableModels.length === 0 && getActiveApiKey()) {
+              fetchModels();
+            }
+          }}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
+                <Dialog.Description className="sr-only">Configure your API keys and GitHub integration settings.</Dialog.Description>
+                <div className="flex items-center justify-between mb-6">
+                  <Dialog.Title className="text-lg font-bold flex items-center gap-2">
+                    <SettingsIcon className="w-5 h-5 text-[#38BDF8]" />
+                    {t.settings}
+                  </Dialog.Title>
+                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                    <X className="w-5 h-5" />
+                  </Dialog.Close>
+                </div>
+                
+                <div className="space-y-5">
+                  {/* 1. API Provider */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.apiProvider}</label>
+                    <div className="flex gap-2">
+                      {(["gemini", "vercel-ai-gateway", "custom"] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setApiProvider(p)}
+                          className={cn(
+                            "flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
+                            apiProvider === p ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
+                          )}
+                        >
+                          {p === "gemini" ? "Gemini" : p === "vercel-ai-gateway" ? "Vercel AI" : "Custom"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. API Key (per provider) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">
+                        {apiProvider === "gemini" ? "Gemini API Key" : apiProvider === "vercel-ai-gateway" ? "Vercel AI Gateway API Key" : "Custom API Key"}
+                      </label>
+                      <button 
+                        onClick={testApiKey}
+                        disabled={isTestingKey || !getActiveApiKey()}
+                        className="text-[10px] text-[#38BDF8] hover:underline disabled:opacity-50"
+                      >
+                        {isTestingKey ? t.testing : t.testConnection}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
+                      {apiProvider === "gemini" && (
+                        <input 
+                          type="password"
+                          value={geminiKey}
+                          onChange={(e) => setGeminiKey(e.target.value)}
+                          placeholder={process.env.GEMINI_API_KEY ? "Using key from Environment" : "AIza..."}
+                          className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                        />
+                      )}
+                      {apiProvider === "vercel-ai-gateway" && (
+                        <input 
+                          type="password"
+                          value={vercelKey}
+                          onChange={(e) => setVercelKey(e.target.value)}
+                          placeholder="Enter Vercel AI Gateway API Key"
+                          className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                        />
+                      )}
+                      {apiProvider === "custom" && (
+                        <input 
+                          type="password"
+                          value={customKey}
+                          onChange={(e) => setCustomKey(e.target.value)}
+                          placeholder="Enter API Key"
+                          className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                        />
+                      )}
+                    </div>
+                    {apiProvider !== "gemini" && (
+                      <div className="relative mt-2">
+                        <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                        <input 
+                          type="text"
+                          value={apiBaseUrl}
+                          onChange={(e) => setApiBaseUrl(e.target.value)}
+                          placeholder={t.apiBaseUrlPlaceholder}
+                          className="w-full bg-[#1A1A1A] border border-[#1A1A1A] rounded-xl py-1.5 pl-10 pr-4 text-xs text-[#555] focus:outline-none focus:border-[#38BDF8]"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Model */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.model}</label>
+                      <button
+                        onClick={fetchModels}
+                        disabled={isFetchingModels || !getActiveApiKey()}
+                        className="text-[10px] text-[#38BDF8] hover:underline disabled:opacity-50"
+                      >
+                        {isFetchingModels ? t.fetchingModels : t.fetchModels}
+                      </button>
+                    </div>
+                    {availableModels.length > 0 ? (
+                      <select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8] text-white"
+                      >
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        placeholder="gemini-2.5-flash-preview-04-17"
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      />
+                    )}
+                    <p className="text-[10px] text-[#555]">
+                      {availableModels.length === 0 ? t.noModels : `${availableModels.length} models`}
+                    </p>
+                  </div>
+
+                  {/* 4. GitHub Token */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.githubToken}</label>
+                    <div className="relative">
+                      <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
+                      <input 
+                        type="password"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        placeholder="ghp_..."
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.language}</label>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setLanguage("en")}
+                        className={cn(
+                          "flex-1 py-2 rounded-xl text-sm font-bold border transition-all",
+                          language === "en" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
+                        )}
+                      >
+                        English
+                      </button>
+                      <button 
+                        onClick={() => setLanguage("ja")}
+                        className={cn(
+                          "flex-1 py-2 rounded-xl text-sm font-bold border transition-all",
+                          language === "ja" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
+                        )}
+                      >
+                        日本語
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <button 
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors"
+                  >
+                    {t.saveChanges}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
+        {isCloneOpen && (
+          <Dialog.Root open={isCloneOpen} onOpenChange={setIsCloneOpen}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
+                <Dialog.Description className="sr-only">Enter the repository URL and project name to clone from GitHub.</Dialog.Description>
+                <div className="flex items-center justify-between mb-6">
+                  <Dialog.Title className="text-lg font-bold flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-[#38BDF8]" />
+                    Clone Repository
+                  </Dialog.Title>
+                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                    <X className="w-5 h-5" />
+                  </Dialog.Close>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Repository URL</label>
+                    <input 
+                      type="text"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
+                      placeholder="https://github.com/user/repo"
+                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
+                    <input 
+                      type="text"
+                      value={cloneName}
+                      onChange={(e) => setCloneName(e.target.value)}
+                      placeholder="my-awesome-project"
+                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <button 
+                    onClick={handleClone}
+                    disabled={!repoUrl || !cloneName}
+                    className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
+                  >
+                    Clone Project
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
+        {isNewProjectOpen && (
+          <Dialog.Root open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
+                <Dialog.Description className="sr-only">Enter a name for your new project.</Dialog.Description>
+                <div className="flex items-center justify-between mb-6">
+                  <Dialog.Title className="text-lg font-bold flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-[#38BDF8]" />
+                    New Project
+                  </Dialog.Title>
+                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                    <X className="w-5 h-5" />
+                  </Dialog.Close>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
+                    <input 
+                      type="text"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      placeholder="my-new-app"
+                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      onKeyDown={(e) => e.key === "Enter" && createProject()}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                  <button 
+                    onClick={createProject}
+                    disabled={!newProjectName}
+                    className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
+                  >
+                    Create Project
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
+        {confirmDialog && (
+          <Dialog.Root open={confirmDialog.isOpen} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#0D0D0D] border border-[#1A1A1A] rounded-2xl p-6 shadow-2xl z-[101] outline-none">
+                <Dialog.Title className="text-xl font-bold text-white mb-2">{confirmDialog.title}</Dialog.Title>
+                <Dialog.Description className="text-[#8E9299] mb-6">{confirmDialog.message}</Dialog.Description>
+                <div className="flex justify-end gap-3">
+                  <button 
+                    onClick={() => setConfirmDialog(null)}
+                    className="px-4 py-2 text-sm font-medium text-[#8E9299] hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={confirmDialog.onConfirm}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg font-bold text-sm hover:bg-red-600 transition-colors"
+                  >
+                    {t.delete}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+      </>
+    </div>
+    </ErrorBoundary>
+  );
+}
+
+function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, language }: any) {
+  const [isOpen, setIsOpen] = useState(false);
+  const deleteLabel = language === "ja" ? "削除" : "Delete File";
+
+  if (node.type === "directory") {
+    return (
+      <div>
+        <button 
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2"
+          style={{ paddingLeft: `${level * 12 + 8}px` }}
+        >
+          {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <Folder className="w-4 h-4 text-[#38BDF8]" />
+          <span className="truncate">{node.name}</span>
+        </button>
+        {isOpen && node.children?.map(child => (
+          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} language={language} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative">
+      <button 
+        onClick={() => onSelect(node.path)}
+        className={cn(
+          "w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-colors pr-8",
+          activeFile === node.path ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
+        )}
+        style={{ paddingLeft: `${level * 12 + 20}px` }}
+      >
+        <FileCode className="w-4 h-4" />
+        <span className="truncate">{node.name}</span>
+      </button>
+      <button 
+        onClick={(e) => { e.stopPropagation(); onDelete?.(node.path); }}
+        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-[#252525] rounded text-red-500 transition-opacity"
+        title={language === "ja" ? "ファイルを削除" : "Delete File"}
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}

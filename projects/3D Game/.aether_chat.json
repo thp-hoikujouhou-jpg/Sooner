@@ -1,0 +1,30 @@
+[
+  {
+    "role": "user",
+    "content": "3d gameを作成して"
+  },
+  {
+    "role": "assistant",
+    "content": "実行が完了しました。結果を確認してください。"
+  },
+  {
+    "role": "user",
+    "content": "画面が真っ黒になっています。直してください。"
+  },
+  {
+    "role": "user",
+    "content": "画面が真っ黒になっています。直してください。"
+  },
+  {
+    "role": "assistant",
+    "content": "実行が完了しました。結果を確認してください。"
+  },
+  {
+    "role": "user",
+    "content": "画面が青いです。"
+  },
+  {
+    "role": "assistant",
+    "content": "実行が完了しました。結果を確認してください。"
+  }
+]
