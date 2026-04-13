@@ -106,11 +106,25 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Landing: ~80% left cyan→white, ~20% right gray (professional headline accents) */
+function LandingGradientText({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="bg-clip-text text-transparent"
+      style={{
+        backgroundImage: "linear-gradient(90deg, #38BDF8 0%, #f8fafc 42%, #ffffff 68%, #a1a1aa 85%, #3f3f46 100%)",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 const landingI18n = {
   en: {
     signIn: "Sign In",
     getStarted: "Get Started",
-    launchIde: "Launch IDE",
+    launchApp: "Launch app",
     betaBadge: "Beta Now Available",
     heroTitle1: "Ship ",
     heroHighlight: "faster",
@@ -118,11 +132,27 @@ const landingI18n = {
     heroDesc: "Sooner is the fastest way to go from idea to production. Describe what you want — AI writes, previews, and ships your code in seconds.",
     getStartedFree: "Get Started Free",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "The IDE that lives in the preview.",
+    taglineSub: "The workspace that lives in the preview.",
     feat1: { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
     feat2: { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
     feat3: { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
-    footer: "Sooner IDE Beta — Build faster, ship sooner",
+    secWorkflowTitle: "From prompt to production",
+    secWorkflowSub: "A linear path — no local toolchain roulette.",
+    workflow1: { title: "Describe", desc: "Natural language, specs, or pasted errors. Sooner understands context across your files." },
+    workflow2: { title: "Generate & edit", desc: "Multi-file edits, refactors, and fixes with preview-ready output." },
+    workflow3: { title: "Preview & ship", desc: "Run in-browser preview, iterate fast, then push to Git when you are ready." },
+    secStackTitle: "Built on tools you trust",
+    secStackSub: "Editor, models, and identity — composed into one flow.",
+    stackMonaco: "Monaco editor core",
+    stackAi: "Gemini & extensible AI",
+    stackFirebase: "Auth & cloud storage",
+    secMetricsTitle: "Built for velocity",
+    metric1: { value: "<60s", label: "idea → runnable preview" },
+    metric2: { value: "1×", label: "workspace, no repo sync drama" },
+    metric3: { value: "∞", label: "stacks & frameworks" },
+    secCtaTitle: "Ready to build?",
+    secCtaDesc: "Create an account and open the workspace from any device.",
+    footer: "Sooner Beta — Build sooner, ship faster",
     welcomeBack: "Welcome back",
     createAccount: "Create account",
     signInDesc: "Sign in to your Sooner account",
@@ -138,19 +168,35 @@ const landingI18n = {
   ja: {
     signIn: "ログイン",
     getStarted: "始める",
-    launchIde: "IDEを起動",
+    launchApp: "アプリを起動",
     betaBadge: "ベータ版公開中",
     heroTitle1: "もっと",
     heroHighlight: "速く",
-    heroTitle2: "出荷しよう",
+    heroTitle2: "届けよう",
     heroDesc: "Soonerはアイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがコードを書き、プレビューし、数秒でデプロイします。",
     getStartedFree: "無料で始める",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "プレビューの中に住むIDE。",
+    taglineSub: "プレビューの中で完結するワークスペース。",
     feat1: { icon: "⚡", title: "瞬時にコード生成", desc: "アイデアを伝えるだけ。AIが本番品質のコードを数秒で書き上げます。" },
     feat2: { icon: "🚀", title: "リアルタイムプレビュー", desc: "アプリが即座に動く。React, Vue, Flutter, Three.js — すべて対応。" },
     feat3: { icon: "🔧", title: "セットアップ不要", desc: "フロント、バックエンド、フルスタック。Node.js, Python, Go, Rust — 設定なしで。" },
-    footer: "Sooner IDE Beta — 速く作り、速く届ける",
+    secWorkflowTitle: "プロンプトから本番まで",
+    secWorkflowSub: "迷子にならない一本道です。",
+    workflow1: { title: "指示", desc: "自然言語、仕様、エラー貼り付け。ファイル横断の文脈を理解します。" },
+    workflow2: { title: "生成・編集", desc: "複数ファイルの編集やリファクタ、プレビュー可能な出力。" },
+    workflow3: { title: "プレビュー・公開", desc: "ブラウザ内で検証し、準備ができたらGitへ。" },
+    secStackTitle: "信頼のツールを束ねる",
+    secStackSub: "エディタ、モデル、認証を一つの流れに。",
+    stackMonaco: "Monaco エディタ基盤",
+    stackAi: "Gemini ＆ 拡張可能なAI",
+    stackFirebase: "認証とクラウドストレージ",
+    secMetricsTitle: "スピードのための設計",
+    metric1: { value: "<60秒", label: "アイデア→動くプレビュー" },
+    metric2: { value: "1つ", label: "迷わない単一ワークスペース" },
+    metric3: { value: "∞", label: "対応スタックとフレームワーク" },
+    secCtaTitle: "始めますか？",
+    secCtaDesc: "アカウントを作成し、どの端末からでもワークスペースを開けます。",
+    footer: "Sooner ベータ — Build sooner, ship faster",
     welcomeBack: "おかえりなさい",
     createAccount: "アカウント作成",
     signInDesc: "Soonerアカウントにログイン",
@@ -272,7 +318,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
-              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchIde}</button>
+              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
             )}
           </div>
         </header>
@@ -285,9 +331,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-[1.05] mb-6">
               {t.heroTitle1}
-              <span className="relative">
-                <span className="text-[#38BDF8]">{t.heroHighlight}</span>
-                <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-[#38BDF8] to-[#38BDF8]/0 rounded-full" />
+              <span className="relative inline-block">
+                <LandingGradientText>{t.heroHighlight}</LandingGradientText>
+                <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-[#38BDF8]/80 to-transparent rounded-full" />
               </span>
               <br />
               <span className="text-white/90">{t.heroTitle2}</span>
@@ -302,7 +348,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 </button>
               ) : (
                 <button onClick={onSkip} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
-                  {t.launchIde} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                  {t.launchApp} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               )}
             </div>
@@ -317,9 +363,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 transition={{ duration: 0.8, delay: 0.6 }}
                 className="text-2xl md:text-4xl font-black tracking-tight"
               >
-                <span className="text-white">Build sooner</span>
-                <span className="text-[#38BDF8]">, </span>
-                <span className="text-white">ship faster</span>
+                <span className="text-white">Build </span>
+                <LandingGradientText>sooner</LandingGradientText>
+                <span className="text-white">, ship </span>
+                <LandingGradientText>faster</LandingGradientText>
                 <span className="text-[#38BDF8]">.</span>
               </motion.p>
               <motion.p
@@ -333,7 +380,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </div>
           </motion.div>
 
-          {/* Mac-style browser frame with IDE screenshot */}
+          {/* Mac-style browser frame with product screenshot */}
           <motion.div
             initial={{ opacity: 0, y: 60, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -357,11 +404,11 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 </div>
                 <div className="w-[52px]" />
               </div>
-              {/* IDE screenshot area */}
+              {/* Product screenshot area */}
               <div className="relative bg-[#0A0A0A] aspect-[16/9.5] flex items-center justify-center overflow-hidden">
                 <img
-                  src="/ide-screenshot.png"
-                  alt="Sooner IDE"
+                  src="/app-screenshot.png"
+                  alt="Sooner"
                   className="w-full h-full object-cover object-top"
                   onError={(e) => {
                     const el = e.currentTarget;
@@ -373,7 +420,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 {/* Fallback when no screenshot */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0A0A0A]" style={{ display: "none" }}>
                   <Zap className="w-16 h-16 text-[#38BDF8]/20" />
-                  <p className="text-[#3F3F46] text-sm">Sooner IDE Preview</p>
+                  <p className="text-[#3F3F46] text-sm">Sooner preview</p>
                 </div>
               </div>
             </div>
@@ -391,6 +438,98 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               </motion.div>
             ))}
           </motion.div>
+
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6 }}
+            className="mt-28 w-full max-w-5xl text-left"
+          >
+            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3">{lang === "ja" ? "ワークフロー" : "Workflow"}</p>
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-2">{t.secWorkflowTitle}</h2>
+            <p className="text-[#71717A] mb-10 max-w-2xl">{t.secWorkflowSub}</p>
+            <div className="grid md:grid-cols-3 gap-4">
+              {[t.workflow1, t.workflow2, t.workflow3].map((w, i) => (
+                <div key={i} className="relative rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent p-6 overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-[#38BDF8]/50 to-transparent" />
+                  <span className="text-xs font-mono text-[#52525b] mb-4 block">0{i + 1}</span>
+                  <h3 className="font-bold text-lg text-white mb-2">{w.title}</h3>
+                  <p className="text-sm text-[#a1a1aa] leading-relaxed">{w.desc}</p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, delay: 0.05 }}
+            className="mt-24 w-full max-w-5xl"
+          >
+            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3 text-center">{lang === "ja" ? "スタック" : "Stack"}</p>
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-2 text-center">{t.secStackTitle}</h2>
+            <p className="text-[#71717A] text-center mb-10 max-w-xl mx-auto">{t.secStackSub}</p>
+            <div className="grid sm:grid-cols-3 gap-4">
+              {[
+                { k: "monaco", label: t.stackMonaco },
+                { k: "ai", label: t.stackAi },
+                { k: "fb", label: t.stackFirebase },
+              ].map((s) => (
+                <div
+                  key={s.k}
+                  className="rounded-2xl border border-white/[0.06] bg-[#0c0c0e] px-6 py-8 text-center text-sm font-medium text-[#e4e4e7] hover:border-[#38BDF8]/30 transition-colors"
+                >
+                  {s.label}
+                </div>
+              ))}
+            </div>
+          </motion.section>
+
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, delay: 0.05 }}
+            className="mt-24 w-full max-w-5xl"
+          >
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              {[t.metric1, t.metric2, t.metric3].map((m, i) => (
+                <div key={i} className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02]">
+                  <p className="text-4xl md:text-5xl font-black tracking-tight mb-2">
+                    <LandingGradientText>{m.value}</LandingGradientText>
+                  </p>
+                  <p className="text-xs text-[#71717A] uppercase tracking-wider">{m.label}</p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, delay: 0.05 }}
+            className="mt-24 mb-8 w-full max-w-3xl rounded-3xl border border-[#38BDF8]/20 bg-gradient-to-br from-[#38BDF8]/[0.08] to-transparent px-10 py-14 text-center"
+          >
+            <h2 className="text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
+            <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
+            {firebaseConfigured ? (
+              <button
+                type="button"
+                onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))}
+                className="px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25"
+              >
+                {t.getStartedFree}
+              </button>
+            ) : (
+              <button type="button" onClick={onSkip} className="px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25">
+                {t.launchApp}
+              </button>
+            )}
+          </motion.section>
         </main>
 
         <footer className="relative z-10 px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
@@ -504,14 +643,14 @@ export default function App() {
     if (firebaseConfigured && !authUser && !skipAuth) {
       return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="login" />;
     }
-    return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
+    return <Sooner user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
   }
 
   if (firebaseConfigured && !authUser && !skipAuth) {
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="landing" />;
   }
 
-  return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
+  return <Sooner user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
 }
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
@@ -520,7 +659,7 @@ function apiUrl(path: string): string {
   return `${BACKEND_URL}${path}`;
 }
 
-function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
+function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
   useEffect(() => {
     const interceptor = axios.interceptors.request.use(async (config) => {
       if (user && auth) {
@@ -1592,7 +1731,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
             model: selectedModel,
             contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
             config: { 
-              systemInstruction: `You are Sooner AI. You are helpful, technical, and concise. 
+              systemInstruction: `You are Sooner. You are helpful, technical, and concise. 
               ${langInstruction}
               Conversation History Context:
               ${historyContext}
@@ -1606,7 +1745,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
               model: selectedModel,
               contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
               config: { 
-                systemInstruction: "You are Sooner AI. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context."
+                systemInstruction: "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context."
               }
             });
           } else {
@@ -1938,7 +2077,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
         <div className="p-4 border-bottom border-[#1A1A1A] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-[#38BDF8]" />
-            <span className="font-bold tracking-tight uppercase text-xs">Sooner IDE</span>
+            <span className="font-bold tracking-tight uppercase text-xs">Sooner</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setIsCloneOpen(true)} title={language === "ja" ? "GitHubからクローン" : "Clone from GitHub"} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
@@ -2150,7 +2289,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                   theme="vs-dark"
                   path={activeFile || "no-file-selected.txt"}
                   defaultLanguage="typescript"
-                  value={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner AI to build something!"}
+                  value={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner to build something!"}
                   onChange={(v) => setFileContent(v || "")}
                   options={{
                     minimap: { enabled: false },
@@ -2282,7 +2421,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                   msg.role === "user" ? "bg-[#1A1A1A] ml-4" : "bg-[#151515] mr-4 border border-[#1A1A1A]"
                 )}>
                   <div className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1">
-                    {msg.role === "user" ? "You" : "Sooner AI"}
+                    {msg.role === "user" ? "You" : "Sooner"}
                   </div>
                   <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                 </div>

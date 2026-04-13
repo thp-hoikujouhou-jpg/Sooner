@@ -579,15 +579,15 @@ async function startServer() {
     } catch {
       return res.status(400).json({ error: "Not a git repository" });
     }
-    await execGit(projectPath, ["config", "user.email", "sooner-ide@users.noreply.local"]);
-    await execGit(projectPath, ["config", "user.name", "Sooner IDE"]);
+    await execGit(projectPath, ["config", "user.email", "sooner@users.noreply.local"]);
+    await execGit(projectPath, ["config", "user.name", "Sooner"]);
     const addOut = await execGit(projectPath, ["add", "-A"]);
     if (addOut.code !== 0) {
       return res.status(500).json({ error: "git add failed", details: addOut.stderr });
     }
     const commitOut = await execGit(projectPath, [
-      "-c", "user.email=sooner-ide@users.noreply.local",
-      "-c", "user.name=Sooner IDE",
+      "-c", "user.email=sooner@users.noreply.local",
+      "-c", "user.name=Sooner",
       "commit",
       "-m",
       message,
@@ -1530,7 +1530,7 @@ async function startServer() {
   } else if (process.env.RAILWAY_ENVIRONMENT) {
     // On Railway: API-only mode, no static file serving
     app.get("/", (_req, res) => {
-      res.json({ service: "Sooner IDE API", status: "running" });
+      res.json({ service: "Sooner API", status: "running" });
     });
   } else {
     const distPath = path.join(process.cwd(), "dist");

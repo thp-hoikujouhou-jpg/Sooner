@@ -1,5 +1,5 @@
 {
-  "name": "Aether AI: Autonomous Coding Platform",
-  "description": "A high-performance AI-driven IDE that plans, codes, and executes tasks autonomously. Features integrated terminal, file explorer, and sandbox.",
+  "name": "Sooner",
+  "description": "AI-powered workspace in the browser: plan, code, preview, and sync projects with terminal, files, and cloud storage.",
   "requestFramePermissions": []
 }

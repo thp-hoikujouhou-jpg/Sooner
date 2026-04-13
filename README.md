@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="1200" height="475" alt="Sooner IDE Banner" />
+<img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="1200" height="475" alt="Sooner" />
 
-# Sooner IDE
+# Sooner
 
 **AI-powered autonomous coding platform — build sooner, ship faster.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Firebase Hosting](https://img.shields.io/badge/Hosted%20on-Firebase-orange)](https://sooner.sh)
 
-[Launch IDE](https://sooner.sh) · [Landing Page](https://site.sooner.sh) · [Sign Up](https://signup.sooner.sh)
+[Launch app](https://sooner.sh) · [Landing Page](https://site.sooner.sh) · [Sign Up](https://signup.sooner.sh)
 
 </div>
 
@@ -17,7 +17,7 @@
 
 ## What is Sooner?
 
-Sooner is a browser-based IDE powered by AI that lets you build, preview, and deploy applications entirely from your browser. It features an integrated AI coding agent, real-time preview, multi-file project support, and cloud storage sync via Firebase.
+Sooner is a browser-based workspace powered by AI. Build, preview, and deploy from your browser with an integrated coding agent, real-time preview, multi-file projects, and cloud storage via Firebase.
 
 ## Features
 
@@ -34,7 +34,7 @@ Sooner is a browser-based IDE powered by AI that lets you build, preview, and de
 | Domain | Purpose |
 |---|---|
 | [site.sooner.sh](https://site.sooner.sh) | Landing page |
-| [sooner.sh](https://sooner.sh) | Main IDE application |
+| [sooner.sh](https://sooner.sh) | Main application |
 | [signup.sooner.sh](https://signup.sooner.sh) | Account registration |
 | [signin.sooner.sh](https://signin.sooner.sh) | Login |
 
@@ -78,7 +78,7 @@ cp .env.example .env
 npm run dev
 ```
 
-The dev server starts at `http://localhost:3000`.
+The dev server starts at `http://localhost:5173` (see `vite.config.ts`).
 
 ### Build for Production
 
@@ -105,7 +105,7 @@ firebase deploy --only hosting
 
 ## Acknowledgments
 
-- [Monaco Editor](https://github.com/microsoft/monaco-editor) by Microsoft — the code editor that powers VS Code, used as the core editor component in Sooner IDE.
+- [Monaco Editor](https://github.com/microsoft/monaco-editor) by Microsoft — the code editor that powers VS Code, used as the core editor in Sooner.
 - [Google Gemini](https://ai.google.dev/) — AI model powering the coding assistant.
 - [Firebase](https://firebase.google.com/) — authentication and cloud storage.
 
