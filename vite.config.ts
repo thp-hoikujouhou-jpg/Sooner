@@ -15,6 +15,21 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      chunkSizeWarningLimit: 600,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+            'vendor-monaco': ['monaco-editor', '@monaco-editor/react'],
+            'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs', '@radix-ui/react-tooltip', 'motion'],
+            'vendor-firebase': ['firebase/app', 'firebase/auth'],
+            'vendor-ai': ['@google/genai'],
+            'vendor-utils': ['axios', 'jszip', 'file-saver', 'html2canvas'],
+          },
+        },
+      },
+    },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {

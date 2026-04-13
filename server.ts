@@ -9,11 +9,125 @@ import { fileURLToPath } from "url";
 import * as esbuild from "esbuild";
 import dotenv from "dotenv";
 import http from "http";
+import admin from "firebase-admin";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// --- Firebase Admin SDK Initialization ---
+let firebaseStorage: admin.storage.Storage | null = null;
+let firebaseAuth: admin.auth.Auth | null = null;
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || "";
+
+try {
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccountPath) {
+    const serviceAccountFull = path.resolve(process.cwd(), serviceAccountPath);
+    const serviceAccount = JSON.parse(await fs.readFile(serviceAccountFull, "utf-8"));
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      storageBucket: STORAGE_BUCKET,
+    });
+    firebaseStorage = admin.storage();
+    firebaseAuth = admin.auth();
+    console.log("Firebase Admin SDK initialized (Storage: " + STORAGE_BUCKET + ")");
+  } else {
+    console.log("Firebase Admin SDK not configured — running in local-only mode");
+  }
+} catch (e: any) {
+  console.warn("Firebase Admin SDK init failed (running in local-only mode):", e.message);
+}
+
+// --- Storage Helper Functions ---
+function storagePath(uid: string, projectName: string, filePath?: string): string {
+  const base = `users/${uid}/projects/${projectName}`;
+  return filePath ? `${base}/${filePath}` : base;
+}
+
+async function storageUpload(uid: string, project: string, filePath: string, content: string): Promise<void> {
+  if (!firebaseStorage) return;
+  const bucket = firebaseStorage.bucket();
+  const file = bucket.file(storagePath(uid, project, filePath));
+  await file.save(content, { contentType: "text/plain", metadata: { cacheControl: "no-cache" } });
+}
+
+async function storageDownload(uid: string, project: string, filePath: string): Promise<string | null> {
+  if (!firebaseStorage) return null;
+  try {
+    const bucket = firebaseStorage.bucket();
+    const file = bucket.file(storagePath(uid, project, filePath));
+    const [buffer] = await file.download();
+    return buffer.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function storageDelete(uid: string, project: string, filePath?: string): Promise<void> {
+  if (!firebaseStorage) return;
+  const bucket = firebaseStorage.bucket();
+  if (filePath) {
+    try { await bucket.file(storagePath(uid, project, filePath)).delete(); } catch {}
+  } else {
+    const prefix = storagePath(uid, project) + "/";
+    const [files] = await bucket.getFiles({ prefix });
+    if (files.length > 0) {
+      await Promise.all(files.map(f => f.delete().catch(() => {})));
+    }
+  }
+}
+
+async function storageListProjects(uid: string): Promise<string[]> {
+  if (!firebaseStorage) return [];
+  const bucket = firebaseStorage.bucket();
+  const prefix = `users/${uid}/projects/`;
+  const [files] = await bucket.getFiles({ prefix, delimiter: "/" });
+  const prefixes = new Set<string>();
+  // Files returned with prefix filtering — extract project names from file paths
+  for (const file of files) {
+    const rel = file.name.slice(prefix.length);
+    const projectName = rel.split("/")[0];
+    if (projectName) prefixes.add(projectName);
+  }
+  return Array.from(prefixes);
+}
+
+async function storageListFiles(uid: string, project: string): Promise<string[]> {
+  if (!firebaseStorage) return [];
+  const bucket = firebaseStorage.bucket();
+  const prefix = storagePath(uid, project) + "/";
+  const [files] = await bucket.getFiles({ prefix });
+  return files.map(f => f.name.slice(prefix.length)).filter(Boolean);
+}
+
+// --- Auth Middleware ---
+async function extractUid(req: express.Request): Promise<string | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ") || !firebaseAuth) return null;
+  try {
+    const token = authHeader.slice(7);
+    const decoded = await firebaseAuth.verifyIdToken(token);
+    return decoded.uid;
+  } catch {
+    return null;
+  }
+}
+
+// Sync all files from Storage to local cache for a project
+async function syncProjectToLocal(uid: string, project: string, localDir: string): Promise<void> {
+  if (!firebaseStorage) return;
+  const files = await storageListFiles(uid, project);
+  for (const filePath of files) {
+    const content = await storageDownload(uid, project, filePath);
+    if (content !== null) {
+      const fullPath = path.join(localDir, filePath);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, content, "utf-8");
+    }
+  }
+}
 
 function safePath(base: string, ...segments: string[]): string | null {
   const resolved = path.resolve(base, ...segments);
@@ -35,7 +149,7 @@ async function startServer() {
   const PORT = parseInt(process.env.PORT || "3000", 10);
 
   app.use(cors());
-  app.use(bodyParser.json());
+  app.use(bodyParser.json({ limit: "10mb" }));
 
   const PROJECTS_ROOT = path.resolve(process.cwd(), "projects");
 
@@ -62,19 +176,48 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project name" });
     }
 
+    const uid = await extractUid(req);
+
     const args = ["clone"];
     if (token) {
       args.push("-c", `http.extraheader=AUTHORIZATION: basic ${Buffer.from(`token:${token}`).toString("base64")}`);
     }
     args.push("--", repoUrl, projectPath);
 
-    execFile("git", args, { timeout: 120000 }, (error, stdout, stderr) => {
+    execFile("git", args, { timeout: 120000 }, async (error, stdout, stderr) => {
       if (error) {
         return res.status(500).json({ error: "Failed to clone repo", details: stderr });
+      }
+      // Sync cloned files to Storage
+      if (uid) {
+        try {
+          const allFiles = await getAllFilesRecursive(projectPath);
+          for (const rel of allFiles) {
+            const content = await fs.readFile(path.join(projectPath, rel), "utf-8");
+            await storageUpload(uid, name, rel, content);
+          }
+        } catch {}
       }
       res.json({ message: "Project cloned", name });
     });
   });
+
+  // Recursively get all file paths relative to a directory
+  async function getAllFilesRecursive(dir: string, base: string = ""): Promise<string[]> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const results: string[] = [];
+    for (const entry of entries) {
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      const full = path.join(dir, entry.name);
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.isDirectory()) {
+        results.push(...await getAllFilesRecursive(full, rel));
+      } else {
+        results.push(rel);
+      }
+    }
+    return results;
+  }
 
   // File Upload
   app.post("/api/projects/:id/upload", async (req, res) => {
@@ -87,20 +230,28 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
+    const uid = await extractUid(req);
     try {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
+      if (uid) await storageUpload(uid, id, fileName, content);
       res.json({ message: "File uploaded" });
     } catch (error) {
       res.status(500).json({ error: "Failed to upload file" });
     }
   });
 
-  // List projects
+  // List projects — merges local + cloud
   app.get("/api/projects", async (req, res) => {
     try {
-      const projects = await fs.readdir(PROJECTS_ROOT);
-      res.json(projects);
+      const uid = await extractUid(req);
+      const localProjects = await fs.readdir(PROJECTS_ROOT).catch(() => [] as string[]);
+      if (uid) {
+        const cloudProjects = await storageListProjects(uid);
+        const merged = new Set([...localProjects, ...cloudProjects]);
+        return res.json(Array.from(merged));
+      }
+      res.json(localProjects);
     } catch (error) {
       res.status(500).json({ error: "Failed to list projects" });
     }
@@ -120,8 +271,11 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project name" });
     }
 
+    const uid = await extractUid(req);
     try {
       await fs.mkdir(projectPath, { recursive: true });
+      // Create a marker file in Storage so the project appears in listings
+      if (uid) await storageUpload(uid, name, ".sooner_project", JSON.stringify({ created: new Date().toISOString() }));
       res.json({ message: "Project created", name });
     } catch (error) {
       res.status(500).json({ error: "Failed to create project" });
@@ -136,8 +290,10 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
+    const uid = await extractUid(req);
     try {
       await fs.rm(projectPath, { recursive: true, force: true });
+      if (uid) await storageDelete(uid, id);
       res.json({ message: "Project deleted" });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete project" });
@@ -155,15 +311,17 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
+    const uid = await extractUid(req);
     try {
       await fs.unlink(fullPath);
+      if (uid) await storageDelete(uid, id, filePath);
       res.json({ message: "File deleted" });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete file" });
     }
   });
 
-  // List files in project
+  // List files in project — sync from cloud if local dir doesn't exist
   app.get("/api/projects/:id/files", async (req, res) => {
     const { id } = req.params;
     const projectPath = safePath(PROJECTS_ROOT, id);
@@ -171,12 +329,24 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
+    const uid = await extractUid(req);
+
+    // If project doesn't exist locally but is in cloud, sync down
+    try { await fs.access(projectPath); } catch {
+      if (uid) {
+        await fs.mkdir(projectPath, { recursive: true });
+        await syncProjectToLocal(uid, id, projectPath);
+      }
+    }
+
     async function getFiles(dir: string, base: string = ""): Promise<any[]> {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+      let entries;
+      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return []; }
       const files = await Promise.all(entries.map(async (entry) => {
-        const relativePath = path.join(base, entry.name);
+        const relativePath = base ? `${base}/${entry.name}` : entry.name;
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === ".git") return null;
           return {
             name: entry.name,
             path: relativePath,
@@ -190,7 +360,7 @@ async function startServer() {
           type: "file"
         };
       }));
-      return files;
+      return files.filter(Boolean);
     }
 
     try {
@@ -212,15 +382,26 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
+    const uid = await extractUid(req);
     try {
       const content = await fs.readFile(fullPath, "utf-8");
       res.json({ content });
-    } catch (error) {
+    } catch {
+      // Try cloud fallback
+      if (uid) {
+        const cloudContent = await storageDownload(uid, id, filePath);
+        if (cloudContent !== null) {
+          // Cache locally
+          await fs.mkdir(path.dirname(fullPath), { recursive: true });
+          await fs.writeFile(fullPath, cloudContent, "utf-8");
+          return res.json({ content: cloudContent });
+        }
+      }
       res.status(500).json({ error: "Failed to read file" });
     }
   });
 
-  // Write file
+  // Write file — saves locally AND to Storage
   app.post("/api/projects/:id/file", async (req, res) => {
     const { id } = req.params;
     const { filePath, content } = req.body;
@@ -231,9 +412,12 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
+    const uid = await extractUid(req);
     try {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
+      // Async sync to cloud — don't block the response
+      if (uid) storageUpload(uid, id, filePath, content).catch(() => {});
       res.json({ message: "File saved" });
     } catch (error) {
       res.status(500).json({ error: "Failed to write file" });
@@ -263,19 +447,26 @@ async function startServer() {
     });
   });
 
-  // Chat History Persistence
+  // Chat History Persistence (local + cloud)
   app.get("/api/projects/:id/chat", async (req, res) => {
     const { id } = req.params;
     const projectPath = safePath(PROJECTS_ROOT, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
-    const chatPath = path.join(projectPath, ".aether_chat.json");
+    const chatPath = path.join(projectPath, ".sooner_chat.json");
+    const uid = await extractUid(req);
 
     try {
       const content = await fs.readFile(chatPath, "utf-8");
       res.json(JSON.parse(content));
-    } catch (e) {
+    } catch {
+      if (uid) {
+        const cloudContent = await storageDownload(uid, id, ".sooner_chat.json");
+        if (cloudContent) {
+          try { return res.json(JSON.parse(cloudContent)); } catch {}
+        }
+      }
       res.json([]);
     }
   });
@@ -287,10 +478,13 @@ async function startServer() {
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
-    const chatPath = path.join(projectPath, ".aether_chat.json");
+    const chatPath = path.join(projectPath, ".sooner_chat.json");
+    const uid = await extractUid(req);
+    const data = JSON.stringify(messages, null, 2);
 
     try {
-      await fs.writeFile(chatPath, JSON.stringify(messages, null, 2), "utf-8");
+      await fs.writeFile(chatPath, data, "utf-8");
+      if (uid) storageUpload(uid, id, ".sooner_chat.json", data).catch(() => {});
       res.json({ message: "Chat history saved" });
     } catch (e) {
       res.status(500).json({ error: "Failed to save chat history" });
@@ -318,6 +512,7 @@ async function startServer() {
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
     if (!name || typeof name !== "string") return res.status(400).json({ error: "Package name required" });
 
+    const uid = await extractUid(req);
     try {
       const pkgPath = path.join(projectPath, "package.json");
       let pkg: any = { name: id, version: "1.0.0", dependencies: {}, devDependencies: {} };
@@ -327,7 +522,9 @@ async function startServer() {
 
       const field = dev ? "devDependencies" : "dependencies";
       pkg[field][name] = version || "latest";
-      await fs.writeFile(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+      const data = JSON.stringify(pkg, null, 2);
+      await fs.writeFile(pkgPath, data, "utf-8");
+      if (uid) storageUpload(uid, id, "package.json", data).catch(() => {});
       res.json({ message: `Added ${name}`, packages: pkg });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -340,12 +537,15 @@ async function startServer() {
     const projectPath = safePath(PROJECTS_ROOT, id);
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
 
+    const uid = await extractUid(req);
     try {
       const pkgPath = path.join(projectPath, "package.json");
       const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
       if (pkg.dependencies) delete pkg.dependencies[name];
       if (pkg.devDependencies) delete pkg.devDependencies[name];
-      await fs.writeFile(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+      const data = JSON.stringify(pkg, null, 2);
+      await fs.writeFile(pkgPath, data, "utf-8");
+      if (uid) storageUpload(uid, id, "package.json", data).catch(() => {});
       res.json({ message: `Removed ${name}`, packages: pkg });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

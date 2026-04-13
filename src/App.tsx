@@ -92,12 +92,89 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const landingI18n = {
+  en: {
+    signIn: "Sign In",
+    getStarted: "Get Started",
+    launchIde: "Launch IDE",
+    betaBadge: "Beta Now Available",
+    heroTitle1: "Ship ",
+    heroHighlight: "faster",
+    heroTitle2: "than ever",
+    heroDesc: "Sooner is the fastest way to go from idea to production. Describe what you want — AI writes, previews, and ships your code in seconds.",
+    getStartedFree: "Get Started Free",
+    tagline: "Build sooner, ship faster.",
+    taglineSub: "The IDE that lives in the preview.",
+    feat1: { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
+    feat2: { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
+    feat3: { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
+    footer: "Sooner IDE Beta — Build faster, ship sooner",
+    welcomeBack: "Welcome back",
+    createAccount: "Create account",
+    signInDesc: "Sign in to your Sooner account",
+    signUpDesc: "Start building with Sooner",
+    or: "or",
+    emailPlaceholder: "Email",
+    passwordPlaceholder: "Password",
+    noAccount: "Don't have an account? ",
+    hasAccount: "Already have an account? ",
+    signUp: "Sign up",
+    backToHome: "Back to home",
+  },
+  ja: {
+    signIn: "ログイン",
+    getStarted: "始める",
+    launchIde: "IDEを起動",
+    betaBadge: "ベータ版公開中",
+    heroTitle1: "もっと",
+    heroHighlight: "速く",
+    heroTitle2: "出荷しよう",
+    heroDesc: "Soonerはアイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがコードを書き、プレビューし、数秒でデプロイします。",
+    getStartedFree: "無料で始める",
+    tagline: "Build sooner, ship faster.",
+    taglineSub: "プレビューの中に住むIDE。",
+    feat1: { icon: "⚡", title: "瞬時にコード生成", desc: "アイデアを伝えるだけ。AIが本番品質のコードを数秒で書き上げます。" },
+    feat2: { icon: "🚀", title: "リアルタイムプレビュー", desc: "アプリが即座に動く。React, Vue, Flutter, Three.js — すべて対応。" },
+    feat3: { icon: "🔧", title: "セットアップ不要", desc: "フロント、バックエンド、フルスタック。Node.js, Python, Go, Rust — 設定なしで。" },
+    footer: "Sooner IDE Beta — 速く作り、速く届ける",
+    welcomeBack: "おかえりなさい",
+    createAccount: "アカウント作成",
+    signInDesc: "Soonerアカウントにログイン",
+    signUpDesc: "Soonerで開発を始めよう",
+    or: "または",
+    emailPlaceholder: "メールアドレス",
+    passwordPlaceholder: "パスワード",
+    noAccount: "アカウントがない？ ",
+    hasAccount: "既にアカウントがある？ ",
+    signUp: "新規登録",
+    backToHome: "ホームに戻る",
+  },
+};
+
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+    </svg>
+  );
+}
+
 function LandingPage({ onSkip }: { onSkip: () => void }) {
-  const [mode, setMode] = useState<"landing" | "login" | "signup">("landing");
+  const [mode, setMode] = useState<"landing" | "login" | "signup">(() => {
+    const host = window.location.hostname;
+    if (host.startsWith("signup.")) return "signup";
+    if (host.startsWith("signin.") || host.startsWith("login.")) return "login";
+    return "landing";
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [lang, setLang] = useState<"en" | "ja">(() => {
+    if (typeof navigator !== "undefined" && navigator.language.startsWith("ja")) return "ja";
+    return "en";
+  });
+  const t = landingI18n[lang];
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,19 +206,16 @@ function LandingPage({ onSkip }: { onSkip: () => void }) {
   if (mode === "landing") {
     return (
       <div className="min-h-screen bg-[#09090B] text-white flex flex-col overflow-hidden relative">
-        {/* Speed lines background */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#38BDF8]/[0.03] blur-[120px]" />
-          <div className="absolute top-0 left-0 w-full h-full" style={{
-            backgroundImage: `repeating-linear-gradient(90deg, transparent, transparent 50%, rgba(56,189,248,0.015) 50%, rgba(56,189,248,0.015) 51%)`,
-            backgroundSize: '120px 100%',
-            animation: 'slideRight 20s linear infinite',
-          }} />
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/20 to-transparent" style={{ top: '20%' }} />
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/10 to-transparent" style={{ top: '50%' }} />
-          <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#38BDF8]/20 to-transparent" style={{ top: '80%' }} />
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[600px] rounded-full bg-[#38BDF8]/[0.04] blur-[150px]" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full bg-[#38BDF8]/[0.02] blur-[120px]" />
         </div>
-        <style>{`@keyframes slideRight{0%{transform:translateX(-120px)}100%{transform:translateX(0)}}`}</style>
+        <style>{`
+          @keyframes slideRight{0%{transform:translateX(-120px)}100%{transform:translateX(0)}}
+          @keyframes typewriter{0%{width:0;border-right-color:#38BDF8}100%{width:100%;border-right-color:#38BDF8}}
+          @keyframes blink{0%,100%{border-right-color:#38BDF8}50%{border-right-color:transparent}}
+          @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+        `}</style>
 
         <header className="relative z-10 flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
@@ -153,56 +227,125 @@ function LandingPage({ onSkip }: { onSkip: () => void }) {
             <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold ml-0.5 border border-[#38BDF8]/20">BETA</span>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => setLang(lang === "en" ? "ja" : "en")} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors">{lang === "en" ? "日本語" : "EN"}</button>
             {firebaseConfigured ? (
               <>
-                <button onClick={() => setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">Sign In</button>
-                <button onClick={() => setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">Get Started</button>
+                <button onClick={() => setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
+                <button onClick={() => setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
-              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">Launch IDE</button>
+              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchIde}</button>
             )}
           </div>
         </header>
 
-        <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-8 text-center">
+        <main className="relative z-10 flex-1 flex flex-col items-center px-8 text-center pt-20 pb-12">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="max-w-3xl">
             <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-4 py-1.5 mb-8 backdrop-blur-sm">
               <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#38BDF8] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[#38BDF8]"></span></span>
-              <span className="text-xs text-[#38BDF8] font-semibold">Beta Now Available</span>
+              <span className="text-xs text-[#38BDF8] font-semibold">{t.betaBadge}</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-[1.05] mb-6">
-              Ship{" "}
+              {t.heroTitle1}
               <span className="relative">
-                <span className="text-[#38BDF8]">faster</span>
+                <span className="text-[#38BDF8]">{t.heroHighlight}</span>
                 <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-[#38BDF8] to-[#38BDF8]/0 rounded-full" />
               </span>
               <br />
-              <span className="text-white/90">than ever</span>
+              <span className="text-white/90">{t.heroTitle2}</span>
             </h1>
             <p className="text-lg text-[#71717A] max-w-xl mx-auto mb-10 leading-relaxed">
-              Sooner is the fastest way to go from idea to production. 
-              Describe what you want — AI writes, previews, and ships your code in seconds.
+              {t.heroDesc}
             </p>
             <div className="flex items-center justify-center gap-4">
               {firebaseConfigured ? (
                 <button onClick={() => setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
-                  Get Started Free <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                  {t.getStartedFree} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               ) : (
                 <button onClick={onSkip} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
-                  Launch IDE <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+                  {t.launchIde} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               )}
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
-            {[
-              { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
-              { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
-              { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
-            ].map((f, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 + i * 0.1 }}
+          {/* Animated tagline section */}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1, delay: 0.5 }} className="mt-20 mb-12 max-w-3xl">
+            <div className="flex flex-col items-center gap-3">
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.6 }}
+                className="text-2xl md:text-4xl font-black tracking-tight"
+              >
+                <span className="text-white">Build sooner</span>
+                <span className="text-[#38BDF8]">, </span>
+                <span className="text-white">ship faster</span>
+                <span className="text-[#38BDF8]">.</span>
+              </motion.p>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.9 }}
+                className="text-lg md:text-xl text-[#71717A] font-medium"
+              >
+                {t.taglineSub}
+              </motion.p>
+            </div>
+          </motion.div>
+
+          {/* Mac-style browser frame with IDE screenshot */}
+          <motion.div
+            initial={{ opacity: 0, y: 60, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.9, delay: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full max-w-5xl mx-auto"
+            style={{ animation: 'float 6s ease-in-out infinite' }}
+          >
+            <div className="rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 bg-[#1A1A1A]">
+              {/* macOS title bar */}
+              <div className="flex items-center px-4 py-3 bg-[#1A1A1A] border-b border-white/[0.06]">
+                <div className="flex gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#FF5F57]" />
+                  <div className="w-3 h-3 rounded-full bg-[#FEBC2E]" />
+                  <div className="w-3 h-3 rounded-full bg-[#28C840]" />
+                </div>
+                <div className="flex-1 flex justify-center">
+                  <div className="flex items-center gap-2 bg-[#0D0D0D] rounded-lg px-4 py-1 text-xs text-[#71717A]">
+                    <Zap className="w-3 h-3 text-[#38BDF8]" />
+                    <span>sooner.sh</span>
+                  </div>
+                </div>
+                <div className="w-[52px]" />
+              </div>
+              {/* IDE screenshot area */}
+              <div className="relative bg-[#0A0A0A] aspect-[16/9.5] flex items-center justify-center overflow-hidden">
+                <img
+                  src="/ide-screenshot.png"
+                  alt="Sooner IDE"
+                  className="w-full h-full object-cover object-top"
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    el.style.display = "none";
+                    const fallback = el.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = "flex";
+                  }}
+                />
+                {/* Fallback when no screenshot */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0A0A0A]" style={{ display: "none" }}>
+                  <Zap className="w-16 h-16 text-[#38BDF8]/20" />
+                  <p className="text-[#3F3F46] text-sm">Sooner IDE Preview</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 w-1/3 h-1 mx-auto rounded-full bg-gradient-to-r from-transparent via-[#38BDF8]/10 to-transparent" />
+          </motion.div>
+
+          {/* Feature cards */}
+          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 1.0, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
+            {[t.feat1, t.feat2, t.feat3].map((f, i) => (
+              <motion.div key={i} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 1.1 + i * 0.1 }}
                 className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] transition-all group">
                 <span className="text-2xl block mb-3">{f.icon}</span>
                 <h3 className="font-bold text-base mb-2 group-hover:text-[#38BDF8] transition-colors">{f.title}</h3>
@@ -213,7 +356,7 @@ function LandingPage({ onSkip }: { onSkip: () => void }) {
         </main>
 
         <footer className="relative z-10 px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
-          Sooner IDE Beta — Build faster, ship sooner
+          {t.footer}
         </footer>
       </div>
     );
@@ -233,8 +376,8 @@ function LandingPage({ onSkip }: { onSkip: () => void }) {
           <span className="font-black text-xl tracking-tight">Sooner</span>
         </div>
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 backdrop-blur-sm">
-          <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? "Welcome back" : "Create account"}</h2>
-          <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? "Sign in to your Sooner account" : "Start building with Sooner"}</p>
+          <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? t.welcomeBack : t.createAccount}</h2>
+          <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? t.signInDesc : t.signUpDesc}</p>
 
           <div className="flex gap-3 mb-6">
             <button onClick={handleGoogle} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
@@ -242,37 +385,37 @@ function LandingPage({ onSkip }: { onSkip: () => void }) {
               Google
             </button>
             <button onClick={handleGithub} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
-              <Globe className="w-4 h-4" />
+              <GitHubIcon className="w-4 h-4" />
               GitHub
             </button>
           </div>
 
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-[#252525]" />
-            <span className="text-xs text-[#555]">or</span>
+            <span className="text-xs text-[#555]">{t.or}</span>
             <div className="flex-1 h-px bg-[#252525]" />
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.emailPlaceholder} required
               className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-[#38BDF8]" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required minLength={6}
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t.passwordPlaceholder} required minLength={6}
               className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-[#38BDF8]" />
             {error && <p className="text-xs text-red-400">{error}</p>}
             <button type="submit" disabled={loading}
               className="w-full py-2.5 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : mode === "login" ? "Sign In" : "Create Account"}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : mode === "login" ? t.signIn : t.createAccount}
             </button>
           </form>
 
           <p className="text-xs text-[#8E9299] text-center mt-4">
-            {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+            {mode === "login" ? t.noAccount : t.hasAccount}
             <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }} className="text-[#38BDF8] hover:underline font-bold">
-              {mode === "login" ? "Sign up" : "Sign in"}
+              {mode === "login" ? t.signUp : t.signIn}
             </button>
           </p>
         </div>
-        <button onClick={() => setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">Back to home</button>
+        <button onClick={() => setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
       </motion.div>
     </div>
   );
@@ -305,6 +448,20 @@ export default function App() {
 }
 
 function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
+  // Attach Firebase ID token to all API requests for cloud storage sync
+  useEffect(() => {
+    const interceptor = axios.interceptors.request.use(async (config) => {
+      if (user && auth) {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (token) config.headers.Authorization = `Bearer ${token}`;
+        } catch {}
+      }
+      return config;
+    });
+    return () => { axios.interceptors.request.eject(interceptor); };
+  }, [user]);
+
   const [projects, setProjects] = useState<string[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [files, setFiles] = useState<FileNode[]>([]);
@@ -559,7 +716,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     if (activeProject) {
       fetchFiles();
       axios.get(`/api/projects/${activeProject}/chat`)
-        .then(res => setMessages(res.data))
+        .then(res => setMessages(Array.isArray(res.data) ? res.data : []))
         .catch(() => setMessages([]));
       axios.get(`/api/projects/${activeProject}/detect-type`)
         .then(res => {
@@ -626,9 +783,10 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const fetchProjects = async () => {
     try {
       const res = await axios.get("/api/projects");
-      setProjects(res.data);
-      if (res.data.length > 0 && !activeProject) {
-        setActiveProject(res.data[0]);
+      const data = Array.isArray(res.data) ? res.data : [];
+      setProjects(data);
+      if (data.length > 0 && !activeProject) {
+        setActiveProject(data[0]);
       }
     } catch (e) {
       console.error("Failed to fetch projects", e);
@@ -639,7 +797,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     if (!activeProject) return;
     try {
       const res = await axios.get(`/api/projects/${activeProject}/files`);
-      setFiles(res.data);
+      setFiles(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
       console.error("Failed to fetch files", e);
     }
@@ -950,7 +1108,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
             setActiveFile(null);
             setFileContent("");
           }
-          if (filePath === ".aether_chat.json") {
+          if (filePath === ".sooner_chat.json" || filePath === ".aether_chat.json") {
             setMessages([]);
           }
           setConfirmDialog(null);

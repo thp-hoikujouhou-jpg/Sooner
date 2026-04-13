@@ -9,3 +9,4 @@ projects/*/node_modules/
 projects/*/build/
 projects/*/.dart_tool/
 .firebase/
+*-firebase-adminsdk-*.json
