@@ -85,6 +85,15 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   GithubAuthProvider,
+  storageListProjects,
+  storageCreateProject,
+  storageListFiles,
+  storageUploadFile,
+  storageDownloadFile,
+  storageDeleteFile,
+  storageDeleteProject,
+  storageSaveChatHistory,
+  storageLoadChatHistory,
   type User,
 } from "./firebase";
 
@@ -159,9 +168,17 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
-function navigateToSubdomain(sub: "site" | "signup" | "signin") {
+function getInitialLang(): "en" | "ja" {
+  const params = new URLSearchParams(window.location.search);
+  const paramLang = params.get("lang");
+  if (paramLang === "ja" || paramLang === "en") return paramLang;
+  return "en";
+}
+
+function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "en" | "ja") {
   const proto = window.location.protocol;
-  window.location.href = `${proto}//${sub}.sooner.sh`;
+  const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
+  window.location.href = `${proto}//${sub}.sooner.sh${langParam}`;
 }
 
 function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?: "landing" | "login" | "signup" }) {
@@ -170,13 +187,14 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lang, setLang] = useState<"en" | "ja">("en");
+  const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const t = landingI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
   const redirectToApp = () => {
     if (isProduction) {
-      window.location.href = `${window.location.protocol}//sooner.sh`;
+      const langParam = lang !== "en" ? `?lang=${lang}` : "";
+      window.location.href = `${window.location.protocol}//sooner.sh${langParam}`;
     }
   };
 
@@ -235,8 +253,8 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <button onClick={() => setLang(lang === "en" ? "ja" : "en")} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors">{lang === "en" ? "日本語" : "EN"}</button>
             {firebaseConfigured ? (
               <>
-                <button onClick={() => isProduction ? navigateToSubdomain("signin") : setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
-                <button onClick={() => isProduction ? navigateToSubdomain("signup") : setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
+                <button onClick={() => isProduction ? navigateToSubdomain("signin", lang) : setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
+                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
               <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchIde}</button>
@@ -264,7 +282,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </p>
             <div className="flex items-center justify-center gap-4">
               {firebaseConfigured ? (
-                <button onClick={() => isProduction ? navigateToSubdomain("signup") : setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
                   {t.getStartedFree} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               ) : (
@@ -415,12 +433,12 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
           <p className="text-xs text-[#8E9299] text-center mt-4">
             {mode === "login" ? t.noAccount : t.hasAccount}
-            <button onClick={() => { if (isProduction) { navigateToSubdomain(mode === "login" ? "signup" : "signin"); } else { setMode(mode === "login" ? "signup" : "login"); setError(""); }}} className="text-[#38BDF8] hover:underline font-bold">
+            <button onClick={() => { if (isProduction) { navigateToSubdomain(mode === "login" ? "signup" : "signin", lang); } else { setMode(mode === "login" ? "signup" : "login"); setError(""); }}} className="text-[#38BDF8] hover:underline font-bold">
               {mode === "login" ? t.signUp : t.signIn}
             </button>
           </p>
         </div>
-        <button onClick={() => isProduction ? navigateToSubdomain("site") : setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
+        <button onClick={() => isProduction ? navigateToSubdomain("site", lang) : setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
       </motion.div>
     </div>
   );
@@ -544,6 +562,11 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
   const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix" | "auto-preview">("chat");
   const [language, setLanguage] = useState<"en" | "ja">(() => {
+    const paramLang = new URLSearchParams(window.location.search).get("lang");
+    if (paramLang === "ja" || paramLang === "en") {
+      localStorage.setItem("aether_language", paramLang);
+      return paramLang;
+    }
     return (localStorage.getItem("aether_language") as "en" | "ja") || "en";
   });
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
@@ -700,8 +723,8 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
 
   const clearChat = () => {
     setMessages([]);
-    if (activeProject) {
-      axios.post(`/api/projects/${activeProject}/chat`, { messages: [] }).catch(() => {});
+    if (activeProject && uid) {
+      storageSaveChatHistory(uid, activeProject, []).catch(() => {});
     }
   };
 
@@ -747,19 +770,14 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   }, []);
 
   useEffect(() => {
-    if (activeProject) {
+    if (activeProject && uid) {
       fetchFiles();
-      axios.get(`/api/projects/${activeProject}/chat`)
-        .then(res => setMessages(Array.isArray(res.data) ? res.data : []))
+      storageLoadChatHistory(uid, activeProject)
+        .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
         .catch(() => setMessages([]));
-      axios.get(`/api/projects/${activeProject}/detect-type`)
-        .then(res => {
-          setProjectType(res.data.detected || "static");
-          setProjectRunning(!!res.data.running);
-          if (res.data.port) setRunningPort(res.data.port);
-          else setRunningPort(null);
-        })
-        .catch(() => { setProjectType("static"); setProjectRunning(false); setRunningPort(null); });
+      setProjectType("static");
+      setProjectRunning(false);
+      setRunningPort(null);
     } else {
       setFiles([]);
       setMessages([]);
@@ -768,29 +786,9 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     }
   }, [activeProject]);
 
-  // Auto-build for Flutter & auto-start for devserver when preview tab is active
+  // Auto-build/preview is only available in local dev mode
   useEffect(() => {
     if (!activeProject || activeTab !== "preview") return;
-    let cancelled = false;
-    const autoSetup = async () => {
-      // Flutter auto-build
-      await buildAndPreview();
-      if (cancelled) return;
-
-      // Devserver auto-start
-      try {
-        const res = await axios.get(`/api/projects/${activeProject}/detect-type`);
-        if (cancelled) return;
-        if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
-          setTerminalOutput(prev => [...prev, language === "ja"
-            ? "> 依存関係のインストール・サーバー起動中..."
-            : "> Installing dependencies & starting server..."]);
-          await startProject();
-        }
-      } catch {}
-    };
-    autoSetup();
-    return () => { cancelled = true; };
   }, [activeProject, activeTab]);
 
   useEffect(() => {
@@ -800,9 +798,9 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   }, [messages]);
 
   useEffect(() => {
-    if (!activeProject || messages.length === 0) return;
+    if (!activeProject || !uid || messages.length === 0) return;
     const timer = setTimeout(() => {
-      axios.post(`/api/projects/${activeProject}/chat`, { messages })
+      storageSaveChatHistory(uid, activeProject, messages)
         .catch(err => console.error("Failed to save chat", err));
     }, 500);
     return () => clearTimeout(timer);
@@ -814,10 +812,32 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     }
   }, [terminalOutput]);
 
+  const uid = user?.uid || null;
+
+  function buildFileTree(paths: string[]): FileNode[] {
+    const root: FileNode[] = [];
+    for (const filePath of paths) {
+      const parts = filePath.split("/");
+      let current = root;
+      let currentPath = "";
+      for (let i = 0; i < parts.length; i++) {
+        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+        const isFile = i === parts.length - 1;
+        let existing = current.find((n) => n.name === parts[i]);
+        if (!existing) {
+          existing = { name: parts[i], path: currentPath, type: isFile ? "file" : "directory", ...(isFile ? {} : { children: [] }) };
+          current.push(existing);
+        }
+        if (!isFile) current = existing.children!;
+      }
+    }
+    return root;
+  }
+
   const fetchProjects = async () => {
+    if (!uid) return;
     try {
-      const res = await axios.get("/api/projects");
-      const data = Array.isArray(res.data) ? res.data : [];
+      const data = await storageListProjects(uid);
       setProjects(data);
       if (data.length > 0 && !activeProject) {
         setActiveProject(data[0]);
@@ -828,19 +848,19 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   };
 
   const fetchFiles = async () => {
-    if (!activeProject) return;
+    if (!activeProject || !uid) return;
     try {
-      const res = await axios.get(`/api/projects/${activeProject}/files`);
-      setFiles(Array.isArray(res.data) ? res.data : []);
+      const paths = await storageListFiles(uid, activeProject);
+      setFiles(buildFileTree(paths));
     } catch (e) {
       console.error("Failed to fetch files", e);
     }
   };
 
   const createProject = async () => {
-    if (!newProjectName) return;
+    if (!newProjectName || !uid) return;
     try {
-      await axios.post("/api/projects", { name: newProjectName });
+      await storageCreateProject(uid, newProjectName);
       await fetchProjects();
       setActiveProject(newProjectName);
       setIsNewProjectOpen(false);
@@ -851,22 +871,21 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     }
   };
 
-  const openFile = async (path: string) => {
-    if (!activeProject) return;
+  const openFile = async (filePath: string) => {
+    if (!activeProject || !uid) return;
     try {
-      const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: path } });
-      setActiveFile(path);
-      setFileContent(res.data.content);
+      const content = await storageDownloadFile(uid, activeProject, filePath);
+      setActiveFile(filePath);
+      setFileContent(content ?? "");
     } catch (e) {
       console.error("Failed to open file", e);
     }
   };
 
   const saveFile = async () => {
-    if (!activeProject || !activeFile) return;
+    if (!activeProject || !activeFile || !uid) return;
     try {
-      await axios.post(`/api/projects/${activeProject}/file`, { filePath: activeFile, content: fileContent });
-      // Show success toast or something
+      await storageUploadFile(uid, activeProject, activeFile, fileContent);
     } catch (e) {
       alert("Failed to save file");
     }
@@ -875,29 +894,32 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const runCommand = async (command: string) => {
     if (!activeProject) return;
     setTerminalOutput(prev => [...prev, `> ${command}`]);
-    try {
-      const res = await axios.post(`/api/projects/${activeProject}/terminal`, { command });
-      if (res.data.stdout) setTerminalOutput(prev => [...prev, res.data.stdout]);
-      if (res.data.stderr) setTerminalOutput(prev => [...prev, `Error: ${res.data.stderr}`]);
-    } catch (e) {
-      setTerminalOutput(prev => [...prev, "Failed to execute command"]);
-    }
+    setTerminalOutput(prev => [...prev, language === "ja" ? "ターミナルコマンドはクラウドモードでは利用できません。" : "Terminal commands are not available in cloud mode."]);
   };
 
   const fetchPackages = async () => {
-    if (!activeProject) return;
+    if (!activeProject || !uid) return;
     try {
-      const res = await axios.get(`/api/projects/${activeProject}/packages`);
-      setPackages(res.data);
+      const content = await storageDownloadFile(uid, activeProject, "package.json");
+      if (content) {
+        const pkg = JSON.parse(content);
+        setPackages({ dependencies: pkg.dependencies || {}, devDependencies: pkg.devDependencies || {} });
+      } else {
+        setPackages({ dependencies: {}, devDependencies: {} });
+      }
     } catch {
       setPackages({ dependencies: {}, devDependencies: {} });
     }
   };
 
   const addPackage = async () => {
-    if (!activeProject || !newPkgName.trim()) return;
+    if (!activeProject || !newPkgName.trim() || !uid) return;
     try {
-      await axios.post(`/api/projects/${activeProject}/packages`, { name: newPkgName.trim(), version: newPkgVersion.trim() || "latest" });
+      const content = await storageDownloadFile(uid, activeProject, "package.json");
+      const pkg = content ? JSON.parse(content) : { dependencies: {}, devDependencies: {} };
+      if (!pkg.dependencies) pkg.dependencies = {};
+      pkg.dependencies[newPkgName.trim()] = newPkgVersion.trim() || "latest";
+      await storageUploadFile(uid, activeProject, "package.json", JSON.stringify(pkg, null, 2));
       setNewPkgName("");
       setNewPkgVersion("");
       fetchPackages();
@@ -908,9 +930,15 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   };
 
   const removePackage = async (name: string) => {
-    if (!activeProject) return;
+    if (!activeProject || !uid) return;
     try {
-      await axios.delete(`/api/projects/${activeProject}/packages`, { data: { name } });
+      const content = await storageDownloadFile(uid, activeProject, "package.json");
+      if (content) {
+        const pkg = JSON.parse(content);
+        delete pkg.dependencies?.[name];
+        delete pkg.devDependencies?.[name];
+        await storageUploadFile(uid, activeProject, "package.json", JSON.stringify(pkg, null, 2));
+      }
       fetchPackages();
       fetchFiles();
     } catch (e) {
@@ -919,54 +947,11 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   };
 
   const startProject = async () => {
-    if (!activeProject) return;
-    setTerminalOutput(prev => [...prev, `> Starting ${projectType} server... (installing dependencies if needed)`]);
-    try {
-      const res = await axios.post(`/api/projects/${activeProject}/run`);
-      if (res.data.status === "install-failed") {
-        setTerminalOutput(prev => [...prev, ...(res.data.lines || []), "npm install failed."]);
-        return;
-      }
-      if (res.data.status === "started" || res.data.status === "already-running" || res.data.status === "installing") {
-        setProjectRunning(true);
-        if (res.data.port) setRunningPort(res.data.port);
-        setTerminalOutput(prev => [...prev, `Server running on port ${res.data.port} (${res.data.type})`]);
-        // Poll logs
-        let seen = 0;
-        const poll = async () => {
-          if (!activeProject) return;
-          try {
-            const logRes = await axios.get(`/api/projects/${activeProject}/run-logs?since=${seen}`);
-            if (logRes.data.lines?.length > 0) {
-              setTerminalOutput(prev => [...prev, ...logRes.data.lines]);
-            }
-            seen = logRes.data.total || seen;
-            if (logRes.data.status === "running") {
-              setTimeout(poll, 2000);
-            } else {
-              setProjectRunning(false);
-            }
-          } catch {}
-        };
-        setTimeout(poll, 1000);
-      } else if (res.data.status === "static") {
-        setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドは検出されませんでした。" : "No backend detected."]);
-      }
-    } catch (e) {
-      setTerminalOutput(prev => [...prev, "Failed to start project server."]);
-    }
+    setTerminalOutput(prev => [...prev, language === "ja" ? "サーバー起動はクラウドモードでは利用できません。" : "Server start is not available in cloud mode."]);
   };
 
   const stopProject = async () => {
-    if (!activeProject) return;
-    try {
-      await axios.post(`/api/projects/${activeProject}/stop`);
-      setProjectRunning(false);
-      setRunningPort(null);
-      setTerminalOutput(prev => [...prev, language === "ja" ? "サーバーを停止しました。" : "Server stopped."]);
-    } catch {
-      setTerminalOutput(prev => [...prev, "Failed to stop server."]);
-    }
+    setTerminalOutput(prev => [...prev, language === "ja" ? "サーバー停止はクラウドモードでは利用できません。" : "Server stop is not available in cloud mode."]);
   };
 
   const isFlutterProject = () => {
@@ -977,54 +962,8 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     return hasFile("pubspec.yaml");
   };
 
-  const pollBuildStatus = (project: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      let seen = 0;
-      const poll = async () => {
-        try {
-          const res = await axios.get(`/api/projects/${project}/build-status?since=${seen}`);
-          const { status, lines, total } = res.data;
-          if (lines && lines.length > 0) {
-            setTerminalOutput(prev => [...prev, ...lines]);
-          }
-          seen = total || seen;
-          if (status === "success") { resolve(true); return; }
-          if (status === "failed") { resolve(false); return; }
-          setTimeout(poll, 1000);
-        } catch {
-          resolve(false);
-        }
-      };
-      poll();
-    });
-  };
-
   const buildAndPreview = async () => {
-    if (!activeProject) return true;
-    if (!isFlutterProject()) return true;
-
-    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking build..."]);
-    try {
-      const res = await axios.post(`/api/projects/${activeProject}/build-preview`);
-      const { status } = res.data;
-
-      if (status === "already-built") {
-        setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
-        return true;
-      }
-
-      if (status === "build-started" || status === "building") {
-        setTerminalOutput(prev => [...prev, "Flutter: Building... (this may take a minute)"]);
-        return await pollBuildStatus(activeProject);
-      }
-
-      return true;
-    } catch {
-      setTerminalOutput(prev => [...prev, language === "ja"
-        ? "ビルドチェックに失敗しました。サーバーを再起動してください。"
-        : "Build check failed. Please restart the server."]);
-      return false;
-    }
+    return true;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1034,7 +973,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     reader.onload = async (event) => {
       const content = event.target?.result as string;
       try {
-        await axios.post(`/api/projects/${activeProject}/upload`, { fileName: file.name, content });
+        if (uid && activeProject) await storageUploadFile(uid, activeProject, file.name, content);
         fetchFiles();
         setTerminalOutput(prev => [...prev, `Uploaded file: ${file.name}`]);
       } catch (e) {
@@ -1047,8 +986,9 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const handleClone = async () => {
     if (!repoUrl || !cloneName) return;
     try {
-      setTerminalOutput(prev => [...prev, `Cloning ${repoUrl}...`]);
-      await axios.post("/api/projects/clone", { repoUrl, name: cloneName, token: githubToken });
+      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneはクラウドモードでは現在サポートされていません。ZIPアップロードをご利用ください。" : "Git clone is not supported in cloud mode. Please use ZIP upload instead."]);
+      setIsCloneOpen(false);
+      return;
       fetchProjects();
       setActiveProject(cloneName);
       setIsCloneOpen(false);
@@ -1136,7 +1076,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       message: t.confirmDelete,
       onConfirm: async () => {
         try {
-          await axios.delete(`/api/projects/${activeProject}/file`, { data: { filePath } });
+          if (uid && activeProject) await storageDeleteFile(uid, activeProject, filePath);
           fetchFiles();
           if (activeFile === filePath) {
             setActiveFile(null);
@@ -1155,16 +1095,16 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   };
 
   const downloadProject = async () => {
-    if (!activeProject) return;
+    if (!activeProject || !uid) return;
     const zip = new JSZip();
     
-    const addFilesToZip = async (nodes: FileNode[], currentPath = "") => {
+    const addFilesToZip = async (nodes: FileNode[]) => {
       for (const node of nodes) {
         if (node.type === "file") {
-          const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: node.path } });
-          zip.file(node.path, res.data.content);
+          const content = await storageDownloadFile(uid, activeProject, node.path);
+          zip.file(node.path, content ?? "");
         } else if (node.children) {
-          await addFilesToZip(node.children, node.path);
+          await addFilesToZip(node.children);
         }
       }
     };
@@ -1181,7 +1121,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       message: t.confirmDeleteProject,
       onConfirm: async () => {
         try {
-          await axios.delete(`/api/projects/${projectName}`);
+          if (uid) await storageDeleteProject(uid, projectName);
           await fetchProjects();
           if (activeProject === projectName) {
             setActiveProject(null);
@@ -1198,18 +1138,18 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
 
   const uploadProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !uid) return;
 
     const zip = new JSZip();
     const contents = await zip.loadAsync(file);
     const projectName = file.name.replace(".zip", "");
 
     try {
-      await axios.post("/api/projects", { name: projectName });
-      for (const [path, fileData] of Object.entries(contents.files)) {
+      await storageCreateProject(uid, projectName);
+      for (const [filePath, fileData] of Object.entries(contents.files)) {
         if (!fileData.dir) {
           const content = await fileData.async("string");
-          await axios.post(`/api/projects/${projectName}/file`, { filePath: path, content });
+          await storageUploadFile(uid, projectName, filePath, content);
         }
       }
       await fetchProjects();
@@ -1426,11 +1366,10 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
             addStep(step.action === "write_file" ? "code" : "test", step.description);
             
             if (step.action === "write_file") {
-              await axios.post(`/api/projects/${activeProject}/file`, { filePath: step.path, content: step.content });
+              if (uid && activeProject) await storageUploadFile(uid, activeProject, step.path, step.content);
               setTerminalOutput(prev => [...prev, `Agent: Wrote ${step.path}`]);
             } else if (step.action === "run_command") {
-              const res = await axios.post(`/api/projects/${activeProject}/terminal`, { command: step.command });
-              setTerminalOutput(prev => [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean));
+              setTerminalOutput(prev => [...prev, `Agent: ${step.command} (terminal commands not available in cloud mode)`]);
             }
             
             updateLastStep("completed", `Done: ${step.description}`);
@@ -1486,8 +1425,8 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                 const results: { path: string; content: string }[] = [];
                 for (const f of nodes) {
                   if (f.type === "file") {
-                    const res = await axios.get(`/api/projects/${activeProject}/file`, { params: { filePath: f.path } });
-                    results.push({ path: f.path, content: res.data.content });
+                    const content = uid && activeProject ? await storageDownloadFile(uid, activeProject, f.path) : "";
+                    results.push({ path: f.path, content: content ?? "" });
                   } else if (f.children) {
                     results.push(...await collectFiles(f.children));
                   }
@@ -1542,7 +1481,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                 if (fixes.length > 0) {
                   addStep("code", language === "ja" ? `ビジュアルの問題を自動修正中 (${iteration})...` : `Auto-fixing visual issues (${iteration})...`);
                   for (const fix of fixes) {
-                    await axios.post(`/api/projects/${activeProject}/file`, { filePath: fix.path, content: fix.content });
+                    if (uid && activeProject) await storageUploadFile(uid, activeProject, fix.path, fix.content);
                   }
                   fetchFiles();
                   if (iframe) iframe.src = iframe.src;
