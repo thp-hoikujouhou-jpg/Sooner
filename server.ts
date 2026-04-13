@@ -140,6 +140,21 @@ async function syncProjectToLocal(uid: string, project: string, localDir: string
   }
 }
 
+function execGit(
+  cwd: string,
+  args: string[]
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 120000 }, (error, stdout, stderr) => {
+      resolve({
+        stdout: stdout?.toString() ?? "",
+        stderr: stderr?.toString() ?? "",
+        code: error ? 1 : 0,
+      });
+    });
+  });
+}
+
 function safePath(base: string, ...segments: string[]): string | null {
   const resolved = path.resolve(base, ...segments);
   if (!resolved.startsWith(base + path.sep) && resolved !== base) {
@@ -180,6 +195,25 @@ async function startServer() {
   } catch (e) {
     console.error("Failed to create projects directory:", e);
     process.exit(1);
+  }
+
+  async function ensureProjectPath(uid: string | null, id: string): Promise<string | null> {
+    const projectPath = safePath(PROJECTS_ROOT, id);
+    if (!projectPath) return null;
+    let existed = true;
+    try {
+      await fs.access(projectPath);
+    } catch {
+      existed = false;
+      if (!uid) return null;
+      await fs.mkdir(projectPath, { recursive: true });
+    }
+    if (uid) {
+      await syncProjectToLocal(uid, id, projectPath);
+    } else if (!existed) {
+      return null;
+    }
+    return projectPath;
   }
 
   // --- API Routes ---
@@ -444,6 +478,204 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({ error: "Failed to write file" });
     }
+  });
+
+  /** GitHub HTTPS URL with x-access-token for pull/push over HTTPS. */
+  function toGithubTokenUrl(remoteUrl: string, token: string): string | null {
+    const u = remoteUrl.trim();
+    if (u.startsWith("https://github.com/")) {
+      return u.replace("https://", `https://x-access-token:${token}@`);
+    }
+    if (u.startsWith("git@github.com:")) {
+      const m = u.match(/^git@github\.com:([^/]+)\/(.+?)(\.git)?$/);
+      if (m) {
+        return `https://x-access-token:${token}@github.com/${m[1]}/${m[2].replace(/\.git$/, "")}.git`;
+      }
+    }
+    return null;
+  }
+
+  // Git: status (syncs latest from Storage first when authenticated)
+  app.get("/api/projects/:id/git/status", async (req, res) => {
+    const { id } = req.params;
+    const uid = await extractUid(req);
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+    } catch {
+      return res.json({ isRepo: false, message: "Not a git repository (clone a repo or run git init locally)." });
+    }
+    const branchOut = await execGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const branch = branchOut.stdout.trim() || "HEAD";
+    const porcelain = await execGit(projectPath, ["status", "--porcelain=v1", "-b"]);
+    const lines = porcelain.stdout.split("\n").filter(Boolean);
+    let tracking: string | undefined;
+    let ahead = 0;
+    let behind = 0;
+    const files: { path: string; status: string }[] = [];
+    for (const line of lines) {
+      if (line.startsWith("## ")) {
+        const rest = line.slice(3).trim();
+        const abMatch = rest.match(/\[([^\]]+)\]/);
+        const branchPart = abMatch ? rest.slice(0, rest.indexOf("[")).trim() : rest;
+        if (branchPart.includes("...")) {
+          const idx = branchPart.indexOf("...");
+          tracking = branchPart.slice(idx + 3) || undefined;
+        }
+        if (abMatch) {
+          const ab = abMatch[1];
+          const am = ab.match(/ahead (\d+)/);
+          const bm = ab.match(/behind (\d+)/);
+          if (am) ahead = parseInt(am[1], 10);
+          if (bm) behind = parseInt(bm[1], 10);
+        }
+        continue;
+      }
+      if (line.length >= 4) {
+        const status = line.slice(0, 2);
+        const filePath = line.slice(3).trim();
+        if (filePath) files.push({ path: filePath, status: status.trim() });
+      }
+    }
+    res.json({ isRepo: true, branch, tracking, ahead, behind, files, raw: porcelain.stdout });
+  });
+
+  // Git: diff (unstaged or staged)
+  app.get("/api/projects/:id/git/diff", async (req, res) => {
+    const { id } = req.params;
+    const staged = req.query.staged === "1" || req.query.staged === "true";
+    const uid = await extractUid(req);
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+    } catch {
+      return res.status(400).json({ error: "Not a git repository" });
+    }
+    const args = staged ? ["diff", "--cached"] : ["diff"];
+    const out = await execGit(projectPath, args);
+    res.json({ diff: out.stdout, stderr: out.stderr, code: out.code });
+  });
+
+  // Git: commit all changes (add -A + commit)
+  app.post("/api/projects/:id/git/commit", async (req, res) => {
+    const { id } = req.params;
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message) {
+      return res.status(400).json({ error: "Commit message required" });
+    }
+    const uid = await extractUid(req);
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+    } catch {
+      return res.status(400).json({ error: "Not a git repository" });
+    }
+    await execGit(projectPath, ["config", "user.email", "sooner-ide@users.noreply.local"]);
+    await execGit(projectPath, ["config", "user.name", "Sooner IDE"]);
+    const addOut = await execGit(projectPath, ["add", "-A"]);
+    if (addOut.code !== 0) {
+      return res.status(500).json({ error: "git add failed", details: addOut.stderr });
+    }
+    const commitOut = await execGit(projectPath, [
+      "-c", "user.email=sooner-ide@users.noreply.local",
+      "-c", "user.name=Sooner IDE",
+      "commit",
+      "-m",
+      message,
+    ]);
+    if (commitOut.code !== 0 && !commitOut.stderr.includes("nothing to commit")) {
+      return res.status(500).json({ error: "git commit failed", details: commitOut.stderr || commitOut.stdout });
+    }
+    res.json({
+      message: commitOut.stderr.includes("nothing to commit") ? "Nothing to commit" : "Committed",
+      output: commitOut.stdout + commitOut.stderr,
+    });
+  });
+
+  // Git: push to origin (uses GitHub token in body for HTTPS)
+  app.post("/api/projects/:id/git/push", async (req, res) => {
+    const { id } = req.params;
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token) {
+      return res.status(400).json({ error: "GitHub token required in body" });
+    }
+    const uid = await extractUid(req);
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+    } catch {
+      return res.status(400).json({ error: "Not a git repository" });
+    }
+    const remote = await execGit(projectPath, ["remote", "get-url", "origin"]);
+    if (remote.code !== 0 || !remote.stdout.trim()) {
+      return res.status(400).json({ error: "No git remote 'origin' configured" });
+    }
+    const url = remote.stdout.trim();
+    const pushUrl = toGithubTokenUrl(url, token);
+    if (!pushUrl) {
+      return res.status(400).json({ error: "Unsupported remote URL (use GitHub HTTPS or git@github.com)" });
+    }
+    const pushOut = await execGit(projectPath, ["push", pushUrl, "HEAD"]);
+    if (pushOut.code !== 0) {
+      return res.status(500).json({ error: "git push failed", details: pushOut.stderr || pushOut.stdout });
+    }
+    res.json({ message: "Pushed", output: pushOut.stdout + pushOut.stderr });
+  });
+
+  // Git: pull from origin (token for private repos; syncs pulled files to Storage)
+  app.post("/api/projects/:id/git/pull", async (req, res) => {
+    const { id } = req.params;
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token) {
+      return res.status(400).json({ error: "GitHub token required in body" });
+    }
+    const uid = await extractUid(req);
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+    } catch {
+      return res.status(400).json({ error: "Not a git repository" });
+    }
+    const remote = await execGit(projectPath, ["remote", "get-url", "origin"]);
+    if (remote.code !== 0 || !remote.stdout.trim()) {
+      return res.status(400).json({ error: "No git remote 'origin' configured" });
+    }
+    const url = remote.stdout.trim();
+    const pullUrl = toGithubTokenUrl(url, token);
+    if (!pullUrl) {
+      return res.status(400).json({ error: "Unsupported remote URL (use GitHub HTTPS or git@github.com)" });
+    }
+    const pullOut = await execGit(projectPath, ["pull", pullUrl]);
+    if (pullOut.code !== 0) {
+      return res.status(500).json({ error: "git pull failed", details: pullOut.stderr || pullOut.stdout });
+    }
+    if (uid) {
+      try {
+        const allFiles = await getAllFilesRecursive(projectPath);
+        for (const rel of allFiles) {
+          const content = await fs.readFile(path.join(projectPath, rel), "utf-8");
+          await storageUpload(uid, id, rel, content);
+        }
+      } catch (e) {
+        console.warn("Storage sync after pull failed:", e);
+      }
+    }
+    res.json({ message: "Pulled", output: pullOut.stdout + pullOut.stderr });
   });
 
   // Terminal execution

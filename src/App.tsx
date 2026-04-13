@@ -32,7 +32,8 @@ import {
   Star,
   Lock,
   Search,
-  GitBranch
+  GitBranch,
+  GitMerge
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -578,6 +579,21 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCloneOpen, setIsCloneOpen] = useState(false);
+  const [isGitOpen, setIsGitOpen] = useState(false);
+  const [gitStatusData, setGitStatusData] = useState<{
+    isRepo?: boolean;
+    branch?: string;
+    tracking?: string;
+    ahead?: number;
+    behind?: number;
+    files?: { path: string; status: string }[];
+    message?: string;
+  } | null>(null);
+  const [gitDiffText, setGitDiffText] = useState("");
+  const [gitDiffStaged, setGitDiffStaged] = useState(false);
+  const [gitCommitMessage, setGitCommitMessage] = useState("");
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
@@ -686,6 +702,23 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       githubConnected: "Connected as",
       disconnectGithub: "Disconnect",
       repoStars: "stars",
+      gitPanel: "Git",
+      gitStatusTitle: "Status & diff",
+      gitBranch: "Branch",
+      gitTracking: "Tracking",
+      gitAheadBehind: "Ahead / behind",
+      gitChangedFiles: "Changed files",
+      gitDiff: "Diff",
+      gitStaged: "Staged",
+      gitRefresh: "Refresh",
+      gitCommitMsg: "Commit message",
+      gitCommit: "Commit all",
+      gitPull: "Pull from origin",
+      gitPush: "Push to origin",
+      gitNoBackend: "Set VITE_BACKEND_URL to use Git (Railway).",
+      gitNoProject: "Select a project first.",
+      gitNoRepo: "Not a git repository. Clone from GitHub to enable push.",
+      gitPushNeedToken: "Connect GitHub in Settings (or paste a PAT) to push.",
     },
     ja: {
       projects: "プロジェクト",
@@ -760,6 +793,23 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       githubConnected: "接続中：",
       disconnectGithub: "連携解除",
       repoStars: "スター",
+      gitPanel: "Git",
+      gitStatusTitle: "状態と差分",
+      gitBranch: "ブランチ",
+      gitTracking: "追跡先",
+      gitAheadBehind: "先行 / 遅れ",
+      gitChangedFiles: "変更ファイル",
+      gitDiff: "差分",
+      gitStaged: "ステージ済み",
+      gitRefresh: "更新",
+      gitCommitMsg: "コミットメッセージ",
+      gitCommit: "すべてコミット",
+      gitPull: "origin からプル",
+      gitPush: "origin にプッシュ",
+      gitNoBackend: "Git 機能には VITE_BACKEND_URL（Railway）が必要です。",
+      gitNoProject: "先にプロジェクトを選択してください。",
+      gitNoRepo: "Git リポジトリではありません。GitHub からクローンすると push できます。",
+      gitPushNeedToken: "プッシュには設定で GitHub を接続するか PAT を入力してください。",
     }
   };
 
@@ -1239,6 +1289,80 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     } catch (e: any) {
       alert(`Clone failed: ${e.response?.data?.error || e.message}`);
     }
+  };
+
+  const refreshGitPanel = async (stagedOverride?: boolean) => {
+    if (!BACKEND_URL || !activeProject) return;
+    setGitLoading(true);
+    setGitError("");
+    try {
+      const s = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/status`));
+      setGitStatusData(s.data);
+      const staged = stagedOverride ?? gitDiffStaged;
+      const d = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/diff`), {
+        params: { staged: staged ? "1" : "0" },
+      });
+      setGitDiffText(d.data.diff || "");
+    } catch (e: any) {
+      setGitError(e.response?.data?.error || e.message || "Git error");
+      setGitStatusData(null);
+      setGitDiffText("");
+    }
+    setGitLoading(false);
+  };
+
+  const handleGitCommit = async () => {
+    if (!BACKEND_URL || !activeProject || !gitCommitMessage.trim()) return;
+    setGitLoading(true);
+    setGitError("");
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/commit`), {
+        message: gitCommitMessage.trim(),
+      });
+      setGitCommitMessage("");
+      await refreshGitPanel();
+    } catch (e: any) {
+      setGitError(e.response?.data?.error || e.response?.data?.details || e.message);
+    }
+    setGitLoading(false);
+  };
+
+  const handleGitPush = async () => {
+    if (!BACKEND_URL || !activeProject) return;
+    if (!githubToken) {
+      setGitError(language === "ja" ? t.gitPushNeedToken : t.gitPushNeedToken);
+      return;
+    }
+    setGitLoading(true);
+    setGitError("");
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/push`), {
+        token: githubToken,
+      });
+      await refreshGitPanel();
+    } catch (e: any) {
+      setGitError(e.response?.data?.error || e.response?.data?.details || e.message);
+    }
+    setGitLoading(false);
+  };
+
+  const handleGitPull = async () => {
+    if (!BACKEND_URL || !activeProject) return;
+    if (!githubToken) {
+      setGitError(t.gitPushNeedToken);
+      return;
+    }
+    setGitLoading(true);
+    setGitError("");
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/pull`), {
+        token: githubToken,
+      });
+      await refreshGitPanel();
+    } catch (e: any) {
+      setGitError(e.response?.data?.error || e.response?.data?.details || e.message);
+    }
+    setGitLoading(false);
   };
 
   const getEffectiveBaseUrl = (): string | undefined => {
@@ -1819,6 +1943,17 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
           <div className="flex items-center gap-1">
             <button onClick={() => setIsCloneOpen(true)} title={language === "ja" ? "GitHubからクローン" : "Clone from GitHub"} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
               <GitHubIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setIsGitOpen(true);
+                setGitError("");
+                if (activeProject && BACKEND_URL) void refreshGitPanel();
+              }}
+              title={t.gitPanel}
+              className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+            >
+              <GitMerge className="w-4 h-4" />
             </button>
             <button onClick={() => setIsNewProjectOpen(true)} title="New Project" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
               <Plus className="w-4 h-4" />
@@ -2722,6 +2857,142 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                       </button>
                     </div>
                   </div>
+                )}
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
+        {isGitOpen && (
+          <Dialog.Root open={isGitOpen} onOpenChange={setIsGitOpen}>
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(720px,94vw)] max-h-[85vh] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl flex flex-col gap-3">
+                <Dialog.Description className="sr-only">{t.gitStatusTitle}</Dialog.Description>
+                <div className="flex items-center justify-between shrink-0">
+                  <Dialog.Title className="text-lg font-bold flex items-center gap-2">
+                    <GitMerge className="w-5 h-5 text-[#38BDF8]" />
+                    {t.gitPanel}
+                  </Dialog.Title>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => activeProject && BACKEND_URL && void refreshGitPanel()}
+                      disabled={gitLoading || !activeProject || !BACKEND_URL}
+                      className="p-1.5 hover:bg-[#1A1A1A] rounded text-[#8E9299] disabled:opacity-40"
+                      title={t.gitRefresh}
+                    >
+                      <RefreshCw className={cn("w-4 h-4", gitLoading && "animate-spin")} />
+                    </button>
+                    <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                      <X className="w-5 h-5" />
+                    </Dialog.Close>
+                  </div>
+                </div>
+
+                {!BACKEND_URL && (
+                  <p className="text-sm text-amber-400/90">{t.gitNoBackend}</p>
+                )}
+                {BACKEND_URL && !activeProject && (
+                  <p className="text-sm text-[#8E9299]">{t.gitNoProject}</p>
+                )}
+
+                {BACKEND_URL && activeProject && (
+                  <>
+                    {gitError && (
+                      <p className="text-sm text-red-400 whitespace-pre-wrap">{gitError}</p>
+                    )}
+                    {gitStatusData && gitStatusData.isRepo === false && (
+                      <p className="text-sm text-[#8E9299]">{gitStatusData.message || t.gitNoRepo}</p>
+                    )}
+                    {gitStatusData?.isRepo && (
+                      <div className="grid grid-cols-2 gap-2 text-xs text-[#8E9299] shrink-0">
+                        <div>
+                          <span className="text-[#555]">{t.gitBranch}: </span>
+                          <span className="text-white font-mono">{gitStatusData.branch}</span>
+                        </div>
+                        <div>
+                          <span className="text-[#555]">{t.gitTracking}: </span>
+                          <span className="text-white font-mono truncate">{gitStatusData.tracking || "—"}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-[#555]">{t.gitAheadBehind}: </span>
+                          <span className="text-white">
+                            {gitStatusData.ahead ?? 0} / {gitStatusData.behind ?? 0}
+                          </span>
+                        </div>
+                        {gitStatusData.files && gitStatusData.files.length > 0 && (
+                          <div className="col-span-2 max-h-24 overflow-y-auto rounded-lg border border-[#252525] bg-[#0A0A0A] p-2 font-mono text-[10px]">
+                            {gitStatusData.files.map((f) => (
+                              <div key={f.path} className="flex gap-2">
+                                <span className="text-[#38BDF8] shrink-0">{f.status}</span>
+                                <span className="truncate text-[#E4E3E0]">{f.path}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <label className="flex items-center gap-2 text-xs text-[#8E9299] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gitDiffStaged}
+                          onChange={(e) => {
+                            const v = e.target.checked;
+                            setGitDiffStaged(v);
+                            void refreshGitPanel(v);
+                          }}
+                          className="rounded border-[#252525]"
+                        />
+                        {t.gitStaged}
+                      </label>
+                    </div>
+
+                    <div className="flex-1 min-h-[200px] flex flex-col gap-2">
+                      <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.gitDiff}</label>
+                      <pre className="flex-1 overflow-auto max-h-[280px] rounded-xl border border-[#252525] bg-[#0A0A0A] p-3 text-[11px] font-mono text-[#CFCFCF] whitespace-pre-wrap">
+                        {gitLoading ? "…" : gitDiffText || (language === "ja" ? "差分なし" : "No diff")}
+                      </pre>
+                    </div>
+
+                    <div className="space-y-2 shrink-0">
+                      <input
+                        type="text"
+                        value={gitCommitMessage}
+                        onChange={(e) => setGitCommitMessage(e.target.value)}
+                        placeholder={t.gitCommitMsg}
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      />
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void handleGitPull()}
+                          disabled={gitLoading || !gitStatusData?.isRepo}
+                          className="px-4 py-2 bg-[#1A1A1A] border border-[#252525] text-white rounded-xl text-sm font-bold hover:border-[#38BDF8]/50 disabled:opacity-40"
+                        >
+                          {t.gitPull}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleGitCommit()}
+                          disabled={gitLoading || !gitCommitMessage.trim() || !gitStatusData?.isRepo}
+                          className="px-4 py-2 bg-[#1A1A1A] border border-[#252525] text-white rounded-xl text-sm font-bold hover:border-[#38BDF8]/50 disabled:opacity-40"
+                        >
+                          {t.gitCommit}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleGitPush()}
+                          disabled={gitLoading || !gitStatusData?.isRepo}
+                          className="px-4 py-2 bg-[#38BDF8] text-black rounded-xl text-sm font-bold hover:bg-[#0EA5E9] disabled:opacity-40"
+                        >
+                          {t.gitPush}
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </Dialog.Content>
             </Dialog.Portal>

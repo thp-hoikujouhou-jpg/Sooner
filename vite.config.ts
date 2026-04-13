@@ -31,6 +31,8 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
+      port: 5173,
+      strictPort: false,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {
         ignored: ['**/projects/**', '**/node_modules/**'],
