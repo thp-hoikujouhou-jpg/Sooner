@@ -548,7 +548,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const [apiBaseUrl, setApiBaseUrl] = useState(localStorage.getItem("aether_api_base_url") || "");
   const [vercelKey, setVercelKey] = useState(localStorage.getItem("aether_vercel_key") || "");
   const [customKey, setCustomKey] = useState(localStorage.getItem("aether_custom_key") || "");
-  const [selectedModel, setSelectedModel] = useState(localStorage.getItem("aether_selected_model") || "gemini-2.5-flash-preview-04-17");
+  const [selectedModel, setSelectedModel] = useState(localStorage.getItem("aether_selected_model") || "gemini-2.5-flash");
   const [runningPort, setRunningPort] = useState<number | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
@@ -1031,12 +1031,12 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       }
       modelNames.sort();
       if (modelNames.length === 0) {
-        setAvailableModels(["gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-05-06", "gemini-2.0-flash"]);
+        setAvailableModels(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]);
       } else {
         setAvailableModels(modelNames);
       }
     } catch {
-      setAvailableModels(["gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-05-06", "gemini-2.0-flash"]);
+      setAvailableModels(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]);
     }
     setIsFetchingModels(false);
   };
@@ -1048,7 +1048,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     try {
       const testAi = createAiClient();
       await testAi.models.generateContent({
-        model: selectedModel || "gemini-2.5-flash-preview-04-17",
+        model: selectedModel || "gemini-2.5-flash",
         contents: "Hi",
       });
       alert("API Key is valid!");
@@ -2228,7 +2228,7 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                         type="text"
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value)}
-                        placeholder="gemini-2.5-flash-preview-04-17"
+                        placeholder="gemini-2.5-flash"
                         className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
                       />
                     )}

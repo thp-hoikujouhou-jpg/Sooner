@@ -103,6 +103,12 @@ firebase deploy --only hosting
 - **Build** — Vite
 - **Backend** — Express (dev server with Gemini API proxy)
 
+## Acknowledgments
+
+- [Monaco Editor](https://github.com/microsoft/monaco-editor) by Microsoft — the code editor that powers VS Code, used as the core editor component in Sooner IDE.
+- [Google Gemini](https://ai.google.dev/) — AI model powering the coding assistant.
+- [Firebase](https://firebase.google.com/) — authentication and cloud storage.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
