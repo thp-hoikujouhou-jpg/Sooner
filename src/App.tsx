@@ -28,7 +28,11 @@ import {
   Trash2,
   MoreVertical,
   Square,
-  Package
+  Package,
+  Star,
+  Lock,
+  Search,
+  GitBranch
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -223,7 +227,17 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
   const handleGithub = async () => {
     if (!auth) return;
-    try { await signInWithPopup(auth, new GithubAuthProvider()); redirectToApp(); } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
+    try {
+      const provider = new GithubAuthProvider();
+      provider.addScope("repo");
+      provider.addScope("read:user");
+      const result = await signInWithPopup(auth, provider);
+      const credential = GithubAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        localStorage.setItem("github_token", credential.accessToken);
+      }
+      redirectToApp();
+    } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
   };
 
   if (mode === "landing") {
@@ -547,6 +561,11 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     return process.env.GEMINI_API_KEY || "";
   });
   const [githubToken, setGithubToken] = useState(localStorage.getItem("github_token") || "");
+  const [githubRepos, setGithubRepos] = useState<{ name: string; full_name: string; clone_url: string; html_url: string; description: string | null; private: boolean; updated_at: string; stargazers_count: number; language: string | null }[]>([]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [githubRepoSearch, setGithubRepoSearch] = useState("");
+  const [cloneTab, setCloneTab] = useState<"github" | "url">("github");
+  const [githubUsername, setGithubUsername] = useState(localStorage.getItem("github_username") || "");
   const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">(() => {
     return (localStorage.getItem("aether_api_provider") as any) || "gemini";
   });
@@ -655,6 +674,18 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       runServer: "Run Server",
       stopServer: "Stop Server",
       serverRunning: "Running",
+      importFromGithub: "Import from GitHub",
+      manualUrl: "Manual URL",
+      searchRepos: "Search repositories...",
+      noRepos: "No repositories found.",
+      connectGithub: "Connect your GitHub account to browse repositories.",
+      connectGithubBtn: "Connect GitHub",
+      cloneRepo: "Clone",
+      privateRepo: "Private",
+      loadingRepos: "Loading repositories...",
+      githubConnected: "Connected as",
+      disconnectGithub: "Disconnect",
+      repoStars: "stars",
     },
     ja: {
       projects: "プロジェクト",
@@ -717,6 +748,18 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       runServer: "サーバー起動",
       stopServer: "サーバー停止",
       serverRunning: "実行中",
+      importFromGithub: "GitHubからインポート",
+      manualUrl: "URL入力",
+      searchRepos: "リポジトリを検索...",
+      noRepos: "リポジトリが見つかりません。",
+      connectGithub: "GitHubアカウントを連携して、リポジトリを参照できます。",
+      connectGithubBtn: "GitHub連携",
+      cloneRepo: "クローン",
+      privateRepo: "非公開",
+      loadingRepos: "リポジトリを読み込み中...",
+      githubConnected: "接続中：",
+      disconnectGithub: "連携解除",
+      repoStars: "スター",
     }
   };
 
@@ -1109,6 +1152,73 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       }
     };
     reader.readAsText(file);
+  };
+
+  const reconnectGitHub = async () => {
+    if (!auth) return;
+    try {
+      const provider = new GithubAuthProvider();
+      provider.addScope("repo");
+      provider.addScope("read:user");
+      const result = await signInWithPopup(auth, provider);
+      const credential = GithubAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setGithubToken(credential.accessToken);
+        localStorage.setItem("github_token", credential.accessToken);
+        return credential.accessToken;
+      }
+    } catch (e) {
+      console.error("GitHub reconnect failed", e);
+    }
+    return null;
+  };
+
+  const fetchGitHubRepos = async () => {
+    let token = githubToken;
+    if (!token) return;
+    setIsLoadingRepos(true);
+    try {
+      const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
+        headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+      });
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      const data = await res.json();
+      setGithubRepos(data);
+      if (!githubUsername) {
+        const userRes = await fetch("https://api.github.com/user", {
+          headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+        });
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setGithubUsername(userData.login || "");
+          localStorage.setItem("github_username", userData.login || "");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch GitHub repos", e);
+      setGithubRepos([]);
+    }
+    setIsLoadingRepos(false);
+  };
+
+  const handleCloneFromGitHub = async (repo: { clone_url: string; name: string }) => {
+    const projectName = repo.name;
+    if (!BACKEND_URL) {
+      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneにはバックエンドが必要です。" : "Git clone requires a backend server."]);
+      setIsCloneOpen(false);
+      return;
+    }
+    try {
+      setTerminalOutput(prev => [...prev, `Cloning ${repo.clone_url}...`]);
+      setIsCloneOpen(false);
+      await axios.post(apiUrl("/api/projects/clone"), { repoUrl: repo.clone_url, name: projectName, token: githubToken });
+      await fetchProjects();
+      setActiveProject(projectName);
+      setRepoUrl("");
+      setCloneName("");
+    } catch (e: any) {
+      alert(`Clone failed: ${e.response?.data?.error || e.message}`);
+    }
   };
 
   const handleClone = async () => {
@@ -1707,8 +1817,8 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
             <span className="font-bold tracking-tight uppercase text-xs">Sooner IDE</span>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={() => setIsCloneOpen(true)} title="Clone from GitHub" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
-              <Globe className="w-4 h-4" />
+            <button onClick={() => setIsCloneOpen(true)} title={language === "ja" ? "GitHubからクローン" : "Clone from GitHub"} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
+              <GitHubIcon className="w-4 h-4" />
             </button>
             <button onClick={() => setIsNewProjectOpen(true)} title="New Project" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
               <Plus className="w-4 h-4" />
@@ -2384,19 +2494,38 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                     </p>
                   </div>
 
-                  {/* 4. GitHub Token */}
+                  {/* 4. GitHub Integration */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.githubToken}</label>
-                    <div className="relative">
-                      <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
-                      <input 
-                        type="password"
-                        value={githubToken}
-                        onChange={(e) => setGithubToken(e.target.value)}
-                        placeholder="ghp_..."
-                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                      />
-                    </div>
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">GitHub</label>
+                    {githubToken ? (
+                      <div className="flex items-center gap-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4">
+                        <GitHubIcon className="w-5 h-5 text-white" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : (language === "ja" ? "接続済み" : "Connected")}</div>
+                          <div className="text-[10px] text-green-400">{language === "ja" ? "repo, read:user スコープ付き" : "Scopes: repo, read:user"}</div>
+                        </div>
+                        <button
+                          onClick={() => { setGithubToken(""); setGithubUsername(""); setGithubRepos([]); localStorage.removeItem("github_token"); localStorage.removeItem("github_username"); }}
+                          className="text-[10px] text-red-400 hover:text-red-300 font-bold"
+                        >
+                          {t.disconnectGithub}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-[#555]">{language === "ja" ? "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。" : "Sign in with GitHub to auto-connect, or enter a token manually."}</p>
+                        <div className="relative">
+                          <GitHubIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
+                          <input
+                            type="password"
+                            value={githubToken}
+                            onChange={(e) => setGithubToken(e.target.value)}
+                            placeholder="ghp_..."
+                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -2438,53 +2567,162 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
         )}
 
         {isCloneOpen && (
-          <Dialog.Root open={isCloneOpen} onOpenChange={setIsCloneOpen}>
+          <Dialog.Root open={isCloneOpen} onOpenChange={(open) => { setIsCloneOpen(open); if (open && githubToken && githubRepos.length === 0) fetchGitHubRepos(); }}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
-                <Dialog.Description className="sr-only">Enter the repository URL and project name to clone from GitHub.</Dialog.Description>
-                <div className="flex items-center justify-between mb-6">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl flex flex-col">
+                <Dialog.Description className="sr-only">Clone a repository from GitHub or enter a URL manually.</Dialog.Description>
+                <div className="flex items-center justify-between mb-4">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
-                    <Globe className="w-5 h-5 text-[#38BDF8]" />
-                    Clone Repository
+                    <GitBranch className="w-5 h-5 text-[#38BDF8]" />
+                    {language === "ja" ? "リポジトリをクローン" : "Clone Repository"}
                   </Dialog.Title>
                   <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
                     <X className="w-5 h-5" />
                   </Dialog.Close>
                 </div>
-                
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Repository URL</label>
-                    <input 
-                      type="text"
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="https://github.com/user/repo"
-                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
-                    <input 
-                      type="text"
-                      value={cloneName}
-                      onChange={(e) => setCloneName(e.target.value)}
-                      placeholder="my-awesome-project"
-                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                    />
-                  </div>
-                </div>
 
-                <div className="mt-8 flex justify-end">
-                  <button 
-                    onClick={handleClone}
-                    disabled={!repoUrl || !cloneName}
-                    className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => { setCloneTab("github"); if (githubToken && githubRepos.length === 0) fetchGitHubRepos(); }}
+                    className={cn(
+                      "flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2",
+                      cloneTab === "github" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
+                    )}
                   >
-                    Clone Project
+                    <GitHubIcon className="w-4 h-4" />
+                    {t.importFromGithub}
+                  </button>
+                  <button
+                    onClick={() => setCloneTab("url")}
+                    className={cn(
+                      "flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2",
+                      cloneTab === "url" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
+                    )}
+                  >
+                    <Globe className="w-4 h-4" />
+                    {t.manualUrl}
                   </button>
                 </div>
+
+                {cloneTab === "github" ? (
+                  <div className="flex-1 min-h-0 flex flex-col">
+                    {!githubToken ? (
+                      <div className="flex-1 flex flex-col items-center justify-center py-12 gap-4">
+                        <GitHubIcon className="w-12 h-12 text-[#8E9299]" />
+                        <p className="text-sm text-[#8E9299] text-center max-w-xs">{t.connectGithub}</p>
+                        <button
+                          onClick={async () => {
+                            const token = await reconnectGitHub();
+                            if (token) fetchGitHubRepos();
+                          }}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-white text-black rounded-xl font-bold text-sm hover:bg-gray-200 transition-colors"
+                        >
+                          <GitHubIcon className="w-4 h-4" />
+                          {t.connectGithubBtn}
+                        </button>
+                        <p className="text-[10px] text-[#555] text-center max-w-xs">
+                          {language === "ja" ? "repo, read:user スコープでGitHubに接続します" : "Connects with repo, read:user scopes"}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {githubUsername && (
+                          <div className="flex items-center gap-2 mb-3 px-1">
+                            <GitHubIcon className="w-4 h-4 text-[#8E9299]" />
+                            <span className="text-xs text-[#8E9299]">{t.githubConnected} <span className="text-white font-bold">@{githubUsername}</span></span>
+                          </div>
+                        )}
+                        <div className="relative mb-3">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                          <input
+                            type="text"
+                            value={githubRepoSearch}
+                            onChange={(e) => setGithubRepoSearch(e.target.value)}
+                            placeholder={t.searchRepos}
+                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                          />
+                        </div>
+                        <div className="flex-1 overflow-y-auto max-h-[340px] space-y-1 pr-1">
+                          {isLoadingRepos ? (
+                            <div className="flex items-center justify-center py-12 gap-2">
+                              <Loader2 className="w-5 h-5 text-[#38BDF8] animate-spin" />
+                              <span className="text-sm text-[#8E9299]">{t.loadingRepos}</span>
+                            </div>
+                          ) : (
+                            (() => {
+                              const filtered = githubRepos.filter(r =>
+                                r.name.toLowerCase().includes(githubRepoSearch.toLowerCase()) ||
+                                r.full_name.toLowerCase().includes(githubRepoSearch.toLowerCase()) ||
+                                (r.description || "").toLowerCase().includes(githubRepoSearch.toLowerCase())
+                              );
+                              return filtered.length > 0 ? filtered.map(repo => (
+                                <div
+                                  key={repo.full_name}
+                                  className="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#1A1A1A] transition-colors cursor-pointer border border-transparent hover:border-[#252525]"
+                                  onClick={() => handleCloneFromGitHub(repo)}
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-white truncate">{repo.name}</span>
+                                      {repo.private && <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-[#252525] rounded text-[9px] text-[#8E9299]"><Lock className="w-2.5 h-2.5" />{t.privateRepo}</span>}
+                                    </div>
+                                    {repo.description && <p className="text-xs text-[#555] truncate mt-0.5">{repo.description}</p>}
+                                    <div className="flex items-center gap-3 mt-1">
+                                      {repo.language && <span className="text-[10px] text-[#8E9299]">{repo.language}</span>}
+                                      {repo.stargazers_count > 0 && <span className="flex items-center gap-0.5 text-[10px] text-[#8E9299]"><Star className="w-2.5 h-2.5" />{repo.stargazers_count}</span>}
+                                      <span className="text-[10px] text-[#555]">{new Date(repo.updated_at).toLocaleDateString()}</span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleCloneFromGitHub(repo); }}
+                                    className="px-3 py-1.5 bg-[#38BDF8]/10 text-[#38BDF8] rounded-lg text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#38BDF8]/20"
+                                  >
+                                    {t.cloneRepo}
+                                  </button>
+                                </div>
+                              )) : (
+                                <div className="text-center py-8 text-sm text-[#8E9299]">{t.noRepos}</div>
+                              );
+                            })()
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Repository URL</label>
+                      <input
+                        type="text"
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        placeholder="https://github.com/user/repo"
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
+                      <input
+                        type="text"
+                        value={cloneName}
+                        onChange={(e) => setCloneName(e.target.value)}
+                        placeholder="my-awesome-project"
+                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleClone}
+                        disabled={!repoUrl || !cloneName}
+                        className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
+                      >
+                        {t.cloneRepo}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
