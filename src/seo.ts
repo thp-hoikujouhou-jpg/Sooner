@@ -3,6 +3,8 @@
  * Call after mount and when language / route context changes.
  */
 
+import { readStoredLanguage } from "./language";
+
 const OG_IMAGE = "https://site.sooner.sh/sooner-icon.svg";
 
 export type SeoLang = "en" | "ja";
@@ -13,9 +15,8 @@ function getLangForSeo(): SeoLang {
   if (p.get("lang") === "ja") return "ja";
   if (p.get("lang") === "en") return "en";
   const h = window.location.hostname;
-  if (h === "sooner.sh" || h === "www.sooner.sh") {
-    const s = localStorage.getItem("aether_language");
-    if (s === "ja" || s === "en") return s;
+  if (h === "sooner.sh" || h === "www.sooner.sh" || h.startsWith("blog.")) {
+    return readStoredLanguage();
   }
   return "en";
 }

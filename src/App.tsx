@@ -76,6 +76,7 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { FileNode, Project, AgentStep, ChatMessage } from "./types";
 import { applyDocumentSeo } from "./seo";
+import { readStoredLanguage, writeStoredLanguage } from "./language";
 import { clsx, type ClassValue } from "clsx";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { twMerge } from "tailwind-merge";
@@ -212,6 +213,55 @@ const landingI18n = {
   },
 };
 
+const blogI18n = {
+  en: {
+    title: "Sooner Blog",
+    subtitle: "Product updates, tutorials, and notes from the team.",
+    navMarketing: "Marketing site",
+    navApp: "Open app",
+    langToggle: "日本語",
+    postsHeading: "Latest posts",
+    posts: [
+      {
+        slug: "welcome-sooner-beta",
+        title: "Welcome to Sooner (beta)",
+        date: "Apr 14, 2026",
+        excerpt: "Sooner is an AI-native IDE in the browser. Here is how we think about shipping faster without leaving your flow.",
+      },
+      {
+        slug: "why-in-browser",
+        title: "Why we built in the browser",
+        date: "Apr 10, 2026",
+        excerpt: "Zero install, consistent environments, and a path from idea to running code in one place.",
+      },
+    ],
+    footer: "Sooner beta — Build sooner, ship faster",
+  },
+  ja: {
+    title: "Sooner ブログ",
+    subtitle: "プロダクトのアップデート、チュートリアル、チームからのメモ。",
+    navMarketing: "マーケサイト",
+    navApp: "アプリを開く",
+    langToggle: "EN",
+    postsHeading: "最新の記事",
+    posts: [
+      {
+        slug: "welcome-sooner-beta",
+        title: "Sooner（ベータ）へようこそ",
+        date: "2026年4月14日",
+        excerpt: "Sooner はブラウザ上の AI ネイティブ IDE です。フローを離さずに早く届ける考え方を紹介します。",
+      },
+      {
+        slug: "why-in-browser",
+        title: "なぜブラウザで作ったか",
+        date: "2026年4月10日",
+        excerpt: "インストール不要、揃った環境、アイデアから動くコードまでを一か所に。",
+      },
+    ],
+    footer: "Sooner ベータ — Build sooner, ship faster",
+  },
+};
+
 function GitHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -224,13 +274,88 @@ function getInitialLang(): "en" | "ja" {
   const params = new URLSearchParams(window.location.search);
   const paramLang = params.get("lang");
   if (paramLang === "ja" || paramLang === "en") return paramLang;
-  return "en";
+  return readStoredLanguage();
 }
 
 function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "en" | "ja") {
   const proto = window.location.protocol;
   const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
   window.location.href = `${proto}//${sub}.sooner.sh${langParam}`;
+}
+
+function BlogPage() {
+  const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
+  const t = blogI18n[lang];
+  const isProduction = window.location.hostname.endsWith("sooner.sh");
+
+  useEffect(() => {
+    applyDocumentSeo({ lang });
+  }, [lang]);
+
+  const goMarketing = () => {
+    if (isProduction) {
+      const q = lang !== "en" ? `?lang=${lang}` : "";
+      window.location.href = `${window.location.protocol}//site.sooner.sh${q}`;
+    } else {
+      window.location.href = "/";
+    }
+  };
+
+  const goApp = () => {
+    if (isProduction) {
+      const q = lang !== "en" ? `?lang=${lang}` : "";
+      window.location.href = `${window.location.protocol}//sooner.sh${q}`;
+    } else {
+      window.location.href = "/";
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#09090B] text-white flex flex-col">
+      <header className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2.5">
+          <Zap className="w-6 h-6 text-[#38BDF8]" />
+          <span className="font-black text-lg tracking-tight">{t.title}</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              const next = lang === "en" ? "ja" : "en";
+              writeStoredLanguage(next);
+              setLang(next);
+            }}
+            className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
+          >
+            {t.langToggle}
+          </button>
+          <button type="button" onClick={goMarketing} className="px-3 py-1.5 text-xs font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors">
+            {t.navMarketing}
+          </button>
+          <button type="button" onClick={goApp} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-colors">
+            {t.navApp}
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 px-8 py-12 max-w-3xl mx-auto w-full">
+        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-3">{t.title}</h1>
+        <p className="text-[#71717A] mb-10">{t.subtitle}</p>
+        <h2 className="text-sm font-bold uppercase tracking-widest text-[#8E9299] mb-6">{t.postsHeading}</h2>
+        <ul className="space-y-8">
+          {t.posts.map((post) => (
+            <li key={post.slug} className="border-b border-white/[0.06] pb-8">
+              <p className="text-xs text-[#555] mb-2">{post.date}</p>
+              <h3 className="text-xl font-bold text-white mb-2">{post.title}</h3>
+              <p className="text-[#A1A1AA] text-sm leading-relaxed">{post.excerpt}</p>
+            </li>
+          ))}
+        </ul>
+      </main>
+
+      <footer className="px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">{t.footer}</footer>
+    </div>
+  );
 }
 
 function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?: "landing" | "login" | "signup" }) {
@@ -316,7 +441,16 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold ml-0.5 border border-[#38BDF8]/20">BETA</span>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setLang(lang === "en" ? "ja" : "en")} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors">{lang === "en" ? "日本語" : "EN"}</button>
+            <button
+              onClick={() => {
+                const next = lang === "en" ? "ja" : "en";
+                writeStoredLanguage(next);
+                setLang(next);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
+            >
+              {lang === "en" ? "日本語" : "EN"}
+            </button>
             {firebaseConfigured ? (
               <>
                 <button onClick={() => isProduction ? navigateToSubdomain("signin", lang) : setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
@@ -645,7 +779,11 @@ export default function App() {
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={isSignupSite ? "signup" : "login"} />;
   }
 
-  if (isLandingSite || isBlogSite) {
+  if (isBlogSite) {
+    return <BlogPage />;
+  }
+
+  if (isLandingSite) {
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="landing" />;
   }
 
@@ -753,10 +891,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [language, setLanguage] = useState<"en" | "ja">(() => {
     const paramLang = new URLSearchParams(window.location.search).get("lang");
     if (paramLang === "ja" || paramLang === "en") {
-      localStorage.setItem("aether_language", paramLang);
+      writeStoredLanguage(paramLang);
       return paramLang;
     }
-    return (localStorage.getItem("aether_language") as "en" | "ja") || "en";
+    return readStoredLanguage();
   });
 
   useEffect(() => {
@@ -1014,7 +1152,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }, [selectedModel]);
 
   useEffect(() => {
-    localStorage.setItem("aether_language", language);
+    writeStoredLanguage(language);
   }, [language]);
 
   useEffect(() => {
