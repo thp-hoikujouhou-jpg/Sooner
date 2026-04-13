@@ -159,17 +159,26 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
+function navigateToSubdomain(sub: "site" | "signup" | "signin") {
+  const proto = window.location.protocol;
+  window.location.href = `${proto}//${sub}.sooner.sh`;
+}
+
 function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?: "landing" | "login" | "signup" }) {
   const [mode, setMode] = useState<"landing" | "login" | "signup">(initialMode ?? "landing");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lang, setLang] = useState<"en" | "ja">(() => {
-    if (typeof navigator !== "undefined" && navigator.language.startsWith("ja")) return "ja";
-    return "en";
-  });
+  const [lang, setLang] = useState<"en" | "ja">("en");
   const t = landingI18n[lang];
+  const isProduction = window.location.hostname.endsWith("sooner.sh");
+
+  const redirectToApp = () => {
+    if (isProduction) {
+      window.location.href = `${window.location.protocol}//sooner.sh`;
+    }
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,6 +191,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
+      redirectToApp();
     } catch (err: any) {
       setError(err.message?.replace("Firebase: ", "") || "Authentication failed");
     }
@@ -190,12 +200,12 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
   const handleGoogle = async () => {
     if (!auth) return;
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (err: any) { setError(err.message || "Google sign-in failed"); }
+    try { await signInWithPopup(auth, new GoogleAuthProvider()); redirectToApp(); } catch (err: any) { setError(err.message || "Google sign-in failed"); }
   };
 
   const handleGithub = async () => {
     if (!auth) return;
-    try { await signInWithPopup(auth, new GithubAuthProvider()); } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
+    try { await signInWithPopup(auth, new GithubAuthProvider()); redirectToApp(); } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
   };
 
   if (mode === "landing") {
@@ -225,8 +235,8 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <button onClick={() => setLang(lang === "en" ? "ja" : "en")} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors">{lang === "en" ? "日本語" : "EN"}</button>
             {firebaseConfigured ? (
               <>
-                <button onClick={() => setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
-                <button onClick={() => setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
+                <button onClick={() => isProduction ? navigateToSubdomain("signin") : setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
+                <button onClick={() => isProduction ? navigateToSubdomain("signup") : setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
               <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchIde}</button>
@@ -254,7 +264,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </p>
             <div className="flex items-center justify-center gap-4">
               {firebaseConfigured ? (
-                <button onClick={() => setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                <button onClick={() => isProduction ? navigateToSubdomain("signup") : setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
                   {t.getStartedFree} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               ) : (
@@ -405,12 +415,12 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
           <p className="text-xs text-[#8E9299] text-center mt-4">
             {mode === "login" ? t.noAccount : t.hasAccount}
-            <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }} className="text-[#38BDF8] hover:underline font-bold">
+            <button onClick={() => { if (isProduction) { navigateToSubdomain(mode === "login" ? "signup" : "signin"); } else { setMode(mode === "login" ? "signup" : "login"); setError(""); }}} className="text-[#38BDF8] hover:underline font-bold">
               {mode === "login" ? t.signUp : t.signIn}
             </button>
           </p>
         </div>
-        <button onClick={() => setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
+        <button onClick={() => isProduction ? navigateToSubdomain("site") : setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
       </motion.div>
     </div>
   );
@@ -442,6 +452,14 @@ export default function App() {
   }
 
   if (isSignupSite || isSigninSite) {
+    if (authUser) {
+      window.location.href = `${window.location.protocol}//sooner.sh`;
+      return (
+        <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+        </div>
+      );
+    }
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={isSignupSite ? "signup" : "login"} />;
   }
 
