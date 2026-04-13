@@ -22,11 +22,14 @@ let firebaseAuth: admin.auth.Auth | null = null;
 const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || "";
 
 try {
+  const serviceAccountBase64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT;
 
   let serviceAccount: any = null;
-  if (serviceAccountJson) {
+  if (serviceAccountBase64) {
+    serviceAccount = JSON.parse(Buffer.from(serviceAccountBase64, "base64").toString("utf-8"));
+  } else if (serviceAccountJson) {
     serviceAccount = JSON.parse(serviceAccountJson);
   } else if (serviceAccountPath) {
     const serviceAccountFull = path.resolve(process.cwd(), serviceAccountPath);
