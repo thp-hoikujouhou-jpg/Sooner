@@ -22,10 +22,18 @@ let firebaseAuth: admin.auth.Auth | null = null;
 const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || "";
 
 try {
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccountPath) {
+
+  let serviceAccount: any = null;
+  if (serviceAccountJson) {
+    serviceAccount = JSON.parse(serviceAccountJson);
+  } else if (serviceAccountPath) {
     const serviceAccountFull = path.resolve(process.cwd(), serviceAccountPath);
-    const serviceAccount = JSON.parse(await fs.readFile(serviceAccountFull, "utf-8"));
+    serviceAccount = JSON.parse(await fs.readFile(serviceAccountFull, "utf-8"));
+  }
+
+  if (serviceAccount) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       storageBucket: STORAGE_BUCKET,
@@ -148,7 +156,18 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "3000", 10);
 
-  app.use(cors());
+  app.use(cors({
+    origin: process.env.NODE_ENV === "production"
+      ? [
+          "https://sooner.sh",
+          "https://www.sooner.sh",
+          "https://site.sooner.sh",
+          "https://signup.sooner.sh",
+          "https://signin.sooner.sh",
+        ]
+      : true,
+    credentials: true,
+  }));
   app.use(bodyParser.json({ limit: "10mb" }));
 
   const PROJECTS_ROOT = path.resolve(process.cwd(), "projects");
@@ -1261,13 +1280,23 @@ async function startServer() {
     `;
   }
 
-  // --- Vite Middleware ---
+  // --- Health check ---
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // --- Vite Middleware (dev only) / Static files (local production) ---
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
+  } else if (process.env.RAILWAY_ENVIRONMENT) {
+    // On Railway: API-only mode, no static file serving
+    app.get("/", (_req, res) => {
+      res.json({ service: "Sooner IDE API", status: "running" });
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
@@ -1277,7 +1306,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT} (${process.env.NODE_ENV || "development"})`);
   });
 }
 

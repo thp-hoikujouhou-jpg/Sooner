@@ -499,8 +499,13 @@ export default function App() {
   return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
 }
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+
+function apiUrl(path: string): string {
+  return `${BACKEND_URL}${path}`;
+}
+
 function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
-  // Attach Firebase ID token to all API requests for cloud storage sync
   useEffect(() => {
     const interceptor = axios.interceptors.request.use(async (config) => {
       if (user && auth) {
@@ -775,9 +780,20 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
       storageLoadChatHistory(uid, activeProject)
         .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
         .catch(() => setMessages([]));
-      setProjectType("static");
-      setProjectRunning(false);
-      setRunningPort(null);
+      if (BACKEND_URL) {
+        axios.get(apiUrl(`/api/projects/${activeProject}/detect-type`))
+          .then(res => {
+            setProjectType(res.data.detected || "static");
+            setProjectRunning(!!res.data.running);
+            if (res.data.port) setRunningPort(res.data.port);
+            else setRunningPort(null);
+          })
+          .catch(() => { setProjectType("static"); setProjectRunning(false); setRunningPort(null); });
+      } else {
+        setProjectType("static");
+        setProjectRunning(false);
+        setRunningPort(null);
+      }
     } else {
       setFiles([]);
       setMessages([]);
@@ -786,9 +802,25 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     }
   }, [activeProject]);
 
-  // Auto-build/preview is only available in local dev mode
   useEffect(() => {
-    if (!activeProject || activeTab !== "preview") return;
+    if (!activeProject || activeTab !== "preview" || !BACKEND_URL) return;
+    let cancelled = false;
+    const autoSetup = async () => {
+      await buildAndPreview();
+      if (cancelled) return;
+      try {
+        const res = await axios.get(apiUrl(`/api/projects/${activeProject}/detect-type`));
+        if (cancelled) return;
+        if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
+          setTerminalOutput(prev => [...prev, language === "ja"
+            ? "> 依存関係のインストール・サーバー起動中..."
+            : "> Installing dependencies & starting server..."]);
+          await startProject();
+        }
+      } catch {}
+    };
+    autoSetup();
+    return () => { cancelled = true; };
   }, [activeProject, activeTab]);
 
   useEffect(() => {
@@ -894,7 +926,17 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   const runCommand = async (command: string) => {
     if (!activeProject) return;
     setTerminalOutput(prev => [...prev, `> ${command}`]);
-    setTerminalOutput(prev => [...prev, language === "ja" ? "ターミナルコマンドはクラウドモードでは利用できません。" : "Terminal commands are not available in cloud mode."]);
+    if (!BACKEND_URL) {
+      setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
+      return;
+    }
+    try {
+      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/terminal`), { command });
+      if (res.data.stdout) setTerminalOutput(prev => [...prev, res.data.stdout]);
+      if (res.data.stderr) setTerminalOutput(prev => [...prev, `Error: ${res.data.stderr}`]);
+    } catch (e) {
+      setTerminalOutput(prev => [...prev, "Failed to execute command"]);
+    }
   };
 
   const fetchPackages = async () => {
@@ -947,11 +989,57 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
   };
 
   const startProject = async () => {
-    setTerminalOutput(prev => [...prev, language === "ja" ? "サーバー起動はクラウドモードでは利用できません。" : "Server start is not available in cloud mode."]);
+    if (!activeProject) return;
+    if (!BACKEND_URL) {
+      setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
+      return;
+    }
+    setTerminalOutput(prev => [...prev, `> Starting ${projectType} server...`]);
+    try {
+      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/run`));
+      if (res.data.status === "install-failed") {
+        setTerminalOutput(prev => [...prev, ...(res.data.lines || []), "npm install failed."]);
+        return;
+      }
+      if (res.data.status === "started" || res.data.status === "already-running" || res.data.status === "installing") {
+        setProjectRunning(true);
+        if (res.data.port) setRunningPort(res.data.port);
+        setTerminalOutput(prev => [...prev, `Server running on port ${res.data.port} (${res.data.type})`]);
+        let seen = 0;
+        const poll = async () => {
+          if (!activeProject) return;
+          try {
+            const logRes = await axios.get(apiUrl(`/api/projects/${activeProject}/run-logs?since=${seen}`));
+            if (logRes.data.lines?.length > 0) {
+              setTerminalOutput(prev => [...prev, ...logRes.data.lines]);
+            }
+            seen = logRes.data.total || seen;
+            if (logRes.data.status === "running") {
+              setTimeout(poll, 2000);
+            } else {
+              setProjectRunning(false);
+            }
+          } catch {}
+        };
+        setTimeout(poll, 1000);
+      } else if (res.data.status === "static") {
+        setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドは検出されませんでした。" : "No backend detected."]);
+      }
+    } catch (e) {
+      setTerminalOutput(prev => [...prev, "Failed to start project server."]);
+    }
   };
 
   const stopProject = async () => {
-    setTerminalOutput(prev => [...prev, language === "ja" ? "サーバー停止はクラウドモードでは利用できません。" : "Server stop is not available in cloud mode."]);
+    if (!activeProject || !BACKEND_URL) return;
+    try {
+      await axios.post(apiUrl(`/api/projects/${activeProject}/stop`));
+      setProjectRunning(false);
+      setRunningPort(null);
+      setTerminalOutput(prev => [...prev, language === "ja" ? "サーバーを停止しました。" : "Server stopped."]);
+    } catch {
+      setTerminalOutput(prev => [...prev, "Failed to stop server."]);
+    }
   };
 
   const isFlutterProject = () => {
@@ -962,8 +1050,48 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
     return hasFile("pubspec.yaml");
   };
 
+  const pollBuildStatus = (project: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      let seen = 0;
+      const poll = async () => {
+        try {
+          const res = await axios.get(apiUrl(`/api/projects/${project}/build-status?since=${seen}`));
+          const { status, lines, total } = res.data;
+          if (lines && lines.length > 0) {
+            setTerminalOutput(prev => [...prev, ...lines]);
+          }
+          seen = total || seen;
+          if (status === "success") { resolve(true); return; }
+          if (status === "failed") { resolve(false); return; }
+          setTimeout(poll, 1000);
+        } catch {
+          resolve(false);
+        }
+      };
+      poll();
+    });
+  };
+
   const buildAndPreview = async () => {
-    return true;
+    if (!activeProject || !BACKEND_URL) return true;
+    if (!isFlutterProject()) return true;
+
+    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking build..."]);
+    try {
+      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/build-preview`));
+      const { status } = res.data;
+      if (status === "already-built") {
+        setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
+        return true;
+      }
+      if (status === "build-started" || status === "building") {
+        setTerminalOutput(prev => [...prev, "Flutter: Building... (this may take a minute)"]);
+        return await pollBuildStatus(activeProject);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -985,10 +1113,14 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
 
   const handleClone = async () => {
     if (!repoUrl || !cloneName) return;
-    try {
-      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneはクラウドモードでは現在サポートされていません。ZIPアップロードをご利用ください。" : "Git clone is not supported in cloud mode. Please use ZIP upload instead."]);
+    if (!BACKEND_URL) {
+      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneにはバックエンドが必要です。ZIPアップロードをご利用ください。" : "Git clone requires a backend. Please use ZIP upload instead."]);
       setIsCloneOpen(false);
       return;
+    }
+    try {
+      setTerminalOutput(prev => [...prev, `Cloning ${repoUrl}...`]);
+      await axios.post(apiUrl("/api/projects/clone"), { repoUrl, name: cloneName, token: githubToken });
       fetchProjects();
       setActiveProject(cloneName);
       setIsCloneOpen(false);
@@ -1367,9 +1499,21 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
             
             if (step.action === "write_file") {
               if (uid && activeProject) await storageUploadFile(uid, activeProject, step.path, step.content);
+              if (BACKEND_URL && activeProject) {
+                await axios.post(apiUrl(`/api/projects/${activeProject}/file`), { filePath: step.path, content: step.content }).catch(() => {});
+              }
               setTerminalOutput(prev => [...prev, `Agent: Wrote ${step.path}`]);
             } else if (step.action === "run_command") {
-              setTerminalOutput(prev => [...prev, `Agent: ${step.command} (terminal commands not available in cloud mode)`]);
+              if (BACKEND_URL && activeProject) {
+                try {
+                  const res = await axios.post(apiUrl(`/api/projects/${activeProject}/terminal`), { command: step.command });
+                  setTerminalOutput(prev => [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean));
+                } catch {
+                  setTerminalOutput(prev => [...prev, `Agent: Failed to run ${step.command}`]);
+                }
+              } else {
+                setTerminalOutput(prev => [...prev, `Agent: ${step.command} (backend not configured)`]);
+              }
             }
             
             updateLastStep("completed", `Done: ${step.description}`);
@@ -1482,6 +1626,9 @@ function SoonerIDE({ user, onSignOut }: { user: User | null; onSignOut: () => vo
                   addStep("code", language === "ja" ? `ビジュアルの問題を自動修正中 (${iteration})...` : `Auto-fixing visual issues (${iteration})...`);
                   for (const fix of fixes) {
                     if (uid && activeProject) await storageUploadFile(uid, activeProject, fix.path, fix.content);
+                    if (BACKEND_URL && activeProject) {
+                      await axios.post(apiUrl(`/api/projects/${activeProject}/file`), { filePath: fix.path, content: fix.content }).catch(() => {});
+                    }
                   }
                   fetchFiles();
                   if (iframe) iframe.src = iframe.src;
