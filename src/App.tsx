@@ -33,7 +33,9 @@ import {
   Lock,
   Search,
   GitBranch,
-  GitMerge
+  GitMerge,
+  Menu,
+  BookOpen,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -148,6 +150,11 @@ const landingI18n = {
     stackMonaco: "Monaco editor core",
     stackAi: "Gemini & extensible AI",
     stackFirebase: "Auth & cloud storage",
+    secMonacoEditorTitle: "Built on Monaco Editor",
+    secMonacoEditorDesc:
+      "Sooner's editor is developed on Monaco Editor — the same engine that powers VS Code. You get familiar shortcuts, syntax highlighting, and multi-file editing directly in the browser.",
+    navBlog: "Blog",
+    navBlogAria: "Blog",
     secMetricsTitle: "Built for velocity",
     metric1: { value: "<60s", label: "idea → runnable preview" },
     metric2: { value: "1×", label: "workspace, no repo sync drama" },
@@ -192,6 +199,11 @@ const landingI18n = {
     stackMonaco: "Monaco エディタ基盤",
     stackAi: "Gemini ＆ 拡張可能なAI",
     stackFirebase: "認証とクラウドストレージ",
+    secMonacoEditorTitle: "Monaco Editor を基盤に開発",
+    secMonacoEditorDesc:
+      "コード編集体験は Monaco Editor（VS Code と同じエディタエンジン）を土台にしています。おなじみのショートカット、シンタックスハイライト、複数ファイル編集をブラウザで利用できます。",
+    navBlog: "ブログ",
+    navBlogAria: "ブログ",
     secMetricsTitle: "スピードのための設計",
     metric1: { value: "<60秒", label: "アイデア→動くプレビュー" },
     metric2: { value: "1つ", label: "迷わない単一ワークスペース" },
@@ -283,8 +295,18 @@ function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "en" | "j
   window.location.href = `${proto}//${sub}.sooner.sh${langParam}`;
 }
 
+function navigateToBlog(lang: "en" | "ja") {
+  const langParam = lang !== "en" ? `?lang=${lang}` : "";
+  const proto =
+    window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? "https:"
+      : window.location.protocol;
+  window.location.href = `${proto}//blog.sooner.sh${langParam}`;
+}
+
 function BlogPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const t = blogI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
@@ -292,7 +314,16 @@ function BlogPage() {
     applyDocumentSeo({ lang });
   }, [lang]);
 
+  useEffect(() => {
+    if (mobileNavOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileNavOpen]);
+
   const goMarketing = () => {
+    setMobileNavOpen(false);
     if (isProduction) {
       const q = lang !== "en" ? `?lang=${lang}` : "";
       window.location.href = `${window.location.protocol}//site.sooner.sh${q}`;
@@ -302,6 +333,7 @@ function BlogPage() {
   };
 
   const goApp = () => {
+    setMobileNavOpen(false);
     if (isProduction) {
       const q = lang !== "en" ? `?lang=${lang}` : "";
       window.location.href = `${window.location.protocol}//sooner.sh${q}`;
@@ -310,50 +342,92 @@ function BlogPage() {
     }
   };
 
+  const toggleLang = () => {
+    const next = lang === "en" ? "ja" : "en";
+    writeStoredLanguage(next);
+    setLang(next);
+  };
+
+  const navButtons = (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          toggleLang();
+          setMobileNavOpen(false);
+        }}
+        className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center"
+      >
+        {t.langToggle}
+      </button>
+      <button
+        type="button"
+        onClick={goMarketing}
+        className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center"
+      >
+        {t.navMarketing}
+      </button>
+      <button
+        type="button"
+        onClick={goApp}
+        className="w-full md:w-auto px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-colors text-center"
+      >
+        {t.navApp}
+      </button>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-[#09090B] text-white flex flex-col">
-      <header className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2.5">
-          <Zap className="w-6 h-6 text-[#38BDF8]" />
-          <span className="font-black text-lg tracking-tight">{t.title}</span>
+      <header className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Zap className="w-6 h-6 text-[#38BDF8] shrink-0" />
+          <span className="font-black text-base sm:text-lg tracking-tight truncate">{t.title}</span>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              const next = lang === "en" ? "ja" : "en";
-              writeStoredLanguage(next);
-              setLang(next);
-            }}
-            className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
-          >
-            {t.langToggle}
-          </button>
-          <button type="button" onClick={goMarketing} className="px-3 py-1.5 text-xs font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors">
-            {t.navMarketing}
-          </button>
-          <button type="button" onClick={goApp} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-colors">
-            {t.navApp}
-          </button>
-        </div>
+
+        <nav className="hidden md:flex flex-wrap items-center justify-end gap-2 lg:gap-3">{navButtons}</nav>
+
+        <button
+          type="button"
+          aria-expanded={mobileNavOpen}
+          aria-label={lang === "ja" ? "メニュー" : "Menu"}
+          onClick={() => setMobileNavOpen((o) => !o)}
+          className="md:hidden p-2 rounded-lg border border-white/[0.08] text-[#E4E4E7] hover:bg-white/[0.04]"
+        >
+          {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
       </header>
 
-      <main className="flex-1 px-8 py-12 max-w-3xl mx-auto w-full">
-        <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-3">{t.title}</h1>
-        <p className="text-[#71717A] mb-10">{t.subtitle}</p>
+      {mobileNavOpen && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            className="fixed inset-0 z-40 bg-black/70 md:hidden"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <div className="fixed top-[57px] right-0 left-0 z-50 md:hidden border-b border-white/[0.06] bg-[#0c0c0e] shadow-xl px-4 py-4 flex flex-col gap-3">
+            {navButtons}
+          </div>
+        </>
+      )}
+
+      <main className="flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-12 max-w-3xl mx-auto w-full">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-3">{t.title}</h1>
+        <p className="text-[#71717A] text-sm sm:text-base mb-8 sm:mb-10">{t.subtitle}</p>
         <h2 className="text-sm font-bold uppercase tracking-widest text-[#8E9299] mb-6">{t.postsHeading}</h2>
         <ul className="space-y-8">
           {t.posts.map((post) => (
             <li key={post.slug} className="border-b border-white/[0.06] pb-8">
               <p className="text-xs text-[#555] mb-2">{post.date}</p>
-              <h3 className="text-xl font-bold text-white mb-2">{post.title}</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-white mb-2">{post.title}</h3>
               <p className="text-[#A1A1AA] text-sm leading-relaxed">{post.excerpt}</p>
             </li>
           ))}
         </ul>
       </main>
 
-      <footer className="px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">{t.footer}</footer>
+      <footer className="px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">{t.footer}</footer>
     </div>
   );
 }
@@ -365,12 +439,21 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const t = landingI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
   useEffect(() => {
     applyDocumentSeo({ lang });
   }, [lang, mode]);
+
+  useEffect(() => {
+    if (mobileNavOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileNavOpen]);
 
   const redirectToApp = () => {
     if (isProduction) {
@@ -431,17 +514,28 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
         `}</style>
 
-        <header className="relative z-10 flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2.5">
-            <div className="relative">
+        <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="relative shrink-0">
               <Zap className="w-6 h-6 text-[#38BDF8]" />
               <div className="absolute inset-0 w-6 h-6 bg-[#38BDF8]/20 blur-md rounded-full" />
             </div>
-            <span className="font-black text-lg tracking-tight">Sooner</span>
-            <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold ml-0.5 border border-[#38BDF8]/20">BETA</span>
+            <span className="font-black text-base sm:text-lg tracking-tight truncate">Sooner</span>
+            <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold shrink-0 border border-[#38BDF8]/20">BETA</span>
           </div>
-          <div className="flex items-center gap-3">
+
+          <div className="hidden md:flex items-center gap-2 lg:gap-3">
             <button
+              type="button"
+              onClick={() => navigateToBlog(lang)}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
+              aria-label={t.navBlogAria}
+            >
+              <BookOpen className="w-4 h-4 text-[#38BDF8]" />
+              <span>{t.navBlog}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 const next = lang === "en" ? "ja" : "en";
                 writeStoredLanguage(next);
@@ -453,22 +547,70 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </button>
             {firebaseConfigured ? (
               <>
-                <button onClick={() => isProduction ? navigateToSubdomain("signin", lang) : setMode("login")} className="px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
-                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
+                <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="px-4 lg:px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
+                <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))} className="px-4 lg:px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
-              <button onClick={onSkip} className="px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
+              <button type="button" onClick={onSkip} className="px-4 lg:px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
             )}
           </div>
+
+          <button
+            type="button"
+            aria-expanded={mobileNavOpen}
+            aria-label={lang === "ja" ? "メニュー" : "Menu"}
+            onClick={() => setMobileNavOpen((o) => !o)}
+            className="md:hidden p-2 rounded-lg border border-white/[0.08] text-[#E4E4E7] hover:bg-white/[0.04]"
+          >
+            {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </header>
 
-        <main className="relative z-10 flex-1 flex flex-col items-center px-8 text-center pt-20 pb-12">
+        {mobileNavOpen && (
+          <>
+            <button type="button" aria-hidden className="fixed inset-0 z-20 bg-black/70 md:hidden" onClick={() => setMobileNavOpen(false)} />
+            <div className="fixed top-[57px] sm:top-[61px] left-0 right-0 z-30 md:hidden border-b border-white/[0.06] bg-[#0c0c0e] shadow-xl px-4 py-4 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  navigateToBlog(lang);
+                }}
+                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg"
+              >
+                <BookOpen className="w-4 h-4 text-[#38BDF8] shrink-0" />
+                {t.navBlog}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = lang === "en" ? "ja" : "en";
+                  writeStoredLanguage(next);
+                  setLang(next);
+                }}
+                className="w-full px-3 py-2 text-xs font-semibold text-[#71717A] border border-white/[0.08] rounded-lg text-left"
+              >
+                {lang === "en" ? "日本語" : "EN"}
+              </button>
+              {firebaseConfigured ? (
+                <>
+                  <button type="button" onClick={() => { setMobileNavOpen(false); isProduction ? navigateToSubdomain("signin", lang) : setMode("login"); }} className="w-full py-2 text-sm font-semibold text-[#8E9299] text-left">{t.signIn}</button>
+                  <button type="button" onClick={() => { setMobileNavOpen(false); isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.getStarted}</button>
+                </>
+              ) : (
+                <button type="button" onClick={() => { setMobileNavOpen(false); onSkip(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.launchApp}</button>
+              )}
+            </div>
+          </>
+        )}
+
+        <main className="relative z-10 flex-1 flex flex-col items-center px-4 sm:px-6 md:px-8 text-center pt-12 sm:pt-16 md:pt-20 pb-12">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="max-w-3xl">
             <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-4 py-1.5 mb-8 backdrop-blur-sm">
               <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#38BDF8] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[#38BDF8]"></span></span>
               <span className="text-xs text-[#38BDF8] font-semibold">{t.betaBadge}</span>
             </div>
-            <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-[1.05] mb-6">
+            <h1 className="text-4xl sm:text-5xl md:text-7xl font-black tracking-tight leading-[1.08] sm:leading-[1.05] mb-5 sm:mb-6 px-1">
               {t.heroTitle1}
               <span className="relative inline-block">
                 <LandingGradientText>{t.heroHighlight}</LandingGradientText>
@@ -477,16 +619,16 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               <br />
               <span className="text-white/90">{t.heroTitle2}</span>
             </h1>
-            <p className="text-lg text-[#71717A] max-w-xl mx-auto mb-10 leading-relaxed">
+            <p className="text-base sm:text-lg text-[#71717A] max-w-xl mx-auto mb-8 sm:mb-10 leading-relaxed px-1">
               {t.heroDesc}
             </p>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none mx-auto">
               {firebaseConfigured ? (
-                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="group px-6 sm:px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.02] sm:hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center justify-center gap-2">
                   {t.getStartedFree} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               ) : (
-                <button onClick={onSkip} className="group px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center gap-2">
+                <button onClick={onSkip} className="group px-6 sm:px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.02] sm:hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center justify-center gap-2">
                   {t.launchApp} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                 </button>
               )}
@@ -500,7 +642,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.6 }}
-                className="text-2xl md:text-4xl font-black tracking-tight"
+                className="text-xl sm:text-2xl md:text-4xl font-black tracking-tight px-2"
               >
                 <span className="text-white">Build </span>
                 <LandingGradientText>sooner</LandingGradientText>
@@ -583,10 +725,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6 }}
-            className="mt-28 w-full max-w-5xl text-left"
+            className="mt-20 sm:mt-28 w-full max-w-5xl text-left px-1"
           >
             <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3">{lang === "ja" ? "ワークフロー" : "Workflow"}</p>
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-2">{t.secWorkflowTitle}</h2>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2">{t.secWorkflowTitle}</h2>
             <p className="text-[#71717A] mb-10 max-w-2xl">{t.secWorkflowSub}</p>
             <div className="grid md:grid-cols-3 gap-4">
               {[t.workflow1, t.workflow2, t.workflow3].map((w, i) => (
@@ -605,10 +747,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-24 w-full max-w-5xl"
+            className="mt-20 sm:mt-24 w-full max-w-5xl px-1"
           >
             <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3 text-center">{lang === "ja" ? "スタック" : "Stack"}</p>
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-2 text-center">{t.secStackTitle}</h2>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2 text-center">{t.secStackTitle}</h2>
             <p className="text-[#71717A] text-center mb-10 max-w-xl mx-auto">{t.secStackSub}</p>
             <div className="grid sm:grid-cols-3 gap-4">
               {[
@@ -631,9 +773,21 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6, delay: 0.05 }}
+            className="mt-16 sm:mt-20 w-full max-w-5xl text-left px-1"
+          >
+            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-2">{lang === "ja" ? "エディタ" : "Editor"}</p>
+            <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3 sm:mb-4">{t.secMonacoEditorTitle}</h3>
+            <p className="text-sm sm:text-base text-[#a1a1aa] leading-relaxed max-w-3xl">{t.secMonacoEditorDesc}</p>
+          </motion.section>
+
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, delay: 0.05 }}
             className="mt-24 w-full max-w-5xl"
           >
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {[t.metric1, t.metric2, t.metric3].map((m, i) => (
                 <div key={i} className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02]">
@@ -651,9 +805,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-24 mb-8 w-full max-w-3xl rounded-3xl border border-[#38BDF8]/20 bg-gradient-to-br from-[#38BDF8]/[0.08] to-transparent px-10 py-14 text-center"
+            className="mt-24 mb-8 w-full max-w-3xl rounded-3xl border border-[#38BDF8]/20 bg-gradient-to-br from-[#38BDF8]/[0.08] to-transparent px-6 sm:px-10 py-10 sm:py-14 text-center"
           >
-            <h2 className="text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
             <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
             {firebaseConfigured ? (
               <button
@@ -671,7 +825,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           </motion.section>
         </main>
 
-        <footer className="relative z-10 px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
+        <footer className="relative z-10 px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
           {t.footer}
         </footer>
       </div>
@@ -679,7 +833,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   }
 
   return (
-    <div className="min-h-screen bg-[#09090B] text-white flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen bg-[#09090B] text-white flex items-center justify-center relative overflow-hidden px-4">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-[#38BDF8]/[0.04] blur-[100px]" />
       </div>
@@ -695,7 +849,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? t.welcomeBack : t.createAccount}</h2>
           <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? t.signInDesc : t.signUpDesc}</p>
 
-          <div className="flex gap-3 mb-6">
+          <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <button onClick={handleGoogle} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
               <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
               Google
@@ -741,13 +895,20 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(firebaseConfigured);
   const [skipAuth, setSkipAuth] = useState(!firebaseConfigured);
+  const [wwwRedirecting] = useState(() => typeof window !== "undefined" && window.location.hostname === "www.sooner.sh");
 
   const host = window.location.hostname;
-  const isMainDomain = host === "sooner.sh" || host === "www.sooner.sh";
+  const isMainDomain = host === "sooner.sh";
   const isLandingSite = host.startsWith("site.");
   const isBlogSite = host.startsWith("blog.");
   const isSignupSite = host.startsWith("signup.");
   const isSigninSite = host.startsWith("signin.") || host.startsWith("login.");
+
+  useEffect(() => {
+    if (window.location.hostname === "www.sooner.sh") {
+      window.location.replace(window.location.href.replace("//www.sooner.sh", "//sooner.sh"));
+    }
+  }, []);
 
   useEffect(() => {
     if (!auth || !firebaseConfigured) { setAuthLoading(false); return; }
@@ -758,6 +919,14 @@ export default function App() {
   useEffect(() => {
     if (!authLoading) applyDocumentSeo();
   }, [authLoading, authUser]);
+
+  if (wwwRedirecting) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (
@@ -840,8 +1009,19 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [input, setInput] = useState("");
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  
+  const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = () => {
+      setIsMobileLayout(mq.matches);
+      if (!mq.matches) setIsSidebarOpen(true);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   // New States
   const [geminiKey, setGeminiKey] = useState(() => {
     const saved = localStorage.getItem("gemini_key");
@@ -2221,11 +2401,22 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   return (
     <ErrorBoundary>
     <div className="flex h-screen w-screen bg-[#0A0A0A] text-[#E4E3E0] font-sans overflow-hidden selection:bg-[#38BDF8] selection:text-black">
+      {isMobileLayout && isSidebarOpen && (
+        <button
+          type="button"
+          aria-label={language === "ja" ? "サイドバーを閉じる" : "Close sidebar"}
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
       {/* Sidebar */}
       <motion.div 
         initial={false}
         animate={{ width: isSidebarOpen ? 300 : 0 }}
-        className="flex flex-col border-r border-[#1A1A1A] bg-[#0F0F0F] relative overflow-hidden"
+        className={cn(
+          "flex flex-col border-r border-[#1A1A1A] bg-[#0F0F0F] relative overflow-hidden z-50 md:z-auto",
+          isMobileLayout && "fixed left-0 top-0 h-full shadow-2xl md:static md:h-auto md:shadow-none"
+        )}
       >
         <div className="p-4 border-bottom border-[#1A1A1A] flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -2378,10 +2569,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         <div className="h-12 border-b border-[#1A1A1A] flex items-center justify-between px-4 bg-[#0F0F0F]">
           <div className="flex items-center gap-4">
             <button 
+              type="button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+              className="p-1.5 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+              aria-expanded={isSidebarOpen}
+              aria-label={language === "ja" ? "ファイルパネル" : "Files panel"}
             >
-              <FolderTree className="w-4 h-4" />
+              <Menu className="w-4 h-4 md:hidden" />
+              <FolderTree className="w-4 h-4 hidden md:block" />
             </button>
             <div className="flex items-center gap-2 text-xs text-[#8E9299]">
               <span className="opacity-50">{activeProject || "No Project"}</span>

@@ -15,7 +15,7 @@ function getLangForSeo(): SeoLang {
   if (p.get("lang") === "ja") return "ja";
   if (p.get("lang") === "en") return "en";
   const h = window.location.hostname;
-  if (h === "sooner.sh" || h === "www.sooner.sh" || h.startsWith("blog.")) {
+  if (h === "sooner.sh" || h.startsWith("blog.")) {
     return readStoredLanguage();
   }
   return "en";
@@ -105,7 +105,7 @@ function hostKey(hostname: string): string {
   if (h.startsWith("blog.")) return "blog";
   if (h.startsWith("signup.")) return "signup";
   if (h.startsWith("signin.") || h.startsWith("login.")) return "signin";
-  if (h === "sooner.sh" || h === "www.sooner.sh") return "app";
+  if (h === "sooner.sh") return "app";
   return "app";
 }
 
