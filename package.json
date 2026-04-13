@@ -7,7 +7,8 @@
     "dev": "tsx server.ts",
     "start": "node --import tsx server.ts",
     "build": "vite build",
-    "build:ci": "node scripts/check-vite-env.mjs && vite build",
+    "postbuild": "node scripts/seo-postbuild.mjs",
+    "build:ci": "node scripts/check-vite-env.mjs && vite build && node scripts/seo-postbuild.mjs",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit"

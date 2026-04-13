@@ -75,6 +75,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { FileNode, Project, AgentStep, ChatMessage } from "./types";
+import { applyDocumentSeo } from "./seo";
 import { clsx, type ClassValue } from "clsx";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { twMerge } from "tailwind-merge";
@@ -241,6 +242,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const t = landingI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
+
+  useEffect(() => {
+    applyDocumentSeo({ lang });
+  }, [lang, mode]);
 
   const redirectToApp = () => {
     if (isProduction) {
@@ -606,6 +611,7 @@ export default function App() {
   const host = window.location.hostname;
   const isMainDomain = host === "sooner.sh" || host === "www.sooner.sh";
   const isLandingSite = host.startsWith("site.");
+  const isBlogSite = host.startsWith("blog.");
   const isSignupSite = host.startsWith("signup.");
   const isSigninSite = host.startsWith("signin.") || host.startsWith("login.");
 
@@ -614,6 +620,10 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, (user) => { setAuthUser(user); setAuthLoading(false); });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!authLoading) applyDocumentSeo();
+  }, [authLoading, authUser]);
 
   if (authLoading) {
     return (
@@ -635,7 +645,7 @@ export default function App() {
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={isSignupSite ? "signup" : "login"} />;
   }
 
-  if (isLandingSite) {
+  if (isLandingSite || isBlogSite) {
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="landing" />;
   }
 
@@ -748,6 +758,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
     return (localStorage.getItem("aether_language") as "en" | "ja") || "en";
   });
+
+  useEffect(() => {
+    applyDocumentSeo({ lang: language });
+  }, [language]);
+
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [isPackagesOpen, setIsPackagesOpen] = useState(false);

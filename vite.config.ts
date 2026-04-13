@@ -6,7 +6,20 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'sooner-html-build-meta',
+        transformIndexHtml(html) {
+          const t = new Date().toISOString();
+          return html.replace(
+            '</head>',
+            `  <meta name="generator" content="Vite + Sooner" />\n  <meta name="build-time" content="${t}" />\n</head>`
+          );
+        },
+      },
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
