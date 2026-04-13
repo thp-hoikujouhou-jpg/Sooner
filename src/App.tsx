@@ -159,13 +159,8 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
-function LandingPage({ onSkip }: { onSkip: () => void }) {
-  const [mode, setMode] = useState<"landing" | "login" | "signup">(() => {
-    const host = window.location.hostname;
-    if (host.startsWith("signup.")) return "signup";
-    if (host.startsWith("signin.") || host.startsWith("login.")) return "login";
-    return "landing";
-  });
+function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?: "landing" | "login" | "signup" }) {
+  const [mode, setMode] = useState<"landing" | "login" | "signup">(initialMode ?? "landing");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -426,6 +421,12 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(firebaseConfigured);
   const [skipAuth, setSkipAuth] = useState(!firebaseConfigured);
 
+  const host = window.location.hostname;
+  const isMainDomain = host === "sooner.sh" || host === "www.sooner.sh";
+  const isLandingSite = host.startsWith("site.");
+  const isSignupSite = host.startsWith("signup.");
+  const isSigninSite = host.startsWith("signin.") || host.startsWith("login.");
+
   useEffect(() => {
     if (!auth || !firebaseConfigured) { setAuthLoading(false); return; }
     const unsub = onAuthStateChanged(auth, (user) => { setAuthUser(user); setAuthLoading(false); });
@@ -440,8 +441,23 @@ export default function App() {
     );
   }
 
+  if (isSignupSite || isSigninSite) {
+    return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={isSignupSite ? "signup" : "login"} />;
+  }
+
+  if (isLandingSite) {
+    return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="landing" />;
+  }
+
+  if (isMainDomain) {
+    if (firebaseConfigured && !authUser && !skipAuth) {
+      return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="login" />;
+    }
+    return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
+  }
+
   if (firebaseConfigured && !authUser && !skipAuth) {
-    return <LandingPage onSkip={() => setSkipAuth(true)} />;
+    return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="landing" />;
   }
 
   return <SoonerIDE user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
