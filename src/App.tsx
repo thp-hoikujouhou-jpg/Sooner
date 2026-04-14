@@ -40,6 +40,8 @@ import {
   Sparkles,
   Cloud,
   ArrowRight,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -181,6 +183,8 @@ const landingI18n = {
     startJourney: "Start Journey",
     skipJourney: "Skip",
     scrollToTop: "Back to top",
+    muteSound: "Mute",
+    unmuteSound: "Unmute",
     leafCta: "Get Started Free",
     stageWriteNum: "01",
     stageWriteTitle: "Write",
@@ -264,6 +268,8 @@ const landingI18n = {
     startJourney: "旅を始める",
     skipJourney: "スキップ",
     scrollToTop: "トップへ戻る",
+    muteSound: "ミュート",
+    unmuteSound: "ミュート解除",
     leafCta: "無料で始める",
     stageWriteNum: "01",
     stageWriteTitle: "Write",
@@ -553,6 +559,91 @@ function BlogPage() {
 }
 
 type JourneyPhase = "idle" | "thunder" | "detach" | "write" | "debug" | "preview" | "ship" | "impact" | "poem" | "done";
+
+function useAmbientAudio() {
+  const ctxRef = useRef<AudioContext | null>(null);
+  const rainGainRef = useRef<GainNode | null>(null);
+  const startedRef = useRef(false);
+  const mutedRef = useRef(false);
+
+  const ensureCtx = () => {
+    if (ctxRef.current) return ctxRef.current;
+    const ctx = new AudioContext();
+    ctxRef.current = ctx;
+
+    const bufLen = ctx.sampleRate * 2;
+    const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 800;
+    bp.Q.value = 0.5;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    rainGainRef.current = gain;
+
+    src.connect(bp).connect(gain).connect(ctx.destination);
+    src.start();
+    return ctx;
+  };
+
+  const start = useRef(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    const ctx = ensureCtx();
+    if (ctx.state === "suspended") ctx.resume();
+    if (rainGainRef.current) {
+      rainGainRef.current.gain.setTargetAtTime(0.06, ctx.currentTime, 0.5);
+    }
+  }).current;
+
+  const setRainVolume = useRef((vol: number) => {
+    if (!ctxRef.current || !rainGainRef.current || mutedRef.current) return;
+    rainGainRef.current.gain.setTargetAtTime(vol, ctxRef.current.currentTime, 0.3);
+  }).current;
+
+  const triggerThunder = useRef(() => {
+    const ctx = ctxRef.current;
+    if (!ctx || mutedRef.current) return;
+    const bufLen = ctx.sampleRate * 1.2;
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.25));
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 200;
+    const g = ctx.createGain();
+    g.gain.value = 0.35;
+    g.gain.setTargetAtTime(0, ctx.currentTime + 0.05, 0.3);
+    src.connect(lp).connect(g).connect(ctx.destination);
+    src.start();
+    src.stop(ctx.currentTime + 1.2);
+  }).current;
+
+  const setMuted = (m: boolean) => {
+    mutedRef.current = m;
+    if (!ctxRef.current || !rainGainRef.current) return;
+    rainGainRef.current.gain.setTargetAtTime(m ? 0 : 0.06, ctxRef.current.currentTime, 0.2);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (ctxRef.current) ctxRef.current.close();
+    };
+  }, []);
+
+  return { start, setRainVolume, triggerThunder, setMuted };
+}
 
 function RainCanvas({ intensity, flash }: { intensity: number; flash: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -844,10 +935,16 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
   const [journeyPhase, setJourneyPhase] = useState<JourneyPhase>("idle");
   const [lightningFlash, setLightningFlash] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const bottomRef = useRef<HTMLDivElement>(null);
+  const audio = useAmbientAudio();
 
-  const doFlash = () => { setLightningFlash(true); setTimeout(() => setLightningFlash(false), 150); };
+  const doFlash = () => {
+    setLightningFlash(true);
+    setTimeout(() => setLightningFlash(false), 150);
+    audio.triggerThunder();
+  };
 
   useEffect(() => {
     if (journeyPhase === "idle") return;
@@ -881,7 +978,12 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     return () => timers.forEach(clearTimeout);
   }, [journeyPhase]);
 
-  const startJourney = () => setJourneyPhase("thunder");
+  useEffect(() => {
+    const vol: Record<string, number> = { idle: 0.03, thunder: 0.1, detach: 0.08, write: 0.06, debug: 0.06, preview: 0.06, ship: 0.08, impact: 0.04, poem: 0.02, done: 0.01 };
+    audio.setRainVolume(vol[journeyPhase] ?? 0.03);
+  }, [journeyPhase]);
+
+  const startJourney = () => { audio.start(); setJourneyPhase("thunder"); };
   const skipJourney = () => setJourneyPhase("done");
   const goSignup = () => firebaseConfigured ? (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")) : onSkip();
   const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1091,18 +1193,143 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             )}
           </AnimatePresence>
 
-          {/* Skip button during journey */}
-          {isInJourney && (
-            <motion.button
-              type="button"
+          {/* Detailed sections revealed after journey completes */}
+          {journeyPhase === "done" && (
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 2 }}
-              onClick={skipJourney}
-              className="fixed bottom-6 left-6 z-40 px-4 py-2 text-[10px] font-semibold text-[#52525B] hover:text-[#8E9299] border border-white/[0.06] rounded-lg backdrop-blur-sm bg-[#09090B]/50 transition-colors"
+              transition={{ duration: 1, delay: 0.5 }}
+              className="w-full flex flex-col items-center px-4 sm:px-6 md:px-8 pb-16"
             >
-              {t.skipJourney}
-            </motion.button>
+              {/* Feature cards */}
+              <motion.div initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
+                {([
+                  { feat: t.feat1, Icon: Zap },
+                  { feat: t.feat2, Icon: Rocket },
+                  { feat: t.feat3, Icon: Package },
+                ] as const).map(({ feat: f, Icon }, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: i * 0.1 }}
+                    className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] hover:-translate-y-1 transition-all duration-300 group">
+                    <div className="w-11 h-11 rounded-xl bg-[#38BDF8]/[0.08] border border-[#38BDF8]/20 flex items-center justify-center mb-4 group-hover:bg-[#38BDF8]/[0.15] group-hover:shadow-[0_0_20px_rgba(56,189,248,0.15)] transition-all duration-300">
+                      <Icon className="w-5 h-5 text-[#38BDF8]" />
+                    </div>
+                    <h3 className="font-bold text-base mb-2 group-hover:text-[#38BDF8] transition-colors">{f.title}</h3>
+                    <p className="text-sm text-[#71717A] leading-relaxed">{f.desc}</p>
+                  </motion.div>
+                ))}
+              </motion.div>
+
+              {/* Workflow */}
+              <motion.section initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.6 }} className="mt-20 sm:mt-28 w-full max-w-5xl text-left px-1">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3">{lang === "ja" ? "ワークフロー" : "Workflow"}</p>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2">{t.secWorkflowTitle}</h2>
+                <p className="text-[#71717A] mb-10 max-w-2xl">{t.secWorkflowSub}</p>
+                <div className="grid md:grid-cols-3 gap-4">
+                  {[t.workflow1, t.workflow2, t.workflow3].map((w, i) => (
+                    <div key={i} className="relative rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent p-6 overflow-hidden">
+                      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-[#38BDF8]/50 to-transparent" />
+                      <span className="text-xs font-mono text-[#52525b] mb-4 block">0{i + 1}</span>
+                      <h3 className="font-bold text-lg text-white mb-2">{w.title}</h3>
+                      <p className="text-sm text-[#a1a1aa] leading-relaxed">{w.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </motion.section>
+
+              {/* Stack */}
+              <motion.section initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.6 }} className="mt-20 sm:mt-24 w-full max-w-5xl px-1">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3 text-center">{lang === "ja" ? "スタック" : "Stack"}</p>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2 text-center">{t.secStackTitle}</h2>
+                <p className="text-[#71717A] text-center mb-10 max-w-xl mx-auto">{t.secStackSub}</p>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  {[
+                    { k: "monaco", label: t.stackMonaco, Icon: FileCode },
+                    { k: "ai", label: t.stackAi, Icon: Sparkles },
+                    { k: "fb", label: t.stackFirebase, Icon: Cloud },
+                  ].map((s) => (
+                    <div key={s.k} className="group relative rounded-2xl border border-white/[0.06] bg-[#0c0c0e] px-6 py-8 text-center text-sm font-medium text-[#e4e4e7] hover:border-[#38BDF8]/30 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden">
+                      <div className="absolute left-0 top-0 w-0.5 h-full bg-gradient-to-b from-[#38BDF8]/0 via-[#38BDF8]/0 to-transparent group-hover:from-[#38BDF8]/60 group-hover:via-[#38BDF8]/20 transition-all duration-500" />
+                      <s.Icon className="w-8 h-8 text-[#38BDF8]/30 mx-auto mb-3 group-hover:text-[#38BDF8]/60 transition-colors duration-300" />
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+              </motion.section>
+
+              {/* Monaco Editor */}
+              <motion.section initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.6 }} className="mt-16 sm:mt-20 w-full max-w-5xl text-left px-1">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-2">{lang === "ja" ? "エディタ" : "Editor"}</p>
+                <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3 sm:mb-4">{t.secMonacoEditorTitle}</h3>
+                <p className="text-sm sm:text-base text-[#a1a1aa] leading-relaxed max-w-3xl mb-6">{t.secMonacoEditorDesc}</p>
+                <div className="rounded-xl border border-white/[0.08] bg-[#0c0c0e] overflow-hidden max-w-2xl shadow-xl shadow-black/20">
+                  <div className="flex items-center px-4 py-2.5 border-b border-white/[0.06] gap-2 bg-[#111113]">
+                    <div className="flex gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]/50" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#FEBC2E]/50" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-[#28C840]/50" />
+                    </div>
+                    <span className="text-[10px] text-[#52525b] font-mono ml-2">App.tsx</span>
+                  </div>
+                  <pre className="p-5 text-[13px] font-mono leading-[1.7] overflow-x-auto"><code><span className="text-[#C586C0]">import</span> <span className="text-[#D4D4D4]">{"{"}</span> <span className="text-[#9CDCFE]">createApp</span> <span className="text-[#D4D4D4]">{"}"}</span> <span className="text-[#C586C0]">from</span> <span className="text-[#CE9178]">"sooner"</span><span className="text-[#D4D4D4]">;</span>{"\n"}{"\n"}<span className="text-[#C586C0]">const</span> <span className="text-[#4FC1FF]">app</span> <span className="text-[#D4D4D4]">=</span> <span className="text-[#DCDCAA]">createApp</span><span className="text-[#D4D4D4]">({"{"}</span>{"\n"}  <span className="text-[#9CDCFE]">editor</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#CE9178]">"monaco"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">ai</span><span className="text-[#D4D4D4]">:</span>     <span className="text-[#CE9178]">"gemini"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">deploy</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#569CD6]">true</span><span className="text-[#D4D4D4]">,</span>{"\n"}<span className="text-[#D4D4D4]">{"}"});"</span></code></pre>
+                </div>
+              </motion.section>
+
+              {/* Metrics */}
+              <motion.section initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.6 }} className="mt-24 w-full max-w-5xl">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {[t.metric1, t.metric2, t.metric3].map((m, i) => (
+                    <motion.div key={i} initial={{ opacity: 0, scale: 0.9 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.5, delay: i * 0.1 }}
+                      className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02] hover:border-[#38BDF8]/20 hover:bg-[#38BDF8]/[0.01] transition-all duration-300">
+                      <p className="text-4xl md:text-5xl font-black tracking-tight mb-2"><LandingGradientText>{m.value}</LandingGradientText></p>
+                      <p className="text-xs text-[#71717A] uppercase tracking-wider">{m.label}</p>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.section>
+
+              {/* Final CTA */}
+              <motion.section initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.6 }} className="mt-24 mb-8 w-full max-w-3xl relative">
+                <div className="absolute -inset-px rounded-3xl bg-gradient-to-r from-[#38BDF8]/40 via-[#38BDF8]/10 to-[#38BDF8]/40 bg-[length:200%_100%] animate-[shimmer_4s_linear_infinite]" />
+                <div className="relative rounded-3xl bg-[#09090B] px-6 sm:px-10 py-10 sm:py-14 text-center overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#38BDF8]/[0.06] to-transparent pointer-events-none" />
+                  <div className="relative z-10">
+                    <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
+                    <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
+                    <button type="button" onClick={goSignup} className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2">
+                      {t.getStartedFree} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+                  </div>
+                </div>
+              </motion.section>
+            </motion.div>
+          )}
+
+          {/* Skip + mute buttons during journey */}
+          {isInJourney && (
+            <div className="fixed bottom-6 left-6 z-40 flex items-center gap-2">
+              <motion.button
+                type="button"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 2 }}
+                onClick={skipJourney}
+                className="px-4 py-2 text-[10px] font-semibold text-[#52525B] hover:text-[#8E9299] border border-white/[0.06] rounded-lg backdrop-blur-sm bg-[#09090B]/50 transition-colors"
+              >
+                {t.skipJourney}
+              </motion.button>
+              <motion.button
+                type="button"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 2.5 }}
+                onClick={() => { const next = !audioMuted; setAudioMuted(next); audio.setMuted(next); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/[0.06] backdrop-blur-sm bg-[#09090B]/50 text-[#52525B] hover:text-[#8E9299] transition-colors"
+                aria-label={audioMuted ? t.unmuteSound : t.muteSound}
+              >
+                {audioMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </motion.button>
+            </div>
           )}
 
           {/* Scroll to top button */}
@@ -1306,13 +1533,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
+  const [isChatOpen, setIsChatOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const onChange = () => {
       setIsMobileLayout(mq.matches);
-      if (!mq.matches) setIsSidebarOpen(true);
+      if (!mq.matches) { setIsSidebarOpen(true); setIsChatOpen(true); }
+      else setIsChatOpen(false);
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
@@ -2920,12 +3149,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               <Menu className="w-4 h-4 md:hidden" />
               <FolderTree className="w-4 h-4 hidden md:block" />
             </button>
-            <div className="flex items-center gap-2 text-xs text-[#8E9299]">
-              <span className="opacity-50">{activeProject || "No Project"}</span>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-[#8E9299]">
+              <span className="opacity-50 truncate max-w-[120px]">{activeProject || "No Project"}</span>
               {activeFile && (
                 <>
-                  <ChevronRight className="w-3 h-3 opacity-30" />
-                  <span className="text-[#E4E3E0]">{activeFile}</span>
+                  <ChevronRight className="w-3 h-3 opacity-30 shrink-0" />
+                  <span className="text-[#E4E3E0] truncate max-w-[150px]">{activeFile}</span>
                 </>
               )}
             </div>
@@ -2965,6 +3194,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               <span style={{ display: activeTab === "preview" ? "inline" : "none" }}><CodeIcon className="w-3.5 h-3.5" /></span>
               <span style={{ display: activeTab !== "preview" ? "inline" : "none" }}><Eye className="w-3.5 h-3.5" /></span>
               {activeTab === "preview" ? t.editor : t.preview}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsChatOpen(true)}
+              className="md:hidden flex items-center gap-2 px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] rounded text-xs transition-colors"
+              aria-label={language === "ja" ? "AIチャット" : "AI Chat"}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-[#38BDF8]" />
             </button>
           </div>
         </div>
@@ -3027,7 +3264,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             </div>
 
             {/* Terminal */}
-            <div className="h-48 border-t border-[#1A1A1A] bg-[#0A0A0A] flex flex-col">
+            <div className="h-32 md:h-48 border-t border-[#1A1A1A] bg-[#0A0A0A] flex flex-col">
               <div className="flex items-center gap-2 px-4 py-1.5 border-b border-[#1A1A1A] bg-[#0F0F0F]">
                 <TerminalIcon className="w-3.5 h-3.5 text-[#8E9299]" />
                 <span className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">Terminal</span>
@@ -3075,8 +3312,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         </div>
       </div>
 
+      {/* Mobile chat backdrop */}
+      {isMobileLayout && isChatOpen && (
+        <button
+          type="button"
+          aria-label={language === "ja" ? "チャットを閉じる" : "Close chat"}
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setIsChatOpen(false)}
+        />
+      )}
+
       {/* Right Panel: AI Agent */}
-      <div className="w-[400px] border-l border-[#1A1A1A] bg-[#0F0F0F] flex flex-col">
+      <div className={cn(
+        "border-l border-[#1A1A1A] bg-[#0F0F0F] flex flex-col transition-all",
+        isMobileLayout
+          ? (isChatOpen ? "fixed inset-0 z-50 w-full border-l-0" : "hidden")
+          : "w-[400px]"
+      )}>
         <div className="p-4 border-b border-[#1A1A1A] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-[#38BDF8]" />
@@ -3095,6 +3347,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 title={t.stop}
               >
                 <Square className="w-3 h-3 fill-current" />
+              </button>
+            )}
+            {isMobileLayout && (
+              <button type="button" onClick={() => setIsChatOpen(false)} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299] ml-2 md:hidden">
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
