@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Zap, Loader2, X, Menu, BookOpen, ArrowRight } from "lucide-react";
+import { Zap, Loader2, X, Menu, BookOpen, ArrowRight, Clock, User } from "lucide-react";
 import { motion } from "motion/react";
 import axios from "axios";
 import { applyDocumentSeo, applyArticleSeo } from "./seo";
 import { writeStoredLanguage } from "./language";
-import { cn, BACKEND_BASE, blogI18n, getInitialLang, type BlogPost } from "./shared";
+import { cn, BACKEND_BASE, blogI18n, getInitialLang, legalDocHref, type BlogPost } from "./shared";
 
 export default function BlogPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
@@ -32,24 +32,37 @@ export default function BlogPage() {
   }, []);
 
   useEffect(() => {
+    const onPop = () => {
+      const p = window.location.pathname.replace(/^\//, "");
+      setActiveSlug(p || null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
     if (!activeSlug) { setActivePost(null); return; }
     axios.get(`${BACKEND_BASE}/api/blog/posts/${activeSlug}`).then(r => {
       setActivePost(r.data);
       axios.post(`${BACKEND_BASE}/api/blog/posts/${activeSlug}/view`).catch(() => {});
-      const post = r.data;
-      const pubDate = post.publishAt?._seconds
-        ? new Date(post.publishAt._seconds * 1000).toISOString()
-        : typeof post.publishAt === "string" ? post.publishAt : new Date().toISOString();
-      applyArticleSeo({
-        title: lang === "ja" ? (post.title_ja || post.title_en) : (post.title_en || post.title_ja),
-        description: lang === "ja" ? (post.excerpt_ja || post.excerpt_en) : (post.excerpt_en || post.excerpt_ja),
-        slug: post.slug,
-        author: post.author,
-        publishedAt: pubDate,
-        lang,
-      });
     }).catch(() => setActiveSlug(null));
   }, [activeSlug]);
+
+  useEffect(() => {
+    if (!activePost || !activeSlug) return;
+    const post = activePost;
+    const pubDate = post.publishAt?._seconds
+      ? new Date(post.publishAt._seconds * 1000).toISOString()
+      : typeof post.publishAt === "string" ? post.publishAt : new Date().toISOString();
+    applyArticleSeo({
+      title: lang === "ja" ? (post.title_ja || post.title_en) : (post.title_en || post.title_ja),
+      description: lang === "ja" ? (post.excerpt_ja || post.excerpt_en) : (post.excerpt_en || post.excerpt_ja),
+      slug: post.slug,
+      author: post.author,
+      publishedAt: pubDate,
+      lang,
+    });
+  }, [activePost, activeSlug, lang]);
 
   const openPost = (slug: string) => { setActiveSlug(slug); window.history.pushState(null, "", `/${slug}`); };
   const goBack = () => { setActiveSlug(null); setActivePost(null); window.history.pushState(null, "", "/"); };
@@ -98,19 +111,86 @@ export default function BlogPage() {
 
       <main className="relative z-10 flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-14 max-w-3xl mx-auto w-full">
         {activePost ? (
-          <motion.article initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline">
-              <ArrowRight className="w-3 h-3 rotate-180" /> {t.backToList}
+          <motion.article
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="max-w-2xl mx-auto"
+          >
+            <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline group">
+              <ArrowRight className="w-3 h-3 rotate-180 transition-transform group-hover:-translate-x-0.5" /> {t.backToList}
             </button>
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#1A1A1A] border border-white/[0.06] text-[10px] font-medium text-[#71717A]">{formatDate(activePost.publishAt)}</span>
-              <span className="text-[10px] text-[#52525B]">{activePost.author}</span>
-              <span className="text-[10px] text-[#3F3F46]">{lang === "ja" ? activePost.readingTime_ja : activePost.readingTime_en}</span>
+
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.04] to-white/[0.01]",
+                "shadow-[0_0_0_1px_rgba(56,189,248,0.06),0_24px_48px_-12px_rgba(0,0,0,0.5)]",
+                "overflow-hidden"
+              )}
+            >
+              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#38BDF8]/40 to-transparent" />
+              <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-10 sm:pb-12">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6 text-[11px] text-[#71717A]">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141416] border border-white/[0.08] text-[#A1A1AA]">
+                    <Clock className="w-3 h-3 text-[#38BDF8]/80 shrink-0" />
+                    {formatDate(activePost.publishAt)}
+                  </span>
+                  <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <User className="w-3 h-3 text-[#52525B] shrink-0" />
+                    {activePost.author}
+                  </span>
+                  <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
+                  <span>{lang === "ja" ? activePost.readingTime_ja : activePost.readingTime_en}</span>
+                </div>
+
+                <h1 className="text-[1.75rem] sm:text-4xl md:text-[2.35rem] font-black tracking-tight text-white leading-[1.15] mb-8">
+                  {lang === "ja" ? activePost.title_ja : activePost.title_en}
+                </h1>
+
+                {activePost.tags && activePost.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-10">
+                    {activePost.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md bg-[#38BDF8]/[0.08] text-[#7dd3fc] border border-[#38BDF8]/15"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="h-px w-full bg-gradient-to-r from-[#38BDF8]/20 via-white/[0.08] to-transparent mb-10" />
+
+                <div
+                  className={cn(
+                    "prose prose-invert max-w-none text-[#D4D4D8] leading-[1.85] text-[15px] sm:text-base",
+                    "[&_h2]:text-xl [&_h2]:font-black [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:text-white [&_h2]:tracking-tight",
+                    "[&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-10 [&_h3]:mb-3 [&_h3]:text-[#E4E4E7]",
+                    "[&_p]:mb-5 [&_p]:text-[#C4C4CC]",
+                    "[&_a]:text-[#38BDF8] [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-[#38BDF8]/40 hover:[&_a]:decoration-[#38BDF8]",
+                    "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1.5 [&_li]:text-[#C4C4CC]",
+                    "[&_code]:bg-[#141416] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded-md [&_code]:text-[#7dd3fc] [&_code]:text-[0.85em] [&_code]:border [&_code]:border-white/[0.06]",
+                    "[&_pre]:bg-[#0a0a0c] [&_pre]:p-5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:mb-8 [&_pre]:border [&_pre]:border-white/[0.07] [&_pre]:shadow-inner",
+                    "[&_img]:rounded-xl [&_img]:my-8 [&_img]:border [&_img]:border-white/[0.06] [&_img]:shadow-lg",
+                    "[&_blockquote]:border-l-[3px] [&_blockquote]:border-[#38BDF8]/50 [&_blockquote]:pl-5 [&_blockquote]:text-[#9CA3AF] [&_blockquote]:italic [&_blockquote]:bg-white/[0.02] [&_blockquote]:py-3 [&_blockquote]:pr-4 [&_blockquote]:rounded-r-lg"
+                  )}
+                  dangerouslySetInnerHTML={{ __html: lang === "ja" ? activePost.content_ja : activePost.content_en }}
+                />
+              </div>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-8">{lang === "ja" ? activePost.title_ja : activePost.title_en}</h1>
-            <div className="prose prose-invert max-w-none text-[#E4E3E0] leading-[1.8] text-sm sm:text-base [&_h2]:text-xl [&_h2]:font-black [&_h2]:mt-10 [&_h2]:mb-4 [&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-8 [&_h3]:mb-3 [&_p]:mb-4 [&_a]:text-[#38BDF8] [&_a]:underline [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_code]:bg-[#1A1A1A] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[#38BDF8] [&_code]:text-xs [&_pre]:bg-[#0F0F0F] [&_pre]:p-4 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:mb-6 [&_img]:rounded-xl [&_img]:my-6 [&_blockquote]:border-l-2 [&_blockquote]:border-[#38BDF8]/30 [&_blockquote]:pl-4 [&_blockquote]:text-[#8E9299] [&_blockquote]:italic"
-              dangerouslySetInnerHTML={{ __html: lang === "ja" ? activePost.content_ja : activePost.content_en }}
-            />
+
+            <div className="mt-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-8 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={goBack}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-white/[0.04] border border-white/[0.08] text-[#E4E4E7] hover:border-[#38BDF8]/30 hover:bg-[#38BDF8]/[0.06] transition-all"
+              >
+                <ArrowRight className="w-4 h-4 rotate-180" />
+                {t.backToList}
+              </button>
+            </div>
           </motion.article>
         ) : (
           <>
@@ -155,9 +235,14 @@ export default function BlogPage() {
         )}
       </main>
 
-      <footer className="relative z-10 px-4 sm:px-8 py-8 border-t border-white/[0.06] text-center">
+      <footer className="relative z-10 px-4 sm:px-8 py-8 border-t border-white/[0.06] text-center space-y-3">
         <p className="text-xs text-[#52525B]">{t.footer}</p>
-        <p className="mt-2 text-[10px] text-[#3F3F46]">{t.copyright}</p>
+        <p className="text-[10px] text-[#3F3F46]">{t.copyright}</p>
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11px] pt-1">
+          <a href={legalDocHref(lang, "terms")} className="text-[#71717A] hover:text-[#38BDF8] transition-colors">{t.terms}</a>
+          <span className="text-[#3F3F46]">·</span>
+          <a href={legalDocHref(lang, "privacy")} className="text-[#71717A] hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
+        </div>
       </footer>
     </div>
   );

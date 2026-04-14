@@ -92,6 +92,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import BlogPage from "./BlogPage";
 import CmsPage from "./CmsPage";
+import LegalPage from "./LegalPage";
+import { legalDocHref } from "./shared";
 import {
   auth,
   isConfigured as firebaseConfigured,
@@ -171,6 +173,10 @@ const landingI18n = {
     secCtaDesc: "Create an account and open the AI-native IDE from any device.",
     footer: "Sooner Beta — Build sooner, ship faster",
     copyright: "© 2026 Sooner. All rights reserved.",
+    terms: "Terms of Service",
+    privacy: "Privacy Policy",
+    legalAgreeCombined:
+      "By continuing, you agree to the Terms of Service and Privacy Policy. Links are at the bottom of this page.",
     welcomeBack: "Welcome back",
     createAccount: "Create account",
     signInDesc: "Sign in to your Sooner account",
@@ -252,6 +258,10 @@ const landingI18n = {
     secCtaDesc: "アカウントを作成し、どの端末からでもAIネイティブIDEを開けます。",
     footer: "Sooner ベータ — Build sooner, ship faster",
     copyright: "© 2026 Sooner. All rights reserved.",
+    terms: "利用規約",
+    privacy: "プライバシーポリシー",
+    legalAgreeCombined:
+      "続行により、ページ下部の利用規約およびプライバシーポリシーに同意したものとみなされます。",
     welcomeBack: "おかえりなさい",
     createAccount: "アカウント作成",
     signInDesc: "Soonerアカウントにログイン",
@@ -618,7 +628,7 @@ function PoemSection({ lines, ctaText, onCta, onSkipToApp }: { lines: string[]; 
   );
 }
 
-function CloudyFooter({ text, copyright, lang }: { text: string; copyright: string; lang: string }) {
+function CloudyFooter({ text, copyright, footerLinks }: { text: string; copyright: string; footerLinks?: React.ReactNode }) {
   return (
     <footer className="relative z-10 overflow-hidden">
       <div className="absolute inset-0 pointer-events-none">
@@ -630,6 +640,7 @@ function CloudyFooter({ text, copyright, lang }: { text: string; copyright: stri
       <div className="relative z-10 px-4 sm:px-8 py-10 text-center">
         <p className="text-xs text-[#52525B]">{text}</p>
         <p className="mt-2 text-[10px] text-[#3F3F46]">{copyright}</p>
+        {footerLinks ? <div className="mt-4 flex justify-center">{footerLinks}</div> : null}
       </div>
     </footer>
   );
@@ -649,6 +660,30 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   useEffect(() => {
     applyDocumentSeo({ lang });
   }, [lang, mode]);
+
+  /** Keep URL ?lang= in sync with landing UI so legal links and refreshes match the selected language. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const u = new URL(window.location.href);
+    if (lang === "ja") u.searchParams.set("lang", "ja");
+    else u.searchParams.delete("lang");
+    const qs = u.searchParams.toString();
+    const next = qs ? `${u.pathname}?${qs}` : u.pathname;
+    const cur = window.location.pathname + window.location.search;
+    if (next !== cur) window.history.replaceState(null, "", next);
+  }, [lang]);
+
+  /** Browser back/forward: restore landing language from ?lang= (pushState entries). */
+  useEffect(() => {
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search).get("lang");
+      const next = q === "ja" ? "ja" : "en";
+      writeStoredLanguage(next);
+      setLang(next);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   useEffect(() => {
     if (mobileNavOpen) document.body.style.overflow = "hidden";
@@ -854,6 +889,14 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               ) : (
                 <button type="button" onClick={() => { setMobileNavOpen(false); onSkip(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.launchApp}</button>
               )}
+              <div className="pt-2 mt-1 border-t border-white/[0.06] flex flex-col gap-2">
+                <a href={legalDocHref(lang, "terms")} onClick={() => setMobileNavOpen(false)} className="w-full px-3 py-2 text-xs font-semibold text-left text-[#71717A] hover:text-[#E4E4E7] transition-colors">
+                  {t.terms}
+                </a>
+                <a href={legalDocHref(lang, "privacy")} onClick={() => setMobileNavOpen(false)} className="w-full px-3 py-2 text-xs font-semibold text-left text-[#71717A] hover:text-[#E4E4E7] transition-colors">
+                  {t.privacy}
+                </a>
+              </div>
             </div>
           </>
         )}
@@ -1137,16 +1180,27 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           <div ref={bottomRef} />
         </main>
 
-        <CloudyFooter text={t.footer} copyright={t.copyright} lang={lang} />
+        <CloudyFooter
+          text={t.footer}
+          copyright={t.copyright}
+          footerLinks={
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#71717A]">
+              <a href={legalDocHref(lang, "terms")} className="hover:text-[#38BDF8] transition-colors">{t.terms}</a>
+              <span className="text-[#3F3F46]">·</span>
+              <a href={legalDocHref(lang, "privacy")} className="hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
+            </div>
+          }
+        />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#09090B] text-white flex items-center justify-center relative overflow-hidden px-4">
+    <div className="min-h-screen bg-[#09090B] text-white flex flex-col relative overflow-hidden px-4">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-[#38BDF8]/[0.04] blur-[100px]" />
       </div>
+      <div className="relative z-10 flex-1 flex items-center justify-center w-full">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="relative z-10 w-full max-w-md p-8">
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <div className="relative">
@@ -1188,6 +1242,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </button>
           </form>
 
+          <p className="text-[10px] text-[#52525B] text-center mt-4 leading-relaxed px-1">
+            {t.legalAgreeCombined}
+          </p>
+
           <p className="text-xs text-[#8E9299] text-center mt-4">
             {mode === "login" ? t.noAccount : t.hasAccount}
             <button onClick={() => { if (isProduction) { navigateToSubdomain(mode === "login" ? "signup" : "signin", lang); } else { setMode(mode === "login" ? "signup" : "login"); setError(""); }}} className="text-[#38BDF8] hover:underline font-bold">
@@ -1197,6 +1255,15 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         </div>
         <button onClick={() => isProduction ? navigateToSubdomain("site", lang) : setMode("landing")} className="w-full text-center mt-4 text-xs text-[#555] hover:text-[#8E9299]">{t.backToHome}</button>
       </motion.div>
+      </div>
+      <footer className="relative z-10 w-full shrink-0 py-8 text-center border-t border-white/[0.06] bg-[#09090B]/80 backdrop-blur-sm">
+        <p className="text-[10px] text-[#3F3F46] mb-3">{t.copyright}</p>
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#71717A]">
+          <a href={legalDocHref(lang, "terms")} className="hover:text-[#38BDF8] transition-colors">{t.terms}</a>
+          <span className="text-[#3F3F46]">·</span>
+          <a href={legalDocHref(lang, "privacy")} className="hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -1206,6 +1273,13 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(firebaseConfigured);
   const [skipAuth, setSkipAuth] = useState(!firebaseConfigured);
   const [wwwRedirecting] = useState(() => typeof window !== "undefined" && window.location.hostname === "www.sooner.sh");
+  const [, setHistoryTick] = useState(0);
+
+  useEffect(() => {
+    const onPop = () => setHistoryTick((n) => n + 1);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const host = window.location.hostname;
   const isMainDomain = host === "sooner.sh";
@@ -1232,6 +1306,47 @@ export default function App() {
   }, [authLoading, authUser]);
 
   if (wwwRedirecting) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+      </div>
+    );
+  }
+
+  const pathParts = window.location.pathname.replace(/\/$/, "").split("/").filter(Boolean);
+
+  if (pathParts.length === 1 && (pathParts[0] === "terms" || pathParts[0] === "privacy")) {
+    const locale = new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en";
+    const doc = pathParts[0];
+    let target = `/legal/${locale}/${doc}`;
+    const h0 = window.location.hostname;
+    if (h0.endsWith("sooner.sh") && h0 !== "sooner.sh" && h0 !== "www.sooner.sh") {
+      target = `${window.location.protocol}//sooner.sh${target}`;
+    }
+    window.location.replace(target);
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+      </div>
+    );
+  }
+
+  if (pathParts[0] === "legal") {
+    const locale = pathParts[1];
+    const doc = pathParts[2];
+    if (
+      pathParts.length === 3 &&
+      (locale === "en" || locale === "ja") &&
+      (doc === "terms" || doc === "privacy")
+    ) {
+      return <LegalPage kind={doc} pathLang={locale} />;
+    }
+    let target = "/legal/en/terms";
+    const h1 = window.location.hostname;
+    if (h1.endsWith("sooner.sh") && h1 !== "sooner.sh" && h1 !== "www.sooner.sh") {
+      target = `${window.location.protocol}//sooner.sh${target}`;
+    }
+    window.location.replace(target);
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />

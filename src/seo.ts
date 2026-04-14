@@ -186,7 +186,14 @@ function injectHreflangForLanding() {
   }
 }
 
-export type SeoOverrides = { lang?: SeoLang };
+export type SeoOverrides = {
+  lang?: SeoLang;
+  title?: string;
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  keywords?: string;
+};
 
 function buildJsonLd(key: string, lang: SeoLang): object[] {
   const org = {
@@ -285,23 +292,28 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   const lang = override?.lang ?? getLangForSeo();
   const table = lang === "ja" ? ja : en;
   const pack = table[key] ?? table.app;
+  const title = override?.title ?? pack.title;
+  const description = override?.description ?? pack.description;
+  const ogTitle = override?.ogTitle ?? pack.ogTitle;
+  const ogDescription = override?.ogDescription ?? pack.ogDescription;
+  const keywords = override?.keywords ?? pack.keywords;
 
   const url = canonicalUrl();
-  document.title = pack.title;
-  setMeta("name", "description", pack.description);
-  setMeta("name", "keywords", pack.keywords);
+  document.title = title;
+  setMeta("name", "description", description);
+  setMeta("name", "keywords", keywords);
   setMeta("name", "robots", "index, follow, max-image-preview:large, max-snippet:-1");
   setMeta("name", "author", "Sooner");
-  setMeta("property", "og:title", pack.ogTitle);
-  setMeta("property", "og:description", pack.ogDescription);
+  setMeta("property", "og:title", ogTitle);
+  setMeta("property", "og:description", ogDescription);
   setMeta("property", "og:url", url);
   setMeta("property", "og:type", key === "blog" ? "blog" : "website");
   setMeta("property", "og:site_name", "Sooner");
   setMeta("property", "og:image", OG_IMAGE);
   setMeta("property", "og:locale", lang === "ja" ? "ja_JP" : "en_US");
   setMeta("name", "twitter:card", "summary_large_image");
-  setMeta("name", "twitter:title", pack.ogTitle);
-  setMeta("name", "twitter:description", pack.ogDescription);
+  setMeta("name", "twitter:title", ogTitle);
+  setMeta("name", "twitter:description", ogDescription);
   setMeta("name", "twitter:image", OG_IMAGE);
 
   if (key === "blog") {

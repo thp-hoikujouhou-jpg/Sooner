@@ -42,6 +42,8 @@ export const blogI18n = {
     backToList: "Back to all posts",
     footer: "Sooner beta — Build sooner, ship faster",
     copyright: "© 2026 Sooner. All rights reserved.",
+    terms: "Terms of Service",
+    privacy: "Privacy Policy",
   },
   ja: {
     title: "Sooner ブログ",
@@ -56,6 +58,8 @@ export const blogI18n = {
     backToList: "記事一覧に戻る",
     footer: "Sooner ベータ — Build sooner, ship faster",
     copyright: "© 2026 Sooner. All rights reserved.",
+    terms: "利用規約",
+    privacy: "プライバシーポリシー",
   },
 };
 
@@ -162,4 +166,18 @@ export function navigateToBlog(lang: "en" | "ja") {
       ? "https:"
       : window.location.protocol;
   window.location.href = `${proto}//blog.sooner.sh${langParam}`;
+}
+
+/** Legal pages: https://sooner.sh/legal/{en|ja}/{terms|privacy} */
+export function legalDocHref(locale: "en" | "ja", doc: "terms" | "privacy"): string {
+  const path = `/legal/${locale}/${doc}`;
+  if (typeof window === "undefined") return `https://sooner.sh${path}`;
+  const h = window.location.hostname;
+  if (h === "sooner.sh" || h === "localhost" || h === "127.0.0.1") {
+    return path;
+  }
+  if (h.endsWith("sooner.sh")) {
+    return `${window.location.protocol}//sooner.sh${path}`;
+  }
+  return path;
 }

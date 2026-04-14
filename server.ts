@@ -1681,44 +1681,67 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // Public Blog: List published posts
+  /** Milliseconds for publishAt (Timestamp, ISO string, or serialized seconds). */
+  function publishAtMillis(pub: any): number | null {
+    if (pub == null) return null;
+    if (typeof pub.toMillis === "function") return pub.toMillis();
+    if (typeof pub === "string") {
+      const t = new Date(pub).getTime();
+      return Number.isNaN(t) ? null : t;
+    }
+    if (typeof pub._seconds === "number") return pub._seconds * 1000 + Math.floor((pub._nanoseconds || 0) / 1e6);
+    return null;
+  }
+
+  function isBlogPostPublicVisible(data: any, now: admin.firestore.Timestamp): boolean {
+    const st = data.status;
+    if (st !== "published" && st !== "scheduled") return false;
+    const ms = publishAtMillis(data.publishAt);
+    if (ms === null) return false;
+    return ms <= now.toMillis();
+  }
+
+  // Public Blog: List published posts (filter in memory to avoid required composite index on status + publishAt)
   app.get("/api/blog/posts", async (_req, res) => {
     if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
     try {
       const now = admin.firestore.Timestamp.now();
       const snap = await firebaseDb.collection("blog_posts")
-        .where("status", "in", ["published", "scheduled"])
-        .where("publishAt", "<=", now)
         .orderBy("publishAt", "desc")
+        .limit(250)
         .get();
-      const posts = snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id, slug: data.slug,
-          title_en: data.title_en, title_ja: data.title_ja,
-          excerpt_en: data.excerpt_en, excerpt_ja: data.excerpt_ja,
-          author: data.author,
-          readingTime_en: data.readingTime_en, readingTime_ja: data.readingTime_ja,
-          tags: data.tags, publishAt: data.publishAt,
-          viewCount: data.viewCount || 0,
-        };
-      });
+      const posts = snap.docs
+        .filter((d) => isBlogPostPublicVisible(d.data(), now))
+        .map((d) => {
+          const data = d.data();
+          return {
+            id: d.id, slug: data.slug,
+            title_en: data.title_en, title_ja: data.title_ja,
+            excerpt_en: data.excerpt_en, excerpt_ja: data.excerpt_ja,
+            author: data.author,
+            readingTime_en: data.readingTime_en, readingTime_ja: data.readingTime_ja,
+            tags: data.tags, publishAt: data.publishAt,
+            viewCount: data.viewCount || 0,
+          };
+        });
       res.json(posts);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // Public Blog: Get single post by slug
+  // Public Blog: Get single post by slug (same visibility rules as list: published/scheduled, publishAt <= now)
   app.get("/api/blog/posts/:slug", async (req, res) => {
     if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
     try {
       const now = admin.firestore.Timestamp.now();
       const snap = await firebaseDb.collection("blog_posts")
         .where("slug", "==", req.params.slug)
-        .where("publishAt", "<=", now)
-        .limit(1)
+        .limit(20)
         .get();
       if (snap.empty) return res.status(404).json({ error: "Not found" });
-      const doc = snap.docs[0];
+      const visible = snap.docs.filter((d) => isBlogPostPublicVisible(d.data(), now));
+      if (!visible.length) return res.status(404).json({ error: "Not found" });
+      visible.sort((a, b) => (publishAtMillis(b.data().publishAt) ?? 0) - (publishAtMillis(a.data().publishAt) ?? 0));
+      const doc = visible[0];
       res.json({ id: doc.id, ...doc.data() });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -1729,12 +1752,11 @@ async function startServer() {
     try {
       const now = admin.firestore.Timestamp.now();
       const snap = await firebaseDb.collection("blog_posts")
-        .where("status", "in", ["published", "scheduled"])
-        .where("publishAt", "<=", now)
         .orderBy("publishAt", "desc")
+        .limit(250)
         .get();
       let urls = `  <url>\n    <loc>https://blog.sooner.sh/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
-      for (const d of snap.docs) {
+      for (const d of snap.docs.filter((doc) => isBlogPostPublicVisible(doc.data(), now))) {
         const data = d.data();
         const date = data.publishAt?.toDate?.()?.toISOString?.()?.slice(0, 10) || "";
         urls += `  <url>\n    <loc>https://blog.sooner.sh/${data.slug}</loc>\n    <lastmod>${date}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
@@ -1747,12 +1769,16 @@ async function startServer() {
   app.post("/api/blog/posts/:slug/view", async (req, res) => {
     if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
     try {
+      const now = admin.firestore.Timestamp.now();
       const snap = await firebaseDb.collection("blog_posts")
         .where("slug", "==", req.params.slug)
-        .limit(1)
+        .limit(20)
         .get();
       if (snap.empty) return res.status(404).json({ error: "Not found" });
-      const docRef = snap.docs[0].ref;
+      const visible = snap.docs.filter((d) => isBlogPostPublicVisible(d.data(), now));
+      if (!visible.length) return res.status(404).json({ error: "Not found" });
+      visible.sort((a, b) => (publishAtMillis(b.data().publishAt) ?? 0) - (publishAtMillis(a.data().publishAt) ?? 0));
+      const docRef = visible[0].ref;
       await docRef.update({ viewCount: admin.firestore.FieldValue.increment(1) });
       const updated = await docRef.get();
       res.json({ viewCount: updated.data()?.viewCount || 0 });

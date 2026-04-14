@@ -53,6 +53,19 @@ export default function CmsPage() {
     setLoading(false);
   };
 
+  /** datetime-local is interpreted in the browser's local TZ; send UTC ISO so the API stores the intended instant. */
+  const publishAtAsIso = (raw: unknown): string => {
+    if (raw == null || raw === "") return new Date().toISOString();
+    if (typeof raw === "string") {
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    }
+    if (typeof raw === "object" && raw !== null && "_seconds" in raw) {
+      return new Date((raw as { _seconds: number })._seconds * 1000).toISOString();
+    }
+    return new Date().toISOString();
+  };
+
   const savePost = async () => {
     if (!editingPost) return;
     setSaving(true);
@@ -70,7 +83,7 @@ export default function CmsPage() {
         readingTime_ja: editingPost.readingTime_ja,
         tags: editingPost.tags,
         status: editingPost.status,
-        publishAt: editingPost.publishAt,
+        publishAt: publishAtAsIso(editingPost.publishAt),
       };
       if (editingPost.id) {
         await axios.put(`${BACKEND_BASE}/api/cms/posts/${editingPost.id}`, payload, { headers });
