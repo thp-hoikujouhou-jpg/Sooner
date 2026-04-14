@@ -146,10 +146,10 @@ const landingI18n = {
     heroTitle1: "Ship ",
     heroHighlight: "faster",
     heroTitle2: "than ever",
-    heroDesc: "Sooner is an AI-native IDE: the fastest way from idea to production. Describe what you want — AI writes, previews, and ships your code in seconds.",
+    heroDesc: "Sooner is an AI-native IDE: the fastest way from idea to production. Describe what you want — AI builds, previews, and ships your code in seconds.",
     getStartedFree: "Get Started Free",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "The AI-native IDE that lives in the preview.",
+    taglineSub: "The AI-native IDE.",
     feat1: { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
     feat2: { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
     feat3: { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
@@ -193,24 +193,20 @@ const landingI18n = {
     muteSound: "Mute",
     unmuteSound: "Unmute",
     leafCta: "Get Started Free",
-    stageWriteNum: "01",
-    stageWriteTitle: "Write",
-    stageWriteDesc: "Describe your idea. AI writes production-ready code across multiple files in seconds.",
-    stageDebugNum: "02",
-    stageDebugTitle: "Debug",
-    stageDebugDesc: "Errors vanish like lightning. Terminal, linter, and AI fix issues before you notice them.",
-    stagePreviewNum: "03",
+    stageBuildNum: "01",
+    stageBuildTitle: "Build",
+    stageBuildDesc: "Describe your idea. AI writes and debugs production-ready code across multiple files in seconds.",
+    stagePreviewNum: "02",
     stagePreviewTitle: "Preview",
     stagePreviewDesc: "See your app live in the browser. React, Vue, Three.js — instant, no config.",
-    stageShipNum: "04",
+    stageShipNum: "03",
     stageShipTitle: "Ship",
     stageShipDesc: "Push to Git and deploy. From thought to production in one flow.",
     poemLines: [
       "In the storm of creation,",
       "a single drop carries your vision.",
       "",
-      "Write — thought becomes code.",
-      "Debug — clarity strikes like lightning.",
+      "Build — thought becomes code.",
       "Preview — watch it breathe.",
       "Ship — it's already live.",
       "",
@@ -218,7 +214,7 @@ const landingI18n = {
       "your idea reaches the world.",
       "",
       "Build sooner. Ship faster.",
-      "The AI-native IDE that lives in the preview.",
+      "The AI-native IDE.",
       "",
       "Sooner.",
     ],
@@ -231,10 +227,10 @@ const landingI18n = {
     heroTitle1: "もっと",
     heroHighlight: "速く",
     heroTitle2: "届けよう",
-    heroDesc: "SoonerはAIネイティブIDE。アイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがコードを書き、プレビューし、数秒でデプロイします。",
+    heroDesc: "SoonerはAIネイティブIDE。アイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがビルド、プレビュー、数秒でデプロイします。",
     getStartedFree: "無料で始める",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "プレビューの中で完結するAIネイティブIDE。",
+    taglineSub: "AIネイティブIDE。",
     feat1: { icon: "⚡", title: "瞬時にコード生成", desc: "アイデアを伝えるだけ。AIが本番品質のコードを数秒で書き上げます。" },
     feat2: { icon: "🚀", title: "リアルタイムプレビュー", desc: "アプリが即座に動く。React, Vue, Flutter, Three.js — すべて対応。" },
     feat3: { icon: "🔧", title: "セットアップ不要", desc: "フロント、バックエンド、フルスタック。Node.js, Python, Go, Rust — 設定なしで。" },
@@ -278,24 +274,20 @@ const landingI18n = {
     muteSound: "ミュート",
     unmuteSound: "ミュート解除",
     leafCta: "無料で始める",
-    stageWriteNum: "01",
-    stageWriteTitle: "Write",
-    stageWriteDesc: "アイデアを伝えるだけ。AIが数秒で本番品質のコードを複数ファイルにわたって書き上げます。",
-    stageDebugNum: "02",
-    stageDebugTitle: "Debug",
-    stageDebugDesc: "エラーは稲妻のように消える。ターミナル、リンター、AIが気づく前に修正します。",
-    stagePreviewNum: "03",
+    stageBuildNum: "01",
+    stageBuildTitle: "Build",
+    stageBuildDesc: "アイデアを伝えるだけ。AIが数秒で本番品質のコードを書き上げ、デバッグまで完了します。",
+    stagePreviewNum: "02",
     stagePreviewTitle: "Preview",
     stagePreviewDesc: "ブラウザ上でアプリが動く。React, Vue, Three.js — 即座に、設定なしで。",
-    stageShipNum: "04",
+    stageShipNum: "03",
     stageShipTitle: "Ship",
     stageShipDesc: "Gitにプッシュしてデプロイ。思考からプロダクションまで一つの流れで。",
     poemLines: [
       "創造の嵐の中、",
       "一滴のしずくがビジョンを運ぶ。",
       "",
-      "Write — 思考がコードになる。",
-      "Debug — 雷光のように明瞭さが走る。",
+      "Build — 思考がコードになる。",
       "Preview — 息づくのを見よ。",
       "Ship — もう、世界に届いている。",
       "",
@@ -303,7 +295,7 @@ const landingI18n = {
       "あなたのアイデアは世界へ。",
       "",
       "Build sooner. Ship faster.",
-      "プレビューの中で完結するAIネイティブIDE。",
+      "AIネイティブIDE。",
       "",
       "Sooner.",
     ],
@@ -923,7 +915,7 @@ function CmsEditor({ post, lang, t, contentTab, setContentTab, viewMode, setView
   );
 }
 
-type JourneyPhase = "idle" | "thunder" | "detach" | "write" | "debug" | "preview" | "ship" | "impact" | "poem" | "done";
+type JourneyPhase = "idle" | "thunder" | "detach" | "build" | "preview" | "ship" | "impact" | "poem" | "done";
 
 function useAmbientAudio() {
   const ctxRef = useRef<AudioContext | null>(null);
@@ -1091,7 +1083,7 @@ function LeafSVG({ trembling, onClick, ctaText }: { trembling: boolean; onClick:
 }
 
 function DropletShape({ children, phase, isMobile }: { children: React.ReactNode; phase: JourneyPhase; isMobile: boolean }) {
-  const stagePhases: JourneyPhase[] = ["write", "debug", "preview", "ship"];
+  const stagePhases: JourneyPhase[] = ["build", "preview", "ship"];
   const isActive = stagePhases.includes(phase);
   const stageIndex = stagePhases.indexOf(phase);
   const isLeft = stageIndex % 2 === 0;
@@ -1322,11 +1314,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       schedule(doFlash, 800);
       schedule(() => setJourneyPhase("detach"), 1800);
     } else if (journeyPhase === "detach") {
-      schedule(() => setJourneyPhase("write"), 1500);
-    } else if (journeyPhase === "write") {
+      schedule(() => setJourneyPhase("build"), 1500);
+    } else if (journeyPhase === "build") {
       schedule(doFlash, 5000);
-      schedule(() => setJourneyPhase("debug"), 10000);
-    } else if (journeyPhase === "debug") {
       schedule(() => setJourneyPhase("preview"), 10000);
     } else if (journeyPhase === "preview") {
       schedule(doFlash, 4000);
@@ -1345,7 +1335,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   }, [journeyPhase]);
 
   useEffect(() => {
-    const vol: Record<string, number> = { idle: 0.03, thunder: 0.1, detach: 0.08, write: 0.06, debug: 0.06, preview: 0.06, ship: 0.08, impact: 0.04, poem: 0.02, done: 0.01 };
+    const vol: Record<string, number> = { idle: 0.03, thunder: 0.1, detach: 0.08, build: 0.06, preview: 0.06, ship: 0.08, impact: 0.04, poem: 0.02, done: 0.01 };
     audio.setRainVolume(vol[journeyPhase] ?? 0.03);
   }, [journeyPhase]);
 
@@ -1368,15 +1358,14 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   };
   const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
-  const stagePhases: JourneyPhase[] = ["write", "debug", "preview", "ship"];
+  const stagePhases: JourneyPhase[] = ["build", "preview", "ship"];
   const isInJourney = journeyPhase !== "idle" && journeyPhase !== "done";
   const showDroplet = stagePhases.includes(journeyPhase);
   const showImpact = journeyPhase === "impact" || journeyPhase === "poem" || journeyPhase === "done";
   const showPoem = journeyPhase === "poem" || journeyPhase === "done";
 
   const stageData = [
-    { num: t.stageWriteNum, title: t.stageWriteTitle, desc: t.stageWriteDesc },
-    { num: t.stageDebugNum, title: t.stageDebugTitle, desc: t.stageDebugDesc },
+    { num: t.stageBuildNum, title: t.stageBuildTitle, desc: t.stageBuildDesc },
     { num: t.stagePreviewNum, title: t.stagePreviewTitle, desc: t.stagePreviewDesc },
     { num: t.stageShipNum, title: t.stageShipTitle, desc: t.stageShipDesc },
   ];

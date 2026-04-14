@@ -5,7 +5,7 @@
 
 import { readStoredLanguage } from "./language";
 
-const OG_IMAGE = "https://site.sooner.sh/sooner-icon.svg";
+const OG_IMAGE = "https://site.sooner.sh/og-image.png";
 
 export type SeoLang = "en" | "ja";
 
@@ -33,39 +33,39 @@ const en: Record<string, Pack> = {
   site: {
     title: "Sooner — Build sooner, ship faster | AI-native IDE in the browser",
     description:
-      "Sooner is an AI-native IDE in your browser: describe what you want, get production-ready code, live preview, Git, terminal, and Firebase sync.",
-    ogTitle: "Sooner — Build sooner, ship faster",
-    ogDescription: "AI-native IDE with Monaco editor, Gemini, live preview, and cloud projects.",
-    keywords: "AI IDE, browser IDE, online code editor, AI coding assistant, web development, Monaco editor, Gemini AI, cloud IDE, Sooner, code generation",
+      "Sooner is an AI-native IDE in your browser. Describe what you want — AI builds, previews, and ships your code in seconds. Monaco editor, Gemini AI, Git, terminal, and cloud sync included. No install needed.",
+    ogTitle: "Sooner — Build sooner, ship faster | AI-native IDE",
+    ogDescription: "AI-native IDE in your browser. Describe what you want — AI builds, previews, and ships your code in seconds. No install needed.",
+    keywords: "Sooner, AI IDE, AI-native IDE, browser IDE, online code editor, AI coding assistant, web development, Monaco editor, Gemini AI, cloud IDE, code generation, live preview, Git integration, free IDE",
   },
   app: {
-    title: "Sooner — AI-native IDE | Code, preview, ship",
+    title: "Sooner — AI-native IDE | Build, preview, ship",
     description:
-      "Sign in to Sooner: multi-file projects, AI agent, terminal, preview, and cloud storage — all in one tab.",
+      "Sign in to Sooner: multi-file projects, AI agent, terminal, live preview, Git, and cloud storage — all in one tab. The AI-native IDE.",
     ogTitle: "Sooner — AI-native IDE",
-    ogDescription: "Build and preview in the browser. AI-native IDE with cloud sync.",
-    keywords: "AI IDE, online code editor, browser IDE, code preview, cloud projects, Sooner app",
+    ogDescription: "Build, preview, and ship in the browser. AI-native IDE with cloud sync.",
+    keywords: "Sooner, AI IDE, online code editor, browser IDE, code preview, cloud projects, AI coding, Sooner app",
   },
   signup: {
-    title: "Sooner — Create account",
-    description: "Create your Sooner account. Email, Google, or GitHub sign-in.",
-    ogTitle: "Sooner — Sign up",
-    ogDescription: "Create a free Sooner account to start building.",
-    keywords: "Sooner sign up, create account, free AI IDE, browser code editor",
+    title: "Sooner — Create your free account | AI-native IDE",
+    description: "Create your free Sooner account. Sign up with email, Google, or GitHub. Start building with the AI-native IDE in seconds.",
+    ogTitle: "Sooner — Get started free",
+    ogDescription: "Create a free Sooner account and start building with AI.",
+    keywords: "Sooner sign up, create account, free AI IDE, browser code editor, AI coding tool",
   },
   signin: {
-    title: "Sooner — Sign in",
-    description: "Sign in to Sooner to open your projects and AI-native IDE.",
+    title: "Sooner — Sign in | AI-native IDE",
+    description: "Sign in to Sooner to open your projects. AI-native IDE with live preview, Git, and cloud sync.",
     ogTitle: "Sooner — Sign in",
-    ogDescription: "Access your Sooner AI-native IDE.",
-    keywords: "Sooner login, sign in, AI IDE access, cloud projects",
+    ogDescription: "Access your Sooner AI-native IDE and projects.",
+    keywords: "Sooner login, sign in, AI IDE access, cloud projects, online editor",
   },
   blog: {
-    title: "Sooner Blog — News & tutorials",
-    description: "Updates, tips, and tutorials from the Sooner team — AI-native IDE, web dev, and shipping faster.",
-    ogTitle: "Sooner Blog",
-    ogDescription: "News and tutorials from Sooner.",
-    keywords: "Sooner blog, AI IDE tutorials, web development tips, browser IDE updates, coding tutorials",
+    title: "Sooner Blog — News, tutorials & updates | AI-native IDE",
+    description: "Product updates, tips, and tutorials from the Sooner team. Learn about the AI-native IDE, web development, and how to ship faster.",
+    ogTitle: "Sooner Blog — News & tutorials",
+    ogDescription: "Product updates and tutorials from the Sooner team. AI-native IDE insights.",
+    keywords: "Sooner blog, AI IDE tutorials, web development tips, browser IDE updates, coding tutorials, Sooner news",
   },
 };
 
@@ -73,39 +73,39 @@ const ja: Record<string, Pack> = {
   site: {
     title: "Sooner — もっと早く作り、早く届ける | ブラウザ上のAIネイティブIDE",
     description:
-      "Soonerはブラウザ上のAIネイティブIDE。自然言語で指示し、本番向けコード、ライブプレビュー、Git・ターミナル、Firebase同期まで。",
-    ogTitle: "Sooner — Build sooner, ship faster",
-    ogDescription: "Monaco・Gemini・ライブプレビュー・クラウドプロジェクト。",
-    keywords: "AI IDE, ブラウザIDE, オンラインコードエディタ, AIコーディング, Web開発, Monaco, Gemini AI, クラウドIDE, Sooner",
+      "Soonerはブラウザ上のAIネイティブIDEです。自然言語で指示するだけで、本番品質のコードを生成、プレビュー、デプロイ。Monaco、Gemini AI、Git、ターミナル、クラウド同期を搭載。インストール不要。",
+    ogTitle: "Sooner — Build sooner, ship faster | AIネイティブIDE",
+    ogDescription: "ブラウザ上のAIネイティブIDE。指示するだけでコードを生成、プレビュー、公開。インストール不要。",
+    keywords: "Sooner, AI IDE, AIネイティブIDE, ブラウザIDE, オンラインコードエディタ, AIコーディング, Web開発, Monaco, Gemini AI, クラウドIDE, コード生成, ライブプレビュー",
   },
   app: {
-    title: "Sooner — AIネイティブIDE | コード・プレビュー・公開",
+    title: "Sooner — AIネイティブIDE | ビルド・プレビュー・公開",
     description:
-      "Soonerにログイン: 複数ファイル、AIエージェント、ターミナル、プレビュー、クラウドストレージをひとつのタブで。",
+      "Soonerにログイン：複数ファイル、AIエージェント、ターミナル、ライブプレビュー、Git、クラウドストレージをひとつのタブで。AIネイティブIDE。",
     ogTitle: "Sooner — AIネイティブIDE",
-    ogDescription: "ブラウザでビルド＆プレビュー。AIネイティブIDEとクラウド同期。",
-    keywords: "AI IDE, オンラインエディタ, ブラウザIDE, コードプレビュー, クラウドプロジェクト, Sooner",
+    ogDescription: "ブラウザでビルド、プレビュー、公開。AIネイティブIDEとクラウド同期。",
+    keywords: "Sooner, AI IDE, オンラインエディタ, ブラウザIDE, コードプレビュー, クラウドプロジェクト, AIコーディング",
   },
   signup: {
-    title: "Sooner — アカウント作成",
-    description: "Soonerのアカウントを作成。メール、Google、またはGitHubでサインアップ。",
-    ogTitle: "Sooner — サインアップ",
-    ogDescription: "無料でSoonerを始める。",
-    keywords: "Sooner アカウント作成, 無料AI IDE, ブラウザエディタ登録",
+    title: "Sooner — 無料アカウント作成 | AIネイティブIDE",
+    description: "Soonerの無料アカウントを作成。メール、Google、GitHubで登録。AIネイティブIDEで今すぐ開発を始めましょう。",
+    ogTitle: "Sooner — 無料で始める",
+    ogDescription: "Soonerの無料アカウントを作成してAIで開発を始める。",
+    keywords: "Sooner アカウント作成, 無料AI IDE, ブラウザエディタ登録, AIコーディングツール",
   },
   signin: {
-    title: "Sooner — ログイン",
-    description: "SoonerにログインしてプロジェクトとAIネイティブIDEを開く。",
+    title: "Sooner — ログイン | AIネイティブIDE",
+    description: "Soonerにログインしてプロジェクトを開く。ライブプレビュー、Git、クラウド同期のAIネイティブIDE。",
     ogTitle: "Sooner — ログイン",
-    ogDescription: "SoonerのAIネイティブIDEにアクセス。",
-    keywords: "Sooner ログイン, サインイン, AI IDEアクセス",
+    ogDescription: "SoonerのAIネイティブIDEとプロジェクトにアクセス。",
+    keywords: "Sooner ログイン, サインイン, AI IDEアクセス, クラウドプロジェクト, オンラインエディタ",
   },
   blog: {
-    title: "Sooner ブログ — ニュースとチュートリアル",
-    description: "Soonerチームからの更新・Tips・チュートリアル。AIネイティブIDEとWeb開発。",
-    ogTitle: "Sooner ブログ",
-    ogDescription: "Soonerからのニュースとチュートリアル。",
-    keywords: "Sooner ブログ, AI IDEチュートリアル, Web開発Tips, ブラウザIDE更新情報",
+    title: "Sooner ブログ — ニュース・チュートリアル・更新情報 | AIネイティブIDE",
+    description: "Soonerチームからのプロダクト更新、Tips、チュートリアル。AIネイティブIDE、Web開発、効率的な開発について。",
+    ogTitle: "Sooner ブログ — ニュースとチュートリアル",
+    ogDescription: "Soonerチームからのプロダクト更新とチュートリアル。AIネイティブIDEの最新情報。",
+    keywords: "Sooner ブログ, AI IDEチュートリアル, Web開発Tips, ブラウザIDE更新情報, Soonerニュース",
   },
 };
 
@@ -231,26 +231,6 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
       url: "https://blog.sooner.sh/",
       description: (lang === "ja" ? ja : en).blog.description,
       publisher: { "@type": "Organization", name: "Sooner", logo: { "@type": "ImageObject", url: OG_IMAGE } },
-      blogPost: [
-        {
-          "@type": "BlogPosting",
-          headline: lang === "ja" ? "Sooner（ベータ）へようこそ" : "Welcome to Sooner (beta)",
-          datePublished: "2026-04-14",
-          author: { "@type": "Organization", name: "Sooner" },
-          description: lang === "ja"
-            ? "Sooner はブラウザ上の AI ネイティブ IDE です。"
-            : "Sooner is an AI-native IDE in the browser.",
-        },
-        {
-          "@type": "BlogPosting",
-          headline: lang === "ja" ? "なぜブラウザで作ったか" : "Why we built in the browser",
-          datePublished: "2026-04-10",
-          author: { "@type": "Organization", name: "Sooner" },
-          description: lang === "ja"
-            ? "インストール不要、揃った環境、アイデアから動くコードまでを一か所に。"
-            : "Zero install, consistent environments, and a path from idea to running code in one place.",
-        },
-      ],
     };
     return [org, blog];
   }
@@ -272,7 +252,7 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   document.title = pack.title;
   setMeta("name", "description", pack.description);
   setMeta("name", "keywords", pack.keywords);
-  setMeta("name", "robots", "index, follow");
+  setMeta("name", "robots", "index, follow, max-image-preview:large, max-snippet:-1");
   setMeta("name", "author", "Sooner");
   setMeta("property", "og:title", pack.ogTitle);
   setMeta("property", "og:description", pack.ogDescription);
