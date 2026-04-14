@@ -1,4 +1,9 @@
-/** Bilingual legal copy for Sooner. Not a substitute for professional legal advice. */
+/**
+ * Bilingual legal copy for Sooner. Not a substitute for professional legal advice.
+ *
+ * Archiving: before you change terms or privacy text, add the previous body to `LEGAL_SNAPSHOTS`
+ * in `legalArchive.ts` (see comment there), then edit this file and update `lastUpdated` in `legalMeta`.
+ */
 
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
@@ -92,7 +97,8 @@ export const termsEn: LegalSection[] = [
     id: "termination",
     title: "12. Termination",
     paragraphs: [
-      "You may stop using the Service at any time. We may suspend or terminate your access if you breach these terms or if we discontinue the Service.",
+      "You may stop using the Service at any time. You may delete your account from the in-app Settings where available; deletion removes your authentication profile and associated cloud project storage we host, subject to the Privacy Policy.",
+      "We may suspend or terminate your access if you breach these terms or if we discontinue the Service.",
       "Upon termination, provisions that by their nature should survive (e.g. disclaimers, limitations of liability, indemnity) will survive.",
     ],
   },
@@ -108,7 +114,7 @@ export const termsEn: LegalSection[] = [
     id: "contact",
     title: "14. Contact",
     paragraphs: [
-      "For questions about these Terms, contact us through the channels published on https://site.sooner.sh or the contact information we provide there.",
+      "For questions about these Terms, contact us at soonerutingna@gmail.com or through the channels published on https://site.sooner.sh.",
     ],
   },
 ];
@@ -203,7 +209,8 @@ export const termsJa: LegalSection[] = [
     id: "termination",
     title: "第12条（利用停止等）",
     paragraphs: [
-      "利用者は、いつでも本サービスの利用を終了できます。当社は、本規約違反がある場合、または事業上の理由により、本サービスの全部または一部を終了し、または利用者のアクセスを停止することがあります。",
+      "利用者は、いつでも本サービスの利用を終了できます。アプリの設定画面からアカウントを削除できる場合があります。削除により、当社がホストする認証プロファイルおよび関連するクラウド上のプロジェクトデータが削除されます（詳細はプライバシーポリシーに従います）。",
+      "当社は、本規約違反がある場合、または事業上の理由により、本サービスの全部または一部を終了し、または利用者のアクセスを停止することがあります。",
       "終了後も、性質上存続すべき条項（免責、責任制限、賠償等）は有効に存続します。",
     ],
   },
@@ -219,7 +226,7 @@ export const termsJa: LegalSection[] = [
     id: "contact",
     title: "第14条（お問い合わせ）",
     paragraphs: [
-      "本規約に関するお問い合わせは、https://site.sooner.sh に掲載する連絡方法にて受け付けます。",
+      "本規約に関するお問い合わせは、soonerutingna@gmail.com または https://site.sooner.sh に掲載する連絡方法にて受け付けます。",
     ],
   },
 ];
@@ -229,7 +236,7 @@ export const privacyEn: LegalSection[] = [
     id: "intro",
     title: "1. Introduction",
     paragraphs: [
-      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh, site.sooner.sh, blog.sooner.sh, and related subdomains.",
+      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh (including sign-in and sign-up pages at /signin and /signup), site.sooner.sh, signin.sooner.sh, signup.sooner.sh (which redirect to sooner.sh for authentication), login.sooner.sh if used, blog.sooner.sh, cms.sooner.sh, and related subdomains.",
       "By using the Service, you agree to this policy. If you do not agree, please do not use the Service.",
     ],
   },
@@ -237,7 +244,7 @@ export const privacyEn: LegalSection[] = [
     id: "collect",
     title: "2. Information we collect",
     paragraphs: [
-      "Account data: email address, display identifiers, and authentication data when you sign in with email, Google, or GitHub.",
+      "Account data: email address, display identifiers, and authentication data when you sign in or create an account with email, Google, or GitHub (including on our dedicated sign-in and sign-up flows).",
       "Project and usage data: files, code, chat messages, and settings you store or generate in the Service.",
       "Technical data: IP address, device/browser type, approximate location derived from IP, timestamps, and diagnostic logs needed to operate and secure the Service.",
       "Blog: when you read public blog pages, we may record aggregated page-view counts associated with articles.",
@@ -272,7 +279,7 @@ export const privacyEn: LegalSection[] = [
     id: "retention",
     title: "6. Retention",
     paragraphs: [
-      "We retain information as long as your account is active and as needed to provide the Service, comply with law, resolve disputes, and enforce agreements. You may delete projects or your account where the product supports it; some records may be retained for a limited period for backups and legal compliance.",
+      "We retain information as long as your account is active and as needed to provide the Service, comply with law, resolve disputes, and enforce agreements. You may delete your stored projects from the IDE and may delete your account from Settings (Account) where available; this removes your Firebase Authentication account and attempts to remove associated project files in our storage. Some records may be retained for a limited period for backups and legal compliance.",
     ],
   },
   {
@@ -286,7 +293,7 @@ export const privacyEn: LegalSection[] = [
     id: "rights",
     title: "8. Your rights",
     paragraphs: [
-      "Depending on your location, you may have rights to access, correct, delete, or export your personal data, and to object to or restrict certain processing. To exercise these rights, contact us using the information on our site. You may also lodge a complaint with your local data protection authority.",
+      "Depending on your location, you may have rights to access, correct, delete, or export your personal data, and to object to or restrict certain processing. You can request account deletion in the app (Settings) or by emailing soonerutingna@gmail.com. You may also lodge a complaint with your local data protection authority.",
     ],
   },
   {
@@ -307,14 +314,14 @@ export const privacyEn: LegalSection[] = [
     id: "changes",
     title: "11. Changes to this policy",
     paragraphs: [
-      "We may update this Privacy Policy from time to time. We will post the updated version on this page and update the “Last updated” date.",
+      "We may update this Privacy Policy from time to time. We will post the updated version on this page and update the “Last updated” date. Prior versions are listed at /legal/en/archive (and /legal/ja/archive) when archived.",
     ],
   },
   {
     id: "contact",
     title: "12. Contact",
     paragraphs: [
-      "For privacy questions, contact us through the channels published on https://site.sooner.sh.",
+      "For privacy questions, contact us at soonerutingna@gmail.com or through the channels published on https://site.sooner.sh.",
     ],
   },
 ];
@@ -324,7 +331,7 @@ export const privacyJa: LegalSection[] = [
     id: "intro",
     title: "第1条（はじめに）",
     paragraphs: [
-      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh、site.sooner.sh、blog.sooner.sh 等のサブドメインが含まれます。",
+      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh（/signin および /signup を含む）、site.sooner.sh、認証のため sooner.sh へ誘導する signin.sooner.sh・signup.sooner.sh、使用する場合の login.sooner.sh、blog.sooner.sh、cms.sooner.sh 等のサブドメインが含まれます。",
       "本サービスを利用することにより、本ポリシーに同意したものとみなされます。同意いただけない場合は、本サービスをご利用いただけません。",
     ],
   },
@@ -332,7 +339,7 @@ export const privacyJa: LegalSection[] = [
     id: "collect",
     title: "第2条（取得する情報）",
     paragraphs: [
-      "アカウント情報：メールアドレス、表示名等の識別子、メール・Google・GitHub等による認証に関する情報。",
+      "アカウント情報：メールアドレス、表示名等の識別子、メール・Google・GitHub等によるサインイン・新規登録時の認証に関する情報。",
       "利用・コンテンツ情報：本サービス上で保存または生成されるファイル、コード、チャット内容、設定等。",
       "技術情報：IPアドレス、端末・ブラウザの種類、IPアドレスから推定されるおおよその地域、タイムスタンプ、運用・セキュリティに必要なログ。",
       "ブログ：公開記事を閲覧した際に、記事単位の閲覧回数等を集計する場合があります。",
@@ -367,7 +374,7 @@ export const privacyJa: LegalSection[] = [
     id: "retention",
     title: "第6条（保存期間）",
     paragraphs: [
-      "当社は、アカウントが有効な期間、および本サービスの提供、法令遵守、紛争解決、契約の執行に必要な期間、情報を保持します。製品機能上、プロジェクトやアカウントの削除が可能な場合は、利用者が削除操作を行うことができます。バックアップや法令遵守のため、一定期間保持される場合があります。",
+      "当社は、アカウントが有効な期間、および本サービスの提供、法令遵守、紛争解決、契約の執行に必要な期間、情報を保持します。IDE上で保存したプロジェクトの削除、および設定画面からのアカウント削除（Firebase Authentication アカウントの削除とストレージ上のプロジェクトファイルの削除を試みます）が可能です。バックアップや法令遵守のため、一定期間保持される場合があります。",
     ],
   },
   {
@@ -381,7 +388,7 @@ export const privacyJa: LegalSection[] = [
     id: "rights",
     title: "第8条（利用者の権利）",
     paragraphs: [
-      "お住まいの地域の法令に従い、保有個人データの開示、訂正、削除、利用停止、データポータビリティ等を請求できる場合があります。ご請求は、当社サイトに掲載する連絡方法にてお問い合わせください。また、管轄のデータ保護当局に苦情を申し立てる権利を有する場合があります。",
+      "お住まいの地域の法令に従い、保有個人データの開示、訂正、削除、利用停止、データポータビリティ等を請求できる場合があります。アプリの設定からアカウント削除を行うか、soonerutingna@gmail.com までご連絡ください。また、管轄のデータ保護当局に苦情を申し立てる権利を有する場合があります。",
     ],
   },
   {
@@ -402,14 +409,14 @@ export const privacyJa: LegalSection[] = [
     id: "changes",
     title: "第11条（本ポリシーの変更）",
     paragraphs: [
-      "当社は、本ポリシーを変更することがあります。変更後の内容は本ページに掲載し、末尾の「最終更新日」を更新します。",
+      "当社は、本ポリシーを変更することがあります。変更後の内容は本ページに掲載し、末尾の「最終更新日」を更新します。過去版はアーカイブした場合 /legal/en/archive および /legal/ja/archive から参照できます。",
     ],
   },
   {
     id: "contact",
     title: "第12条（お問い合わせ）",
     paragraphs: [
-      "本ポリシーに関するお問い合わせは、https://site.sooner.sh に掲載する連絡方法にて受け付けます。",
+      "本ポリシーに関するお問い合わせは、soonerutingna@gmail.com または https://site.sooner.sh に掲載する連絡方法にて受け付けます。",
     ],
   },
 ];
@@ -426,6 +433,16 @@ export const legalMeta = {
     lastUpdated: "Last updated: April 15, 2026",
     notice:
       "This document is provided for informational purposes and does not constitute legal advice. You may wish to consult a qualified attorney for your jurisdiction.",
+    contactEmailLabel: "Contact:",
+    archiveLink: "Previous versions",
+    archiveIndex: {
+      pageTitle: "Archived legal documents",
+      pageDesc: "Earlier versions of our Terms and Privacy Policy, kept when we publish updates.",
+      empty:
+        "No archived versions are published in the app yet. When we update the Terms or Privacy Policy, the previous text is added here first—see the comment at the top of legalContent.ts and legalArchive.ts.",
+      currentDocs: "Current documents:",
+      contactPrefix: "Questions:",
+    },
   },
   ja: {
     termsTitle: "利用規約",
@@ -438,5 +455,15 @@ export const legalMeta = {
     lastUpdated: "最終更新日：2026年4月15日",
     notice:
       "本書は一般的な説明を目的とするものであり、法的助言を構成するものではありません。必要に応じて専門家にご相談ください。",
+    contactEmailLabel: "お問い合わせ：",
+    archiveLink: "過去のバージョン",
+    archiveIndex: {
+      pageTitle: "過去の法的文書",
+      pageDesc: "利用規約・プライバシーポリシーを更新した際に保管した、以前のテキストです。",
+      empty:
+        "まだアーカイブされた版がありません。文面を更新する際は、legalContent.ts を編集する前に legalArchive.ts の LEGAL_SNAPSHOTS に前版を追加してください（各ファイル先頭のコメント参照）。",
+      currentDocs: "現行の文書：",
+      contactPrefix: "ご質問：",
+    },
   },
 };

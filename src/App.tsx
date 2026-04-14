@@ -93,7 +93,8 @@ import * as Tabs from "@radix-ui/react-tabs";
 import BlogPage from "./BlogPage";
 import CmsPage from "./CmsPage";
 import LegalPage from "./LegalPage";
-import { legalDocHref } from "./shared";
+import LegalArchiveIndex from "./LegalArchiveIndex";
+import { legalDocHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
   auth,
   isConfigured as firebaseConfigured,
@@ -104,6 +105,10 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   GithubAuthProvider,
+  deleteUser,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
   storageListProjects,
   storageCreateProject,
   storageListFiles,
@@ -177,6 +182,11 @@ const landingI18n = {
     privacy: "Privacy Policy",
     legalAgreeCombined:
       "By continuing, you agree to the Terms of Service and Privacy Policy. Links are at the bottom of this page.",
+    agreeTermsBefore: "I have read and agree to the ",
+    agreeTermsAfter: ".",
+    agreePrivacyBefore: "I have read and agree to the ",
+    agreePrivacyAfter: ".",
+    mustAcceptTerms: "Please check both boxes to accept the Terms and Privacy Policy before signing up.",
     welcomeBack: "Welcome back",
     createAccount: "Create account",
     signInDesc: "Sign in to your Sooner account",
@@ -262,6 +272,11 @@ const landingI18n = {
     privacy: "プライバシーポリシー",
     legalAgreeCombined:
       "続行により、ページ下部の利用規約およびプライバシーポリシーに同意したものとみなされます。",
+    agreeTermsBefore: "",
+    agreeTermsAfter: "を読み、内容に同意します。",
+    agreePrivacyBefore: "",
+    agreePrivacyAfter: "を読み、内容に同意します。",
+    mustAcceptTerms: "新規登録には、利用規約とプライバシーポリシーの両方にチェックを入れてください。",
     welcomeBack: "おかえりなさい",
     createAccount: "アカウント作成",
     signInDesc: "Soonerアカウントにログイン",
@@ -320,12 +335,6 @@ function getInitialLang(): "en" | "ja" {
   const paramLang = params.get("lang");
   if (paramLang === "ja" || paramLang === "en") return paramLang;
   return readStoredLanguage();
-}
-
-function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "en" | "ja") {
-  const proto = window.location.protocol;
-  const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
-  window.location.href = `${proto}//${sub}.sooner.sh${langParam}`;
 }
 
 function navigateToBlog(lang: "en" | "ja") {
@@ -654,6 +663,8 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [loading, setLoading] = useState(false);
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [agreePrivacy, setAgreePrivacy] = useState(false);
   const t = landingI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
@@ -693,6 +704,15 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     };
   }, [mobileNavOpen]);
 
+  useEffect(() => {
+    if (mode !== "signup") {
+      setAgreeTerms(false);
+      setAgreePrivacy(false);
+    }
+  }, [mode]);
+
+  const signupLegalOk = mode !== "signup" || (agreeTerms && agreePrivacy);
+
   const redirectToApp = () => {
     if (isProduction) {
       const langParam = lang !== "en" ? `?lang=${lang}` : "";
@@ -703,6 +723,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth) return;
+    if (mode === "signup" && !signupLegalOk) {
+      setError(t.mustAcceptTerms);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -720,11 +744,19 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
   const handleGoogle = async () => {
     if (!auth) return;
+    if (mode === "signup" && !signupLegalOk) {
+      setError(t.mustAcceptTerms);
+      return;
+    }
     try { await signInWithPopup(auth, new GoogleAuthProvider()); redirectToApp(); } catch (err: any) { setError(err.message || "Google sign-in failed"); }
   };
 
   const handleGithub = async () => {
     if (!auth) return;
+    if (mode === "signup" && !signupLegalOk) {
+      setError(t.mustAcceptTerms);
+      return;
+    }
     try {
       const provider = new GithubAuthProvider();
       provider.addScope("repo");
@@ -803,7 +835,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     if (!firebaseConfigured) return onSkip();
     if (isProduction) {
       const langQ = lang !== "en" ? `?lang=${lang}` : "";
-      window.location.href = `${window.location.protocol}//signup.sooner.sh${langQ}`;
+      navigateToAuthPage("signup", lang);
     } else setMode("signup");
   };
   const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1213,12 +1245,47 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? t.welcomeBack : t.createAccount}</h2>
           <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? t.signInDesc : t.signUpDesc}</p>
 
+          {mode === "signup" && (
+            <div className="space-y-3 mb-6 p-4 rounded-xl border border-white/[0.08] bg-[#0c0c0e]/80">
+              <label className="flex gap-3 items-start text-xs text-[#A1A1AA] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={agreeTerms}
+                  onChange={(e) => setAgreeTerms(e.target.checked)}
+                  className="mt-0.5 rounded border-[#3F3F46] bg-[#1A1A1A] text-[#38BDF8] focus:ring-[#38BDF8]"
+                />
+                <span className="leading-relaxed">
+                  {t.agreeTermsBefore}
+                  <a href={legalDocHref(lang, "terms")} target="_blank" rel="noopener noreferrer" className="text-[#38BDF8] hover:underline font-medium">
+                    {t.terms}
+                  </a>
+                  {t.agreeTermsAfter}
+                </span>
+              </label>
+              <label className="flex gap-3 items-start text-xs text-[#A1A1AA] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={agreePrivacy}
+                  onChange={(e) => setAgreePrivacy(e.target.checked)}
+                  className="mt-0.5 rounded border-[#3F3F46] bg-[#1A1A1A] text-[#38BDF8] focus:ring-[#38BDF8]"
+                />
+                <span className="leading-relaxed">
+                  {t.agreePrivacyBefore}
+                  <a href={legalDocHref(lang, "privacy")} target="_blank" rel="noopener noreferrer" className="text-[#38BDF8] hover:underline font-medium">
+                    {t.privacy}
+                  </a>
+                  {t.agreePrivacyAfter}
+                </span>
+              </label>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <button onClick={handleGoogle} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
+            <button type="button" onClick={handleGoogle} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
               <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
               Google
             </button>
-            <button onClick={handleGithub} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
+            <button type="button" onClick={handleGithub} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1A1A1A] border border-[#252525] rounded-xl text-sm hover:border-[#38BDF8]/50 transition-colors">
               <GitHubIcon className="w-4 h-4" />
               GitHub
             </button>
@@ -1236,7 +1303,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t.passwordPlaceholder} required minLength={6}
               className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-[#38BDF8]" />
             {error && <p className="text-xs text-red-400">{error}</p>}
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={loading || (mode === "signup" && !signupLegalOk)}
               className="w-full py-2.5 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50">
               {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : mode === "login" ? t.signIn : t.createAccount}
             </button>
@@ -1333,10 +1400,39 @@ export default function App() {
 
   if (pathParts[0] === "legal") {
     const locale = pathParts[1];
+    if (locale !== "en" && locale !== "ja") {
+      let target = "/legal/en/terms";
+      const hBad = window.location.hostname;
+      if (hBad.endsWith("sooner.sh") && hBad !== "sooner.sh" && hBad !== "www.sooner.sh") {
+        target = `${window.location.protocol}//sooner.sh${target}`;
+      }
+      window.location.replace(target);
+      return (
+        <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+        </div>
+      );
+    }
+    if (pathParts[2] === "archive") {
+      if (pathParts.length === 3) {
+        return <LegalArchiveIndex pathLang={locale} />;
+      }
+      if (
+        pathParts.length === 5 &&
+        (pathParts[4] === "terms" || pathParts[4] === "privacy")
+      ) {
+        return (
+          <LegalPage
+            kind={pathParts[4]}
+            pathLang={locale}
+            archiveVersionId={pathParts[3]}
+          />
+        );
+      }
+    }
     const doc = pathParts[2];
     if (
       pathParts.length === 3 &&
-      (locale === "en" || locale === "ja") &&
       (doc === "terms" || doc === "privacy")
     ) {
       return <LegalPage kind={doc} pathLang={locale} />;
@@ -1371,6 +1467,17 @@ export default function App() {
         </div>
       );
     }
+    const isProductionHost = window.location.hostname.endsWith("sooner.sh");
+    if (isProductionHost) {
+      const langQ = readStoredLanguage() !== "en" ? `?lang=${readStoredLanguage()}` : "";
+      const path = isSignupSite ? "/signup" : "/signin";
+      window.location.replace(`https://sooner.sh${path}${langQ}`);
+      return (
+        <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+        </div>
+      );
+    }
     return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={isSignupSite ? "signup" : "login"} />;
   }
 
@@ -1388,8 +1495,12 @@ export default function App() {
 
   if (isMainDomain) {
     if (firebaseConfigured && !authUser && !skipAuth) {
+      const p0 = pathParts[0];
+      if (p0 === "signin" || p0 === "signup") {
+        return <LandingPage onSkip={() => setSkipAuth(true)} initialMode={p0 === "signup" ? "signup" : "login"} />;
+      }
       const langQ = readStoredLanguage() !== "en" ? `?lang=${readStoredLanguage()}` : "";
-      window.location.href = `${window.location.protocol}//signin.sooner.sh${langQ}`;
+      window.location.replace(`${window.location.origin}/signin${langQ}`);
       return (
         <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
@@ -1533,6 +1644,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [isPackagesOpen, setIsPackagesOpen] = useState(false);
   const [packages, setPackages] = useState<{ dependencies: Record<string, string>; devDependencies: Record<string, string> }>({ dependencies: {}, devDependencies: {} });
+  const [accountDeleteBusy, setAccountDeleteBusy] = useState(false);
   const [newPkgName, setNewPkgName] = useState("");
   const [newPkgVersion, setNewPkgVersion] = useState("");
   const [projectRunning, setProjectRunning] = useState(false);
@@ -1650,6 +1762,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cancel: "Cancel",
       confirm: "Confirm",
       signOut: "Sign out",
+      deleteAccount: "Delete account",
+      deleteAccountHint:
+        "Permanently delete your Sooner login and remove your cloud projects from our storage. This cannot be undone. Some backups may be retained briefly as described in the Privacy Policy.",
+      deleteAccountConfirm: 'To confirm, type the word DELETE (all caps) in the box below, then press OK.',
+      deleteAccountButton: "Delete my account",
+      deletingAccount: "Deleting…",
+      reenterPassword: "Enter your account password to confirm:",
+      deleteAccountFailed: "Could not delete the account. Sign out, sign in again, and retry—or contact support.",
       filesPanel: "Files panel",
       aiChat: "AI Chat",
       closeChat: "Close chat",
@@ -1762,6 +1882,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cancel: "キャンセル",
       confirm: "確認",
       signOut: "ログアウト",
+      deleteAccount: "アカウントを削除",
+      deleteAccountHint:
+        "Sooner のログイン情報を削除し、クラウド上のプロジェクトデータを削除します。取り消しできません。バックアップ等はプライバシーポリシーのとおり一定期間残る場合があります。",
+      deleteAccountConfirm: "確認のため、大文字で DELETE と入力して OK を押してください。",
+      deleteAccountButton: "アカウントを削除する",
+      deletingAccount: "削除中…",
+      reenterPassword: "確認のためアカウントのパスワードを入力してください:",
+      deleteAccountFailed: "削除に失敗しました。一度ログアウトして再ログイン後に再試行するか、サポートへお問い合わせください。",
       filesPanel: "ファイルパネル",
       aiChat: "AIチャット",
       closeChat: "チャットを閉じる",
@@ -1776,6 +1904,41 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const t = translations[language];
+
+  const deleteMyAccount = async () => {
+    if (!auth?.currentUser || !user || accountDeleteBusy) return;
+    const tk = translations[language];
+    const confirmText = window.prompt(tk.deleteAccountConfirm);
+    if (confirmText !== "DELETE") return;
+    setAccountDeleteBusy(true);
+    try {
+      const u = auth.currentUser!;
+      const pid = u.providerData[0]?.providerId;
+      if (pid === "password") {
+        const pwd = window.prompt(tk.reenterPassword);
+        if (!pwd) {
+          setAccountDeleteBusy(false);
+          return;
+        }
+        if (!u.email) throw new Error("No email on account");
+        await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, pwd));
+      } else if (pid === "google.com") {
+        await reauthenticateWithPopup(auth, new GoogleAuthProvider());
+      } else if (pid === "github.com") {
+        await reauthenticateWithPopup(auth, new GithubAuthProvider());
+      } else {
+        await reauthenticateWithPopup(auth, new GoogleAuthProvider());
+      }
+      const uid = u.uid;
+      const projects = await storageListProjects(uid);
+      for (const p of projects) await storageDeleteProject(uid, p);
+      await deleteUser(u);
+      window.location.href = `${window.location.protocol}//site.sooner.sh`;
+    } catch (e: any) {
+      alert(e?.message || tk.deleteAccountFailed);
+    }
+    setAccountDeleteBusy(false);
+  };
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -3727,6 +3890,19 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                         日本語
                       </button>
                     </div>
+                  </div>
+
+                  <div className="space-y-2 pt-4 border-t border-white/[0.06]">
+                    <label className="text-xs font-bold uppercase tracking-widest text-red-400/90">{t.deleteAccount}</label>
+                    <p className="text-[11px] text-[#71717A] leading-relaxed">{t.deleteAccountHint}</p>
+                    <button
+                      type="button"
+                      disabled={accountDeleteBusy}
+                      onClick={deleteMyAccount}
+                      className="w-full py-2.5 rounded-xl text-xs font-bold border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      {accountDeleteBusy ? t.deletingAccount : t.deleteAccountButton}
+                    </button>
                   </div>
                 </div>
 

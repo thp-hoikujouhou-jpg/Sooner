@@ -153,10 +153,32 @@ export function getInitialLang(): "en" | "ja" {
   return readStoredLanguage();
 }
 
+/** Contact for legal / privacy inquiries (shown on legal pages). */
+export const LEGAL_CONTACT_EMAIL = "soonerutingna@gmail.com";
+
+/**
+ * Sign-in and sign-up must use the same origin as the app (sooner.sh) so Firebase Auth
+ * session is shared. Subdomains like signin.sooner.sh cannot see auth state on sooner.sh.
+ */
+export function navigateToAuthPage(mode: "signin" | "signup", lang?: "en" | "ja") {
+  const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
+  const path = mode === "signin" ? "/signin" : "/signup";
+  const h = typeof window !== "undefined" ? window.location.hostname : "";
+  if (h === "localhost" || h === "127.0.0.1") {
+    window.location.href = `${window.location.origin}${path}${langParam}`;
+  } else {
+    window.location.href = `https://sooner.sh${path}${langParam}`;
+  }
+}
+
 export function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "en" | "ja") {
   const proto = window.location.protocol;
   const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
-  window.location.href = `${proto}//${sub}.sooner.sh${langParam}`;
+  if (sub === "site") {
+    window.location.href = `${proto}//site.sooner.sh${langParam}`;
+    return;
+  }
+  navigateToAuthPage(sub === "signin" ? "signin" : "signup", lang);
 }
 
 export function navigateToBlog(lang: "en" | "ja") {

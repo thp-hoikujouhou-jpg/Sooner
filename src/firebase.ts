@@ -8,6 +8,10 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   GithubAuthProvider,
+  deleteUser,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
   type Auth,
   type User,
 } from "firebase/auth";
@@ -174,5 +178,9 @@ export {
   GoogleAuthProvider,
   signInWithPopup,
   GithubAuthProvider,
+  deleteUser,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
 };
 export type { User };
