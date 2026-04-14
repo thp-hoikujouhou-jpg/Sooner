@@ -1,9 +1,11 @@
 rules_version = '2';
-// Authenticated users can read/write only under their own users/{uid}/ prefix.
 service firebase.storage {
   match /b/{bucket}/o {
     match /users/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /blog/images/{allPaths=**} {
+      allow read;
     }
   }
 }

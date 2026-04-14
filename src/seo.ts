@@ -328,3 +328,61 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   const oldLd = document.getElementById("sooner-ld-json");
   if (oldLd) oldLd.remove();
 }
+
+/** Inject Article-level JSON-LD + per-article OG tags when viewing a blog post. */
+export function applyArticleSeo(article: {
+  title: string;
+  description: string;
+  slug: string;
+  author: string;
+  publishedAt: string;
+  updatedAt?: string;
+  imageUrl?: string;
+  lang: SeoLang;
+}): void {
+  if (typeof document === "undefined") return;
+
+  const url = `https://blog.sooner.sh/${article.slug}`;
+  const img = article.imageUrl || OG_IMAGE;
+
+  document.title = `${article.title} — Sooner Blog`;
+  setMeta("name", "description", article.description);
+  setMeta("property", "og:title", article.title);
+  setMeta("property", "og:description", article.description);
+  setMeta("property", "og:url", url);
+  setMeta("property", "og:type", "article");
+  setMeta("property", "og:image", img);
+  setMeta("property", "article:author", article.author);
+  setMeta("property", "article:published_time", article.publishedAt);
+  if (article.updatedAt) setMeta("property", "article:modified_time", article.updatedAt);
+  setMeta("name", "twitter:card", "summary_large_image");
+  setMeta("name", "twitter:title", article.title);
+  setMeta("name", "twitter:description", article.description);
+  setMeta("name", "twitter:image", img);
+  setLink("canonical", url);
+
+  const articleLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: article.title,
+    description: article.description,
+    url,
+    image: img,
+    datePublished: article.publishedAt,
+    dateModified: article.updatedAt || article.publishedAt,
+    author: { "@type": "Person", name: article.author },
+    publisher: {
+      "@type": "Organization",
+      name: "Sooner",
+      logo: { "@type": "ImageObject", url: OG_IMAGE },
+    },
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+  };
+
+  document.querySelectorAll("script[data-sooner-ld]").forEach((n) => n.remove());
+  const el = document.createElement("script");
+  el.type = "application/ld+json";
+  el.setAttribute("data-sooner-ld", "article");
+  el.textContent = JSON.stringify(articleLd);
+  document.head.appendChild(el);
+}

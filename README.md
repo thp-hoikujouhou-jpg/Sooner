@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" width="1200" height="475" alt="Sooner" />
+<img src="public/og-image.png" width="1200" alt="Sooner — Build sooner, ship faster." />
 
 # Sooner
 
@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Firebase Hosting](https://img.shields.io/badge/Hosted%20on-Firebase-orange)](https://sooner.sh)
 
-[Launch app](https://sooner.sh) · [Landing Page](https://site.sooner.sh) · [Sign Up](https://signup.sooner.sh)
+[Launch app](https://sooner.sh) · [Landing Page](https://site.sooner.sh) · [Blog](https://blog.sooner.sh) · [Sign Up](https://signup.sooner.sh)
 
 </div>
 
@@ -28,6 +28,9 @@ Sooner is a browser-based workspace powered by AI. Build, preview, and deploy fr
 - **Cloud Sync** — Projects are saved to Firebase Storage per user
 - **Export** — Download projects as ZIP or deploy directly
 - **Auth** — Email/password, Google, and GitHub sign-in via Firebase Auth
+- **Blog & CMS** — Built-in blog with a headless CMS, Tiptap rich-text editor, and bilingual (EN/JA) support
+- **SEO** — Dynamic sitemap, JSON-LD structured data, Open Graph / Twitter Cards, and Google Indexing API integration
+- **Analytics** — Per-article page-view tracking stored in Firestore
 
 ## Subdomains
 
@@ -37,6 +40,8 @@ Sooner is a browser-based workspace powered by AI. Build, preview, and deploy fr
 | [sooner.sh](https://sooner.sh) | Main application |
 | [signup.sooner.sh](https://signup.sooner.sh) | Account registration |
 | [signin.sooner.sh](https://signin.sooner.sh) | Login |
+| [blog.sooner.sh](https://blog.sooner.sh) | Blog |
+| [cms.sooner.sh](https://cms.sooner.sh) | Content management |
 
 ## Getting Started
 
@@ -71,6 +76,9 @@ cp .env.example .env
 | `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
 | `VITE_FIREBASE_APP_ID` | Firebase app ID |
+| `CMS_ADMIN_USER` | CMS admin username |
+| `CMS_ADMIN_PASS` | CMS admin password |
+| `CMS_JWT_SECRET` | Secret key for CMS JWT tokens |
 
 ### Run Locally
 
@@ -98,10 +106,12 @@ firebase deploy --only hosting
 - **Frontend** — React 19, TypeScript, Tailwind CSS v4, Motion
 - **Editor** — Monaco Editor
 - **AI** — Google Gemini (via @google/genai)
-- **Auth & Storage** — Firebase Auth, Firebase Storage
+- **Auth & Storage** — Firebase Auth, Firebase Storage, Firestore
+- **Blog** — Tiptap rich-text editor, Express CMS API, Firebase Storage for images
+- **SEO** — Dynamic sitemaps, JSON-LD (Article, SoftwareApplication, FAQ), Google Indexing API
 - **UI Components** — Radix UI, Lucide Icons
 - **Build** — Vite
-- **Backend** — Express (dev server with Gemini API proxy)
+- **Backend** — Express (Gemini API proxy, blog API, CMS API)
 
 ## Acknowledgments
 

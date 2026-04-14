@@ -1603,11 +1603,44 @@ async function startServer() {
         publishAt: req.body.publishAt ? admin.firestore.Timestamp.fromDate(new Date(req.body.publishAt)) : now,
         createdAt: now,
         updatedAt: now,
+        viewCount: 0,
       };
       const ref = await firebaseDb.collection("blog_posts").add(data);
-      res.json({ id: ref.id, ...data });
+
+      let indexingResult = null;
+      if (data.status === "published" && data.slug) {
+        indexingResult = await notifyGoogleIndexing(`https://blog.sooner.sh/${data.slug}`);
+        if (!indexingResult.success) console.warn("Google Indexing API:", indexingResult.error);
+      }
+
+      res.json({ id: ref.id, ...data, indexingResult });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // --- Google Indexing API helper ---
+  async function notifyGoogleIndexing(url: string): Promise<{ success: boolean; error?: string }> {
+    if (!admin.apps.length) return { success: false, error: "Firebase Admin not initialized" };
+    try {
+      const client = admin.app().options.credential as any;
+      if (!client?.getAccessToken) return { success: false, error: "No credential with getAccessToken" };
+      const tokenRes = await client.getAccessToken();
+      const accessToken = tokenRes?.access_token;
+      if (!accessToken) return { success: false, error: "Failed to get access token" };
+
+      const response = await fetch("https://indexing.googleapis.com/v3/urlNotifications:publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ url, type: "URL_UPDATED" }),
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        return { success: false, error: `HTTP ${response.status}: ${body}` };
+      }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }
 
   // CMS: Update post
   app.put("/api/cms/posts/:id", requireCmsAuth, async (req, res) => {
@@ -1616,13 +1649,26 @@ async function startServer() {
       const docRef = firebaseDb.collection("blog_posts").doc(req.params.id);
       const doc = await docRef.get();
       if (!doc.exists) return res.status(404).json({ error: "Not found" });
+      const prevData = doc.data();
       const updates: any = { updatedAt: admin.firestore.Timestamp.now() };
       const allowed = ["slug", "title_en", "title_ja", "content_en", "content_ja", "excerpt_en", "excerpt_ja", "author", "readingTime_en", "readingTime_ja", "tags", "status"];
       for (const k of allowed) { if (req.body[k] !== undefined) updates[k] = req.body[k]; }
       if (req.body.publishAt) updates.publishAt = admin.firestore.Timestamp.fromDate(new Date(req.body.publishAt));
       await docRef.update(updates);
       const updated = await docRef.get();
-      res.json({ id: updated.id, ...updated.data() });
+      const updatedData = updated.data();
+
+      // Auto-notify Google when status transitions to "published"
+      const wasPublished = prevData?.status === "published";
+      const nowPublished = updatedData?.status === "published";
+      let indexingResult = null;
+      if (nowPublished && updatedData?.slug) {
+        const articleUrl = `https://blog.sooner.sh/${updatedData.slug}`;
+        indexingResult = await notifyGoogleIndexing(articleUrl);
+        if (!indexingResult.success) console.warn("Google Indexing API:", indexingResult.error);
+      }
+
+      res.json({ id: updated.id, ...updatedData, indexingResult });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1654,6 +1700,7 @@ async function startServer() {
           author: data.author,
           readingTime_en: data.readingTime_en, readingTime_ja: data.readingTime_ja,
           tags: data.tags, publishAt: data.publishAt,
+          viewCount: data.viewCount || 0,
         };
       });
       res.json(posts);
@@ -1694,6 +1741,45 @@ async function startServer() {
       }
       res.type("xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}</urlset>`);
     } catch (e: any) { res.status(500).send("Error generating sitemap"); }
+  });
+
+  // --- Page view tracking ---
+  app.post("/api/blog/posts/:slug/view", async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const snap = await firebaseDb.collection("blog_posts")
+        .where("slug", "==", req.params.slug)
+        .limit(1)
+        .get();
+      if (snap.empty) return res.status(404).json({ error: "Not found" });
+      const docRef = snap.docs[0].ref;
+      await docRef.update({ viewCount: admin.firestore.FieldValue.increment(1) });
+      const updated = await docRef.get();
+      res.json({ viewCount: updated.data()?.viewCount || 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // --- CMS: Blog image upload to Firebase Storage ---
+  app.post("/api/cms/upload-image", requireCmsAuth, async (req, res) => {
+    if (!firebaseStorage) return res.status(503).json({ error: "Storage not configured" });
+    const { data, filename, contentType } = req.body;
+    if (!data || !filename) return res.status(400).json({ error: "data and filename required" });
+    try {
+      const bucket = firebaseStorage.bucket();
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `blog/images/${Date.now()}_${safeName}`;
+      const file = bucket.file(storagePath);
+
+      const buffer = Buffer.from(data, "base64");
+      await file.save(buffer, {
+        contentType: contentType || "image/png",
+        metadata: { cacheControl: "public, max-age=31536000" },
+        public: true,
+      });
+
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+      res.json({ url: publicUrl, path: storagePath });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // --- Health check ---
