@@ -30,18 +30,18 @@ type Pack = {
 
 const en: Record<string, Pack> = {
   site: {
-    title: "Sooner — Build sooner, ship faster | AI workspace in the browser",
+    title: "Sooner — Build sooner, ship faster | AI-native IDE in the browser",
     description:
-      "Sooner is an AI workspace in your browser: describe what you want, get production-ready code, live preview, Git, terminal, and Firebase sync.",
+      "Sooner is an AI-native IDE in your browser: describe what you want, get production-ready code, live preview, Git, terminal, and Firebase sync.",
     ogTitle: "Sooner — Build sooner, ship faster",
-    ogDescription: "AI workspace with Monaco editor, Gemini, live preview, and cloud projects.",
+    ogDescription: "AI-native IDE with Monaco editor, Gemini, live preview, and cloud projects.",
   },
   app: {
-    title: "Sooner — Workspace | Code, preview, ship",
+    title: "Sooner — AI-native IDE | Code, preview, ship",
     description:
       "Sign in to Sooner: multi-file projects, AI agent, terminal, preview, and cloud storage — all in one tab.",
-    ogTitle: "Sooner — Workspace",
-    ogDescription: "Build and preview in the browser. AI-assisted coding with cloud sync.",
+    ogTitle: "Sooner — AI-native IDE",
+    ogDescription: "Build and preview in the browser. AI-native IDE with cloud sync.",
   },
   signup: {
     title: "Sooner — Create account",
@@ -51,13 +51,13 @@ const en: Record<string, Pack> = {
   },
   signin: {
     title: "Sooner — Sign in",
-    description: "Sign in to Sooner to open your projects and workspace.",
+    description: "Sign in to Sooner to open your projects and AI-native IDE.",
     ogTitle: "Sooner — Sign in",
-    ogDescription: "Access your Sooner workspace.",
+    ogDescription: "Access your Sooner AI-native IDE.",
   },
   blog: {
     title: "Sooner Blog — News & tutorials",
-    description: "Updates, tips, and tutorials from the Sooner team — AI workspace, web dev, and shipping faster.",
+    description: "Updates, tips, and tutorials from the Sooner team — AI-native IDE, web dev, and shipping faster.",
     ogTitle: "Sooner Blog",
     ogDescription: "News and tutorials from Sooner.",
   },
@@ -65,18 +65,18 @@ const en: Record<string, Pack> = {
 
 const ja: Record<string, Pack> = {
   site: {
-    title: "Sooner — もっと早く作り、早く届ける | ブラウザ上のAIワークスペース",
+    title: "Sooner — もっと早く作り、早く届ける | ブラウザ上のAIネイティブIDE",
     description:
-      "Soonerはブラウザ上のAIワークスペース。自然言語で指示し、本番向けコード、ライブプレビュー、Git・ターミナル、Firebase同期まで。",
+      "Soonerはブラウザ上のAIネイティブIDE。自然言語で指示し、本番向けコード、ライブプレビュー、Git・ターミナル、Firebase同期まで。",
     ogTitle: "Sooner — Build sooner, ship faster",
     ogDescription: "Monaco・Gemini・ライブプレビュー・クラウドプロジェクト。",
   },
   app: {
-    title: "Sooner — ワークスペース | コード・プレビュー・公開",
+    title: "Sooner — AIネイティブIDE | コード・プレビュー・公開",
     description:
       "Soonerにログイン: 複数ファイル、AIエージェント、ターミナル、プレビュー、クラウドストレージをひとつのタブで。",
-    ogTitle: "Sooner — ワークスペース",
-    ogDescription: "ブラウザでビルド＆プレビュー。AI支援とクラウド同期。",
+    ogTitle: "Sooner — AIネイティブIDE",
+    ogDescription: "ブラウザでビルド＆プレビュー。AIネイティブIDEとクラウド同期。",
   },
   signup: {
     title: "Sooner — アカウント作成",
@@ -86,13 +86,13 @@ const ja: Record<string, Pack> = {
   },
   signin: {
     title: "Sooner — ログイン",
-    description: "Soonerにログインしてプロジェクトとワークスペースを開く。",
+    description: "SoonerにログインしてプロジェクトとAIネイティブIDEを開く。",
     ogTitle: "Sooner — ログイン",
-    ogDescription: "Soonerワークスペースにアクセス。",
+    ogDescription: "SoonerのAIネイティブIDEにアクセス。",
   },
   blog: {
     title: "Sooner ブログ — ニュースとチュートリアル",
-    description: "Soonerチームからの更新・Tips・チュートリアル。AIワークスペースとWeb開発。",
+    description: "Soonerチームからの更新・Tips・チュートリアル。AIネイティブIDEとWeb開発。",
     ogTitle: "Sooner ブログ",
     ogDescription: "Soonerからのニュースとチュートリアル。",
   },

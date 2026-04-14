@@ -69,7 +69,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     return this.props.children;
   }
 }
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import Editor from "@monaco-editor/react";
 import axios from "axios";
 import html2canvas from "html2canvas";
@@ -133,10 +133,10 @@ const landingI18n = {
     heroTitle1: "Ship ",
     heroHighlight: "faster",
     heroTitle2: "than ever",
-    heroDesc: "Sooner is the fastest way to go from idea to production. Describe what you want — AI writes, previews, and ships your code in seconds.",
+    heroDesc: "Sooner is an AI-native IDE: the fastest way from idea to production. Describe what you want — AI writes, previews, and ships your code in seconds.",
     getStartedFree: "Get Started Free",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "The workspace that lives in the preview.",
+    taglineSub: "The AI-native IDE that lives in the preview.",
     feat1: { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
     feat2: { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
     feat3: { icon: "🔧", title: "Zero Setup", desc: "Frontend, backend, full-stack. Node.js, Python, Go, Rust — no config needed." },
@@ -157,11 +157,12 @@ const landingI18n = {
     navBlogAria: "Blog",
     secMetricsTitle: "Built for velocity",
     metric1: { value: "<60s", label: "idea → runnable preview" },
-    metric2: { value: "1×", label: "workspace, no repo sync drama" },
+    metric2: { value: "1×", label: "one AI-native IDE, no repo sync drama" },
     metric3: { value: "∞", label: "stacks & frameworks" },
     secCtaTitle: "Ready to build?",
-    secCtaDesc: "Create an account and open the workspace from any device.",
+    secCtaDesc: "Create an account and open the AI-native IDE from any device.",
     footer: "Sooner Beta — Build sooner, ship faster",
+    copyright: "© 2026 Sooner. All rights reserved.",
     welcomeBack: "Welcome back",
     createAccount: "Create account",
     signInDesc: "Sign in to your Sooner account",
@@ -182,10 +183,10 @@ const landingI18n = {
     heroTitle1: "もっと",
     heroHighlight: "速く",
     heroTitle2: "届けよう",
-    heroDesc: "Soonerはアイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがコードを書き、プレビューし、数秒でデプロイします。",
+    heroDesc: "SoonerはAIネイティブIDE。アイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがコードを書き、プレビューし、数秒でデプロイします。",
     getStartedFree: "無料で始める",
     tagline: "Build sooner, ship faster.",
-    taglineSub: "プレビューの中で完結するワークスペース。",
+    taglineSub: "プレビューの中で完結するAIネイティブIDE。",
     feat1: { icon: "⚡", title: "瞬時にコード生成", desc: "アイデアを伝えるだけ。AIが本番品質のコードを数秒で書き上げます。" },
     feat2: { icon: "🚀", title: "リアルタイムプレビュー", desc: "アプリが即座に動く。React, Vue, Flutter, Three.js — すべて対応。" },
     feat3: { icon: "🔧", title: "セットアップ不要", desc: "フロント、バックエンド、フルスタック。Node.js, Python, Go, Rust — 設定なしで。" },
@@ -206,11 +207,12 @@ const landingI18n = {
     navBlogAria: "ブログ",
     secMetricsTitle: "スピードのための設計",
     metric1: { value: "<60秒", label: "アイデア→動くプレビュー" },
-    metric2: { value: "1つ", label: "迷わない単一ワークスペース" },
+    metric2: { value: "1つ", label: "迷わない単一のAIネイティブIDE" },
     metric3: { value: "∞", label: "対応スタックとフレームワーク" },
     secCtaTitle: "始めますか？",
-    secCtaDesc: "アカウントを作成し、どの端末からでもワークスペースを開けます。",
+    secCtaDesc: "アカウントを作成し、どの端末からでもAIネイティブIDEを開けます。",
     footer: "Sooner ベータ — Build sooner, ship faster",
+    copyright: "© 2026 Sooner. All rights reserved.",
     welcomeBack: "おかえりなさい",
     createAccount: "アカウント作成",
     signInDesc: "Soonerアカウントにログイン",
@@ -248,6 +250,7 @@ const blogI18n = {
       },
     ],
     footer: "Sooner beta — Build sooner, ship faster",
+    copyright: "© 2026 Sooner. All rights reserved.",
   },
   ja: {
     title: "Sooner ブログ",
@@ -271,6 +274,7 @@ const blogI18n = {
       },
     ],
     footer: "Sooner ベータ — Build sooner, ship faster",
+    copyright: "© 2026 Sooner. All rights reserved.",
   },
 };
 
@@ -427,7 +431,10 @@ function BlogPage() {
         </ul>
       </main>
 
-      <footer className="px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">{t.footer}</footer>
+      <footer className="px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">
+        <p>{t.footer}</p>
+        <p className="mt-2 text-[10px] text-[#3F3F46]">{t.copyright}</p>
+      </footer>
     </div>
   );
 }
@@ -826,7 +833,8 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         </main>
 
         <footer className="relative z-10 px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
-          {t.footer}
+          <p>{t.footer}</p>
+          <p className="mt-2 text-[10px] text-[#3F3F46]/80">{t.copyright}</p>
         </footer>
       </div>
     );
@@ -1011,6 +1019,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -1020,6 +1029,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setShowSplash(false), 2000);
+    return () => window.clearTimeout(id);
   }, []);
 
   // New States
@@ -1191,6 +1205,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitNoProject: "Select a project first.",
       gitNoRepo: "Not a git repository. Clone from GitHub to enable push.",
       gitPushNeedToken: "Connect GitHub in Settings (or paste a PAT) to push.",
+      brandTagline: "AI-native IDE",
+      copyrightFooter: "© 2026 Sooner. All rights reserved.",
     },
     ja: {
       projects: "プロジェクト",
@@ -1282,6 +1298,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitNoProject: "先にプロジェクトを選択してください。",
       gitNoRepo: "Git リポジトリではありません。GitHub からクローンすると push できます。",
       gitPushNeedToken: "プッシュには設定で GitHub を接続するか PAT を入力してください。",
+      brandTagline: "AIネイティブIDE",
+      copyrightFooter: "© 2026 Sooner. All rights reserved.",
     }
   };
 
@@ -2400,7 +2418,24 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   return (
     <ErrorBoundary>
-    <div className="flex h-screen w-screen bg-[#0A0A0A] text-[#E4E3E0] font-sans overflow-hidden selection:bg-[#38BDF8] selection:text-black">
+    <AnimatePresence>
+      {showSplash && (
+        <motion.div
+          key="splash"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.4 }}
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0A0A0A]"
+        >
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.35 }}>
+            <Zap className="w-14 h-14 text-[#38BDF8]" />
+          </motion.div>
+          <span className="mt-5 text-2xl font-black tracking-tight text-white">Sooner</span>
+          <span className="mt-1.5 text-[11px] font-semibold tracking-[0.22em] text-[#71717A]">{t.brandTagline}</span>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    <div className="flex h-screen w-screen bg-[#0A0A0A] text-[#E4E3E0] font-sans overflow-hidden selection:bg-[#38BDF8] selection:text-black relative pb-7 box-border">
       {isMobileLayout && isSidebarOpen && (
         <button
           type="button"
@@ -2421,7 +2456,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         <div className="p-4 border-bottom border-[#1A1A1A] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-[#38BDF8]" />
-            <span className="font-bold tracking-tight uppercase text-xs">Sooner</span>
+            <span className="font-bold tracking-tight text-sm text-white">Sooner</span>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setIsCloneOpen(true)} title={language === "ja" ? "GitHubからクローン" : "Clone from GitHub"} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
@@ -3556,6 +3591,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           </Dialog.Root>
         )}
       </>
+      <footer className="absolute bottom-0 left-0 right-0 z-20 border-t border-[#1A1A1A] bg-[#0A0A0A]/95 py-1.5 text-center text-[10px] text-[#555] select-none">
+        {t.copyrightFooter}
+      </footer>
     </div>
     </ErrorBoundary>
   );
