@@ -36,6 +36,10 @@ import {
   GitMerge,
   Menu,
   BookOpen,
+  Rocket,
+  Sparkles,
+  Cloud,
+  ArrowRight,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -235,17 +239,22 @@ const blogI18n = {
     navApp: "Open app",
     langToggle: "日本語",
     postsHeading: "Latest posts",
+    readMore: "Read more",
     posts: [
       {
         slug: "welcome-sooner-beta",
         title: "Welcome to Sooner (beta)",
         date: "Apr 14, 2026",
+        author: "Sooner Team",
+        readingTime: "3 min read",
         excerpt: "Sooner is an AI-native IDE in the browser. Here is how we think about shipping faster without leaving your flow.",
       },
       {
         slug: "why-in-browser",
         title: "Why we built in the browser",
         date: "Apr 10, 2026",
+        author: "Sooner Team",
+        readingTime: "4 min read",
         excerpt: "Zero install, consistent environments, and a path from idea to running code in one place.",
       },
     ],
@@ -259,17 +268,22 @@ const blogI18n = {
     navApp: "アプリを開く",
     langToggle: "EN",
     postsHeading: "最新の記事",
+    readMore: "続きを読む",
     posts: [
       {
         slug: "welcome-sooner-beta",
         title: "Sooner（ベータ）へようこそ",
         date: "2026年4月14日",
+        author: "Sooner チーム",
+        readingTime: "3分で読める",
         excerpt: "Sooner はブラウザ上の AI ネイティブ IDE です。フローを離さずに早く届ける考え方を紹介します。",
       },
       {
         slug: "why-in-browser",
         title: "なぜブラウザで作ったか",
         date: "2026年4月10日",
+        author: "Sooner チーム",
+        readingTime: "4分で読める",
         excerpt: "インストール不要、揃った環境、アイデアから動くコードまでを一か所に。",
       },
     ],
@@ -382,10 +396,18 @@ function BlogPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#09090B] text-white flex flex-col">
-      <header className="flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06]">
+    <div className="min-h-screen bg-[#09090B] text-white flex flex-col relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-[#38BDF8]/[0.03] blur-[120px]" />
+        <div className="absolute top-[30%] right-[10%] w-[200px] h-[200px] rounded-full bg-[#0EA5E9]/[0.02] blur-[80px] animate-[float_8s_ease-in-out_infinite]" />
+      </div>
+
+      <header className="relative z-20 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06] backdrop-blur-sm bg-[#09090B]/80">
         <div className="flex items-center gap-2.5 min-w-0">
-          <Zap className="w-6 h-6 text-[#38BDF8] shrink-0" />
+          <div className="relative shrink-0">
+            <Zap className="w-6 h-6 text-[#38BDF8]" />
+            <div className="absolute inset-0 w-6 h-6 bg-[#38BDF8]/20 blur-md rounded-full" />
+          </div>
           <span className="font-black text-base sm:text-lg tracking-tight truncate">{t.title}</span>
         </div>
 
@@ -410,29 +432,54 @@ function BlogPage() {
             className="fixed inset-0 z-40 bg-black/70 md:hidden"
             onClick={() => setMobileNavOpen(false)}
           />
-          <div className="fixed top-[57px] right-0 left-0 z-50 md:hidden border-b border-white/[0.06] bg-[#0c0c0e] shadow-xl px-4 py-4 flex flex-col gap-3">
+          <div className="fixed top-[57px] right-0 left-0 z-50 md:hidden border-b border-white/[0.06] bg-[#0c0c0e]/95 backdrop-blur-md shadow-xl px-4 py-4 flex flex-col gap-3">
             {navButtons}
           </div>
         </>
       )}
 
-      <main className="flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-12 max-w-3xl mx-auto w-full">
-        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-3">{t.title}</h1>
-        <p className="text-[#71717A] text-sm sm:text-base mb-8 sm:mb-10">{t.subtitle}</p>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-[#8E9299] mb-6">{t.postsHeading}</h2>
-        <ul className="space-y-8">
-          {t.posts.map((post) => (
-            <li key={post.slug} className="border-b border-white/[0.06] pb-8">
-              <p className="text-xs text-[#555] mb-2">{post.date}</p>
-              <h3 className="text-lg sm:text-xl font-bold text-white mb-2">{post.title}</h3>
-              <p className="text-[#A1A1AA] text-sm leading-relaxed">{post.excerpt}</p>
-            </li>
+      <main className="relative z-10 flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-14 max-w-3xl mx-auto w-full">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
+          <div className="mb-10 sm:mb-14 pb-8 sm:pb-10 border-b border-white/[0.06]">
+            <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-3 py-1 mb-5">
+              <BookOpen className="w-3 h-3 text-[#38BDF8]" />
+              <span className="text-[10px] text-[#38BDF8] font-semibold uppercase tracking-wider">Blog</span>
+            </div>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight mb-4">{t.title}</h1>
+            <p className="text-[#71717A] text-sm sm:text-base max-w-xl leading-relaxed">{t.subtitle}</p>
+          </div>
+        </motion.div>
+
+        <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#38BDF8] mb-8">{t.postsHeading}</h2>
+        <ul className="space-y-6">
+          {t.posts.map((post, i) => (
+            <motion.li
+              key={post.slug}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 + i * 0.1, ease: [0.16, 1, 0.3, 1] }}
+              className="group relative rounded-2xl border border-white/[0.06] bg-white/[0.01] hover:border-[#38BDF8]/20 hover:bg-[#38BDF8]/[0.02] transition-all duration-300 overflow-hidden"
+            >
+              <div className="absolute left-0 top-0 w-0.5 h-full bg-gradient-to-b from-[#38BDF8]/60 via-[#38BDF8]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="p-6 sm:p-8">
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#1A1A1A] border border-white/[0.06] text-[10px] font-medium text-[#71717A]">{post.date}</span>
+                  <span className="text-[10px] text-[#52525B]">{post.author}</span>
+                  <span className="text-[10px] text-[#3F3F46]">{post.readingTime}</span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-bold text-white mb-3 group-hover:text-[#38BDF8] transition-colors duration-300">{post.title}</h3>
+                <p className="text-[#A1A1AA] text-sm leading-[1.7] mb-4">{post.excerpt}</p>
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#38BDF8] opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  {t.readMore} <ArrowRight className="w-3 h-3" />
+                </span>
+              </div>
+            </motion.li>
           ))}
         </ul>
       </main>
 
-      <footer className="px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#555]">
-        <p>{t.footer}</p>
+      <footer className="relative z-10 px-4 sm:px-8 py-8 border-t border-white/[0.06] text-center">
+        <p className="text-xs text-[#52525B]">{t.footer}</p>
         <p className="mt-2 text-[10px] text-[#3F3F46]">{t.copyright}</p>
       </footer>
     </div>
@@ -513,13 +560,11 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[600px] rounded-full bg-[#38BDF8]/[0.04] blur-[150px]" />
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full bg-[#38BDF8]/[0.02] blur-[120px]" />
+          <div className="absolute top-[10%] left-[15%] w-[200px] h-[200px] rounded-full bg-[#0EA5E9]/[0.03] blur-[80px] animate-[float_8s_ease-in-out_infinite]" />
+          <div className="absolute top-[60%] right-[10%] w-[250px] h-[250px] rounded-full bg-[#38BDF8]/[0.025] blur-[90px] animate-[float_10s_ease-in-out_infinite_2s]" />
+          <div className="absolute top-[40%] left-[60%] w-[180px] h-[180px] rounded-full bg-[#7DD3FC]/[0.02] blur-[70px] animate-[float_7s_ease-in-out_infinite_4s]" />
+          <div className="absolute inset-0 dot-grid animate-[grid-fade_6s_ease-in-out_infinite] opacity-[0.03]" />
         </div>
-        <style>{`
-          @keyframes slideRight{0%{transform:translateX(-120px)}100%{transform:translateX(0)}}
-          @keyframes typewriter{0%{width:0;border-right-color:#38BDF8}100%{width:100%;border-right-color:#38BDF8}}
-          @keyframes blink{0%,100%{border-right-color:#38BDF8}50%{border-right-color:transparent}}
-          @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-        `}</style>
 
         <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06]">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
@@ -717,10 +762,16 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
 
           {/* Feature cards */}
           <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 1.0, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
-            {[t.feat1, t.feat2, t.feat3].map((f, i) => (
+            {([
+              { feat: t.feat1, Icon: Zap },
+              { feat: t.feat2, Icon: Rocket },
+              { feat: t.feat3, Icon: Package },
+            ]).map(({ feat: f, Icon }, i) => (
               <motion.div key={i} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 1.1 + i * 0.1 }}
-                className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] transition-all group">
-                <span className="text-2xl block mb-3">{f.icon}</span>
+                className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] hover:-translate-y-1 transition-all duration-300 group">
+                <div className="w-11 h-11 rounded-xl bg-[#38BDF8]/[0.08] border border-[#38BDF8]/20 flex items-center justify-center mb-4 group-hover:bg-[#38BDF8]/[0.15] group-hover:shadow-[0_0_20px_rgba(56,189,248,0.15)] transition-all duration-300">
+                  <Icon className="w-5 h-5 text-[#38BDF8]" />
+                </div>
                 <h3 className="font-bold text-base mb-2 group-hover:text-[#38BDF8] transition-colors">{f.title}</h3>
                 <p className="text-sm text-[#71717A] leading-relaxed">{f.desc}</p>
               </motion.div>
@@ -761,14 +812,16 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <p className="text-[#71717A] text-center mb-10 max-w-xl mx-auto">{t.secStackSub}</p>
             <div className="grid sm:grid-cols-3 gap-4">
               {[
-                { k: "monaco", label: t.stackMonaco },
-                { k: "ai", label: t.stackAi },
-                { k: "fb", label: t.stackFirebase },
+                { k: "monaco", label: t.stackMonaco, Icon: FileCode },
+                { k: "ai", label: t.stackAi, Icon: Sparkles },
+                { k: "fb", label: t.stackFirebase, Icon: Cloud },
               ].map((s) => (
                 <div
                   key={s.k}
-                  className="rounded-2xl border border-white/[0.06] bg-[#0c0c0e] px-6 py-8 text-center text-sm font-medium text-[#e4e4e7] hover:border-[#38BDF8]/30 transition-colors"
+                  className="group relative rounded-2xl border border-white/[0.06] bg-[#0c0c0e] px-6 py-8 text-center text-sm font-medium text-[#e4e4e7] hover:border-[#38BDF8]/30 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden"
                 >
+                  <div className="absolute left-0 top-0 w-0.5 h-full bg-gradient-to-b from-[#38BDF8]/0 via-[#38BDF8]/0 to-transparent group-hover:from-[#38BDF8]/60 group-hover:via-[#38BDF8]/20 transition-all duration-500" />
+                  <s.Icon className="w-8 h-8 text-[#38BDF8]/30 mx-auto mb-3 group-hover:text-[#38BDF8]/60 transition-colors duration-300" />
                   {s.label}
                 </div>
               ))}
@@ -784,7 +837,18 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           >
             <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-2">{lang === "ja" ? "エディタ" : "Editor"}</p>
             <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3 sm:mb-4">{t.secMonacoEditorTitle}</h3>
-            <p className="text-sm sm:text-base text-[#a1a1aa] leading-relaxed max-w-3xl">{t.secMonacoEditorDesc}</p>
+            <p className="text-sm sm:text-base text-[#a1a1aa] leading-relaxed max-w-3xl mb-6">{t.secMonacoEditorDesc}</p>
+            <div className="rounded-xl border border-white/[0.08] bg-[#0c0c0e] overflow-hidden max-w-2xl shadow-xl shadow-black/20">
+              <div className="flex items-center px-4 py-2.5 border-b border-white/[0.06] gap-2 bg-[#111113]">
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]/50" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#FEBC2E]/50" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#28C840]/50" />
+                </div>
+                <span className="text-[10px] text-[#52525b] font-mono ml-2">App.tsx</span>
+              </div>
+              <pre className="p-5 text-[13px] font-mono leading-[1.7] overflow-x-auto"><code><span className="text-[#C586C0]">import</span> <span className="text-[#D4D4D4]">{"{"}</span> <span className="text-[#9CDCFE]">createApp</span> <span className="text-[#D4D4D4]">{"}"}</span> <span className="text-[#C586C0]">from</span> <span className="text-[#CE9178]">"sooner"</span><span className="text-[#D4D4D4]">;</span>{"\n"}{"\n"}<span className="text-[#C586C0]">const</span> <span className="text-[#4FC1FF]">app</span> <span className="text-[#D4D4D4]">=</span> <span className="text-[#DCDCAA]">createApp</span><span className="text-[#D4D4D4]">({"{"}</span>{"\n"}  <span className="text-[#9CDCFE]">editor</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#CE9178]">"monaco"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">ai</span><span className="text-[#D4D4D4]">:</span>     <span className="text-[#CE9178]">"gemini"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">deploy</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#569CD6]">true</span><span className="text-[#D4D4D4]">,</span>{"\n"}<span className="text-[#D4D4D4]">{"}"});"</span></code></pre>
+            </div>
           </motion.section>
 
           <motion.section
@@ -797,12 +861,19 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {[t.metric1, t.metric2, t.metric3].map((m, i) => (
-                <div key={i} className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02]">
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true, margin: "-40px" }}
+                  transition={{ duration: 0.5, delay: i * 0.1 }}
+                  className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02] hover:border-[#38BDF8]/20 hover:bg-[#38BDF8]/[0.01] transition-all duration-300"
+                >
                   <p className="text-4xl md:text-5xl font-black tracking-tight mb-2">
                     <LandingGradientText>{m.value}</LandingGradientText>
                   </p>
                   <p className="text-xs text-[#71717A] uppercase tracking-wider">{m.label}</p>
-                </div>
+                </motion.div>
               ))}
             </div>
           </motion.section>
@@ -812,23 +883,29 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-24 mb-8 w-full max-w-3xl rounded-3xl border border-[#38BDF8]/20 bg-gradient-to-br from-[#38BDF8]/[0.08] to-transparent px-6 sm:px-10 py-10 sm:py-14 text-center"
+            className="mt-24 mb-8 w-full max-w-3xl relative"
           >
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
-            <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
-            {firebaseConfigured ? (
-              <button
-                type="button"
-                onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))}
-                className="px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25"
-              >
-                {t.getStartedFree}
-              </button>
-            ) : (
-              <button type="button" onClick={onSkip} className="px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25">
-                {t.launchApp}
-              </button>
-            )}
+            <div className="absolute -inset-px rounded-3xl bg-gradient-to-r from-[#38BDF8]/40 via-[#38BDF8]/10 to-[#38BDF8]/40 bg-[length:200%_100%] animate-[shimmer_4s_linear_infinite]" />
+            <div className="relative rounded-3xl bg-[#09090B] px-6 sm:px-10 py-10 sm:py-14 text-center overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-[#38BDF8]/[0.06] to-transparent pointer-events-none" />
+              <div className="relative z-10">
+                <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
+                <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
+                {firebaseConfigured ? (
+                  <button
+                    type="button"
+                    onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))}
+                    className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2"
+                  >
+                    {t.getStartedFree} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                ) : (
+                  <button type="button" onClick={onSkip} className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2">
+                    {t.launchApp} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                )}
+              </div>
+            </div>
           </motion.section>
         </main>
 
@@ -2423,15 +2500,35 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         <motion.div
           key="splash"
           initial={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.4 }}
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0A0A0A]"
+          exit={{ opacity: 0, scale: 1.04, filter: "blur(10px)" }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0A0A0A] overflow-hidden"
         >
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.35 }}>
-            <Zap className="w-14 h-14 text-[#38BDF8]" />
-          </motion.div>
-          <span className="mt-5 text-2xl font-black tracking-tight text-white">Sooner</span>
-          <span className="mt-1.5 text-[11px] font-semibold tracking-[0.22em] text-[#71717A]">{t.brandTagline}</span>
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-[#38BDF8]/[0.04] blur-[120px] animate-[pulse-glow_4s_ease-in-out_infinite]" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full bg-[#0EA5E9]/[0.03] blur-[80px] animate-[pulse-glow_3s_ease-in-out_infinite_0.5s]" />
+          </div>
+          <div className="relative">
+            <div className="absolute inset-[-28px] animate-[orbit_6s_linear_infinite]">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#38BDF8]/70 shadow-[0_0_8px_2px_rgba(56,189,248,0.4)]" />
+            </div>
+            <div className="absolute inset-[-28px] animate-[orbit_6s_linear_infinite_reverse]" style={{ animationDirection: "reverse", animationDelay: "3s" }}>
+              <div className="w-1 h-1 rounded-full bg-[#38BDF8]/40 shadow-[0_0_6px_2px_rgba(56,189,248,0.2)]" />
+            </div>
+            <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
+              <div className="relative">
+                <Zap className="w-16 h-16 text-[#38BDF8] relative z-10" />
+                <div className="absolute inset-[-8px] bg-[#38BDF8]/25 blur-2xl rounded-full animate-[pulse-glow_3s_ease-in-out_infinite]" />
+              </div>
+            </motion.div>
+          </div>
+          <motion.span initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2, ease: [0.16, 1, 0.3, 1] }} className="mt-7 text-3xl font-black tracking-tight text-white">
+            Sooner
+          </motion.span>
+          <motion.span initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4, ease: [0.16, 1, 0.3, 1] }} className="mt-2 text-[11px] font-semibold tracking-[0.25em] uppercase text-[#52525B]">
+            {t.brandTagline}
+          </motion.span>
+          <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.8, delay: 0.6, ease: [0.16, 1, 0.3, 1] }} className="mt-6 w-12 h-px bg-gradient-to-r from-transparent via-[#38BDF8]/40 to-transparent" />
         </motion.div>
       )}
     </AnimatePresence>

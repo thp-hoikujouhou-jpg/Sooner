@@ -26,6 +26,7 @@ type Pack = {
   description: string;
   ogTitle: string;
   ogDescription: string;
+  keywords: string;
 };
 
 const en: Record<string, Pack> = {
@@ -35,6 +36,7 @@ const en: Record<string, Pack> = {
       "Sooner is an AI-native IDE in your browser: describe what you want, get production-ready code, live preview, Git, terminal, and Firebase sync.",
     ogTitle: "Sooner — Build sooner, ship faster",
     ogDescription: "AI-native IDE with Monaco editor, Gemini, live preview, and cloud projects.",
+    keywords: "AI IDE, browser IDE, online code editor, AI coding assistant, web development, Monaco editor, Gemini AI, cloud IDE, Sooner, code generation",
   },
   app: {
     title: "Sooner — AI-native IDE | Code, preview, ship",
@@ -42,24 +44,28 @@ const en: Record<string, Pack> = {
       "Sign in to Sooner: multi-file projects, AI agent, terminal, preview, and cloud storage — all in one tab.",
     ogTitle: "Sooner — AI-native IDE",
     ogDescription: "Build and preview in the browser. AI-native IDE with cloud sync.",
+    keywords: "AI IDE, online code editor, browser IDE, code preview, cloud projects, Sooner app",
   },
   signup: {
     title: "Sooner — Create account",
     description: "Create your Sooner account. Email, Google, or GitHub sign-in.",
     ogTitle: "Sooner — Sign up",
     ogDescription: "Create a free Sooner account to start building.",
+    keywords: "Sooner sign up, create account, free AI IDE, browser code editor",
   },
   signin: {
     title: "Sooner — Sign in",
     description: "Sign in to Sooner to open your projects and AI-native IDE.",
     ogTitle: "Sooner — Sign in",
     ogDescription: "Access your Sooner AI-native IDE.",
+    keywords: "Sooner login, sign in, AI IDE access, cloud projects",
   },
   blog: {
     title: "Sooner Blog — News & tutorials",
     description: "Updates, tips, and tutorials from the Sooner team — AI-native IDE, web dev, and shipping faster.",
     ogTitle: "Sooner Blog",
     ogDescription: "News and tutorials from Sooner.",
+    keywords: "Sooner blog, AI IDE tutorials, web development tips, browser IDE updates, coding tutorials",
   },
 };
 
@@ -70,6 +76,7 @@ const ja: Record<string, Pack> = {
       "Soonerはブラウザ上のAIネイティブIDE。自然言語で指示し、本番向けコード、ライブプレビュー、Git・ターミナル、Firebase同期まで。",
     ogTitle: "Sooner — Build sooner, ship faster",
     ogDescription: "Monaco・Gemini・ライブプレビュー・クラウドプロジェクト。",
+    keywords: "AI IDE, ブラウザIDE, オンラインコードエディタ, AIコーディング, Web開発, Monaco, Gemini AI, クラウドIDE, Sooner",
   },
   app: {
     title: "Sooner — AIネイティブIDE | コード・プレビュー・公開",
@@ -77,24 +84,28 @@ const ja: Record<string, Pack> = {
       "Soonerにログイン: 複数ファイル、AIエージェント、ターミナル、プレビュー、クラウドストレージをひとつのタブで。",
     ogTitle: "Sooner — AIネイティブIDE",
     ogDescription: "ブラウザでビルド＆プレビュー。AIネイティブIDEとクラウド同期。",
+    keywords: "AI IDE, オンラインエディタ, ブラウザIDE, コードプレビュー, クラウドプロジェクト, Sooner",
   },
   signup: {
     title: "Sooner — アカウント作成",
     description: "Soonerのアカウントを作成。メール、Google、またはGitHubでサインアップ。",
     ogTitle: "Sooner — サインアップ",
     ogDescription: "無料でSoonerを始める。",
+    keywords: "Sooner アカウント作成, 無料AI IDE, ブラウザエディタ登録",
   },
   signin: {
     title: "Sooner — ログイン",
     description: "SoonerにログインしてプロジェクトとAIネイティブIDEを開く。",
     ogTitle: "Sooner — ログイン",
     ogDescription: "SoonerのAIネイティブIDEにアクセス。",
+    keywords: "Sooner ログイン, サインイン, AI IDEアクセス",
   },
   blog: {
     title: "Sooner ブログ — ニュースとチュートリアル",
     description: "Soonerチームからの更新・Tips・チュートリアル。AIネイティブIDEとWeb開発。",
     ogTitle: "Sooner ブログ",
     ogDescription: "Soonerからのニュースとチュートリアル。",
+    keywords: "Sooner ブログ, AI IDEチュートリアル, Web開発Tips, ブラウザIDE更新情報",
   },
 };
 
@@ -177,6 +188,76 @@ function injectHreflangForLanding() {
 
 export type SeoOverrides = { lang?: SeoLang };
 
+function buildJsonLd(key: string, lang: SeoLang): object[] {
+  const org = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Sooner",
+    url: "https://site.sooner.sh/",
+    logo: OG_IMAGE,
+    sameAs: [],
+  };
+
+  const website = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Sooner",
+    url: "https://site.sooner.sh/",
+    description: en.site.description,
+    inLanguage: ["en", "ja"],
+    publisher: { "@type": "Organization", name: "Sooner" },
+  };
+
+  if (key === "site" || key === "app") {
+    const softwareApp = {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Sooner",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Web",
+      url: "https://sooner.sh/",
+      description: (lang === "ja" ? ja : en).site.description,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      author: { "@type": "Organization", name: "Sooner" },
+    };
+    return [org, website, softwareApp];
+  }
+
+  if (key === "blog") {
+    const blog = {
+      "@context": "https://schema.org",
+      "@type": "Blog",
+      name: lang === "ja" ? "Sooner ブログ" : "Sooner Blog",
+      url: "https://blog.sooner.sh/",
+      description: (lang === "ja" ? ja : en).blog.description,
+      publisher: { "@type": "Organization", name: "Sooner", logo: { "@type": "ImageObject", url: OG_IMAGE } },
+      blogPost: [
+        {
+          "@type": "BlogPosting",
+          headline: lang === "ja" ? "Sooner（ベータ）へようこそ" : "Welcome to Sooner (beta)",
+          datePublished: "2026-04-14",
+          author: { "@type": "Organization", name: "Sooner" },
+          description: lang === "ja"
+            ? "Sooner はブラウザ上の AI ネイティブ IDE です。"
+            : "Sooner is an AI-native IDE in the browser.",
+        },
+        {
+          "@type": "BlogPosting",
+          headline: lang === "ja" ? "なぜブラウザで作ったか" : "Why we built in the browser",
+          datePublished: "2026-04-10",
+          author: { "@type": "Organization", name: "Sooner" },
+          description: lang === "ja"
+            ? "インストール不要、揃った環境、アイデアから動くコードまでを一か所に。"
+            : "Zero install, consistent environments, and a path from idea to running code in one place.",
+        },
+      ],
+    };
+    return [org, blog];
+  }
+
+  return [org, website];
+}
+
 /** Call on mount and when language or host context changes. Pass `lang` from React state when URL does not carry `?lang=`. */
 export function applyDocumentSeo(override?: SeoOverrides): void {
   if (typeof document === "undefined") return;
@@ -190,10 +271,13 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   const url = canonicalUrl();
   document.title = pack.title;
   setMeta("name", "description", pack.description);
+  setMeta("name", "keywords", pack.keywords);
+  setMeta("name", "robots", "index, follow");
+  setMeta("name", "author", "Sooner");
   setMeta("property", "og:title", pack.ogTitle);
   setMeta("property", "og:description", pack.ogDescription);
   setMeta("property", "og:url", url);
-  setMeta("property", "og:type", "website");
+  setMeta("property", "og:type", key === "blog" ? "blog" : "website");
   setMeta("property", "og:site_name", "Sooner");
   setMeta("property", "og:image", OG_IMAGE);
   setMeta("property", "og:locale", lang === "ja" ? "ja_JP" : "en_US");
@@ -201,25 +285,28 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   setMeta("name", "twitter:title", pack.ogTitle);
   setMeta("name", "twitter:description", pack.ogDescription);
   setMeta("name", "twitter:image", OG_IMAGE);
+
+  if (key === "blog") {
+    setMeta("property", "article:author", "Sooner Team");
+    setMeta("property", "article:published_time", "2026-04-14");
+  }
+
   setLink("canonical", url);
 
   document.documentElement.lang = lang === "ja" ? "ja" : "en";
 
   injectHreflangForLanding();
 
-  let ld = document.getElementById("sooner-ld-json");
-  if (!ld) {
-    ld = document.createElement("script");
-    ld.id = "sooner-ld-json";
-    ld.type = "application/ld+json";
-    document.head.appendChild(ld);
-  }
-  ld.textContent = JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: "Sooner",
-    url: "https://site.sooner.sh/",
-    description: en.site.description,
-    inLanguage: ["en", "ja"],
+  const schemas = buildJsonLd(key, lang);
+  document.querySelectorAll('script[data-sooner-ld]').forEach((n) => n.remove());
+  schemas.forEach((schema, i) => {
+    const el = document.createElement("script");
+    el.type = "application/ld+json";
+    el.setAttribute("data-sooner-ld", String(i));
+    el.textContent = JSON.stringify(schema);
+    document.head.appendChild(el);
   });
+
+  const oldLd = document.getElementById("sooner-ld-json");
+  if (oldLd) oldLd.remove();
 }

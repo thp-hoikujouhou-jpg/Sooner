@@ -2,3 +2,7 @@ User-agent: *
 Allow: /
 
 Sitemap: https://site.sooner.sh/sitemap.xml
+Sitemap: https://sooner.sh/sitemap.xml
+Sitemap: https://blog.sooner.sh/sitemap.xml
+Sitemap: https://signup.sooner.sh/sitemap.xml
+Sitemap: https://signin.sooner.sh/sitemap.xml
