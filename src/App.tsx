@@ -1353,8 +1353,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const skipJourney = () => setJourneyPhase("done");
   const goApp = () => {
     if (!firebaseConfigured) return onSkip();
-    if (isProduction) window.location.href = `${window.location.protocol}//sooner.sh`;
-    else setMode("signup");
+    if (isProduction) {
+      const langQ = lang !== "en" ? `?lang=${lang}` : "";
+      window.location.href = `${window.location.protocol}//signup.sooner.sh${langQ}`;
+    } else setMode("signup");
   };
   const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -1858,9 +1860,19 @@ export default function App() {
 
   if (isMainDomain) {
     if (firebaseConfigured && !authUser && !skipAuth) {
-      return <LandingPage onSkip={() => setSkipAuth(true)} initialMode="login" />;
+      const langQ = readStoredLanguage() !== "en" ? `?lang=${readStoredLanguage()}` : "";
+      window.location.href = `${window.location.protocol}//signin.sooner.sh${langQ}`;
+      return (
+        <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+        </div>
+      );
     }
-    return <Sooner user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
+    return <Sooner user={authUser} onSignOut={() => {
+      if (auth) firebaseSignOut(auth);
+      setSkipAuth(false);
+      window.location.href = `${window.location.protocol}//site.sooner.sh`;
+    }} />;
   }
 
   if (firebaseConfigured && !authUser && !skipAuth) {
@@ -2101,6 +2113,25 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitPushNeedToken: "Connect GitHub in Settings (or paste a PAT) to push.",
       brandTagline: "AI-native IDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
+      newProject: "New Project",
+      projectName: "Project Name",
+      createProject: "Create Project",
+      uploadFile: "Upload File",
+      refreshPreview: "Refresh Preview",
+      projectPreview: "Project Preview",
+      cancel: "Cancel",
+      confirm: "Confirm",
+      signOut: "Sign out",
+      filesPanel: "Files panel",
+      aiChat: "AI Chat",
+      closeChat: "Close chat",
+      closeSidebar: "Close sidebar",
+      cloneFromGithub: "Clone from GitHub",
+      cloneRepository: "Clone Repository",
+      connectedAs: "Connected",
+      scopeInfo: "Scopes: repo, read:user",
+      githubAutoConnect: "Sign in with GitHub to auto-connect, or enter a token manually.",
+      noDiff: "No diff",
     },
     ja: {
       projects: "プロジェクト",
@@ -2194,6 +2225,25 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitPushNeedToken: "プッシュには設定で GitHub を接続するか PAT を入力してください。",
       brandTagline: "AIネイティブIDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
+      newProject: "新規プロジェクト",
+      projectName: "プロジェクト名",
+      createProject: "プロジェクト作成",
+      uploadFile: "ファイルをアップロード",
+      refreshPreview: "プレビューを更新",
+      projectPreview: "プロジェクトプレビュー",
+      cancel: "キャンセル",
+      confirm: "確認",
+      signOut: "ログアウト",
+      filesPanel: "ファイルパネル",
+      aiChat: "AIチャット",
+      closeChat: "チャットを閉じる",
+      closeSidebar: "サイドバーを閉じる",
+      cloneFromGithub: "GitHubからクローン",
+      cloneRepository: "リポジトリをクローン",
+      connectedAs: "接続済み",
+      scopeInfo: "repo, read:user スコープ付き",
+      githubAutoConnect: "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。",
+      noDiff: "差分なし",
     }
   };
 
@@ -3353,7 +3403,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       {isMobileLayout && isSidebarOpen && (
         <button
           type="button"
-          aria-label={language === "ja" ? "サイドバーを閉じる" : "Close sidebar"}
+          aria-label={t.closeSidebar}
           className="fixed inset-0 z-40 bg-black/60 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -3373,7 +3423,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             <span className="font-bold tracking-tight text-sm text-white">Sooner</span>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={() => setIsCloneOpen(true)} title={language === "ja" ? "GitHubからクローン" : "Clone from GitHub"} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
+            <button onClick={() => setIsCloneOpen(true)} title={t.cloneFromGithub} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
               <GitHubIcon className="w-4 h-4" />
             </button>
             <button
@@ -3387,7 +3437,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             >
               <GitMerge className="w-4 h-4" />
             </button>
-            <button onClick={() => setIsNewProjectOpen(true)} title="New Project" className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
+            <button onClick={() => setIsNewProjectOpen(true)} title={t.newProject} className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]">
               <Plus className="w-4 h-4" />
             </button>
           </div>
@@ -3463,7 +3513,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
-                  title="Upload File"
+                  title={t.uploadFile}
                 >
                   <Upload className="w-3 h-3" />
                 </button>
@@ -3505,7 +3555,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               </div>
               <span className="text-xs text-[#8E9299] truncate flex-1">{user.email}</span>
               <button onClick={onSignOut} className="text-[10px] text-red-400 hover:underline">
-                {language === "ja" ? "ログアウト" : "Sign out"}
+                {t.signOut}
               </button>
             </div>
           )}
@@ -3522,7 +3572,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-1.5 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
               aria-expanded={isSidebarOpen}
-              aria-label={language === "ja" ? "ファイルパネル" : "Files panel"}
+              aria-label={t.filesPanel}
             >
               <Menu className="w-4 h-4 md:hidden" />
               <FolderTree className="w-4 h-4 hidden md:block" />
@@ -3577,7 +3627,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               type="button"
               onClick={() => setIsChatOpen(true)}
               className="md:hidden flex items-center gap-2 px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] rounded text-xs transition-colors"
-              aria-label={language === "ja" ? "AIチャット" : "AI Chat"}
+              aria-label={t.aiChat}
             >
               <MessageSquare className="w-3.5 h-3.5 text-[#38BDF8]" />
             </button>
@@ -3620,7 +3670,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                           if (iframe) iframe.src = iframe.src;
                         }}
                         className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
-                        title="Refresh Preview"
+                        title={t.refreshPreview}
                       >
                         <RefreshCw className="w-4 h-4" />
                       </button>
@@ -3629,7 +3679,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       id="preview-frame"
                       src={`/preview/${activeProject}/`}
                       className="w-full h-full border-none"
-                      title="Project Preview"
+                      title={t.projectPreview}
                       sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
                     />
                   </>
@@ -3694,7 +3744,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       {isMobileLayout && isChatOpen && (
         <button
           type="button"
-          aria-label={language === "ja" ? "チャットを閉じる" : "Close chat"}
+          aria-label={t.closeChat}
           className="fixed inset-0 z-40 bg-black/60 md:hidden"
           onClick={() => setIsChatOpen(false)}
         />
@@ -3968,7 +4018,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
               <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
-                <Dialog.Description className="sr-only">Configure your API keys and GitHub integration settings.</Dialog.Description>
+                <Dialog.Description className="sr-only">{language === "ja" ? "APIキーとGitHub連携の設定" : "Configure your API keys and GitHub integration settings."}</Dialog.Description>
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
                     <SettingsIcon className="w-5 h-5 text-[#38BDF8]" />
@@ -4100,8 +4150,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       <div className="flex items-center gap-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4">
                         <GitHubIcon className="w-5 h-5 text-white" />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : (language === "ja" ? "接続済み" : "Connected")}</div>
-                          <div className="text-[10px] text-green-400">{language === "ja" ? "repo, read:user スコープ付き" : "Scopes: repo, read:user"}</div>
+                          <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : t.connectedAs}</div>
+                          <div className="text-[10px] text-green-400">{t.scopeInfo}</div>
                         </div>
                         <button
                           onClick={() => { setGithubToken(""); setGithubUsername(""); setGithubRepos([]); localStorage.removeItem("github_token"); localStorage.removeItem("github_username"); }}
@@ -4112,7 +4162,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <p className="text-xs text-[#555]">{language === "ja" ? "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。" : "Sign in with GitHub to auto-connect, or enter a token manually."}</p>
+                        <p className="text-xs text-[#555]">{t.githubAutoConnect}</p>
                         <div className="relative">
                           <GitHubIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
                           <input
@@ -4170,11 +4220,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
               <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl flex flex-col">
-                <Dialog.Description className="sr-only">Clone a repository from GitHub or enter a URL manually.</Dialog.Description>
+                <Dialog.Description className="sr-only">{language === "ja" ? "GitHubからリポジトリをクローン、またはURLを入力" : "Clone a repository from GitHub or enter a URL manually."}</Dialog.Description>
                 <div className="flex items-center justify-between mb-4">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
                     <GitBranch className="w-5 h-5 text-[#38BDF8]" />
-                    {language === "ja" ? "リポジトリをクローン" : "Clone Repository"}
+                    {t.cloneRepository}
                   </Dialog.Title>
                   <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
                     <X className="w-5 h-5" />
@@ -4221,7 +4271,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                           {t.connectGithubBtn}
                         </button>
                         <p className="text-[10px] text-[#555] text-center max-w-xs">
-                          {language === "ja" ? "repo, read:user スコープでGitHubに接続します" : "Connects with repo, read:user scopes"}
+                          {language === "ja" ? "repo, read:user スコープでGitHubに接続" : "Connects with repo, read:user scopes"}
                         </p>
                       </div>
                     ) : (
@@ -4302,7 +4352,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
+                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.projectName}</label>
                       <input
                         type="text"
                         value={cloneName}
@@ -4417,7 +4467,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     <div className="flex-1 min-h-[200px] flex flex-col gap-2">
                       <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.gitDiff}</label>
                       <pre className="flex-1 overflow-auto max-h-[280px] rounded-xl border border-[#252525] bg-[#0A0A0A] p-3 text-[11px] font-mono text-[#CFCFCF] whitespace-pre-wrap">
-                        {gitLoading ? "…" : gitDiffText || (language === "ja" ? "差分なし" : "No diff")}
+                        {gitLoading ? "…" : gitDiffText || t.noDiff}
                       </pre>
                     </div>
 
@@ -4468,11 +4518,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
               <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
-                <Dialog.Description className="sr-only">Enter a name for your new project.</Dialog.Description>
+                <Dialog.Description className="sr-only">{t.newProject}</Dialog.Description>
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
                     <Plus className="w-5 h-5 text-[#38BDF8]" />
-                    New Project
+                    {t.newProject}
                   </Dialog.Title>
                   <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
                     <X className="w-5 h-5" />
@@ -4481,7 +4531,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Project Name</label>
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.projectName}</label>
                     <input 
                       type="text"
                       value={newProjectName}
@@ -4499,7 +4549,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     disabled={!newProjectName}
                     className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
                   >
-                    Create Project
+                    {t.createProject}
                   </button>
                 </div>
               </Dialog.Content>
@@ -4519,7 +4569,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     onClick={() => setConfirmDialog(null)}
                     className="px-4 py-2 text-sm font-medium text-[#8E9299] hover:text-white transition-colors"
                   >
-                    Cancel
+                    {t.cancel}
                   </button>
                   <button 
                     onClick={confirmDialog.onConfirm}

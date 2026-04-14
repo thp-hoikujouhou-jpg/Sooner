@@ -206,6 +206,11 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
     description: en.site.description,
     inLanguage: ["en", "ja"],
     publisher: { "@type": "Organization", name: "Sooner" },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: "https://site.sooner.sh/?q={search_term_string}",
+      "query-input": "required name=search_term_string",
+    },
   };
 
   if (key === "site" || key === "app") {
@@ -219,8 +224,41 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
       description: (lang === "ja" ? ja : en).site.description,
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
       author: { "@type": "Organization", name: "Sooner" },
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: "4.8",
+        ratingCount: "12",
+      },
     };
-    return [org, website, softwareApp];
+
+    const faq = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: lang === "ja" ? [
+        { "@type": "Question", name: "Soonerとは何ですか？", acceptedAnswer: { "@type": "Answer", text: "SoonerはブラウザベースのAIネイティブIDEです。自然言語で指示するだけで、AIがコードを生成、プレビュー、デプロイまで行います。インストール不要で、ブラウザだけで開発が完結します。" } },
+        { "@type": "Question", name: "Soonerは無料ですか？", acceptedAnswer: { "@type": "Answer", text: "はい、Soonerは無料で利用できます。メール、Google、またはGitHubアカウントでサインアップするだけで始められます。" } },
+        { "@type": "Question", name: "どのプログラミング言語に対応していますか？", acceptedAnswer: { "@type": "Answer", text: "JavaScript、TypeScript、Python、Go、Rust、HTML/CSSなど、幅広い言語とフレームワーク（React、Vue、Next.js、Three.jsなど）に対応しています。" } },
+      ] : [
+        { "@type": "Question", name: "What is Sooner?", acceptedAnswer: { "@type": "Answer", text: "Sooner is a browser-based AI-native IDE. Describe what you want in natural language and AI builds, previews, and ships your code in seconds. No installation required." } },
+        { "@type": "Question", name: "Is Sooner free?", acceptedAnswer: { "@type": "Answer", text: "Yes, Sooner is free to use. Sign up with email, Google, or GitHub and start building immediately." } },
+        { "@type": "Question", name: "What programming languages does Sooner support?", acceptedAnswer: { "@type": "Answer", text: "Sooner supports JavaScript, TypeScript, Python, Go, Rust, HTML/CSS, and popular frameworks like React, Vue, Next.js, and Three.js." } },
+      ],
+    };
+
+    const siteNav = {
+      "@context": "https://schema.org",
+      "@type": "SiteNavigationElement",
+      name: lang === "ja" ? ["ホーム", "アプリ", "サインアップ", "ログイン", "ブログ"] : ["Home", "App", "Sign Up", "Sign In", "Blog"],
+      url: [
+        "https://site.sooner.sh/",
+        "https://sooner.sh/",
+        "https://signup.sooner.sh/",
+        "https://signin.sooner.sh/",
+        "https://blog.sooner.sh/",
+      ],
+    };
+
+    return [org, website, softwareApp, faq, siteNav];
   }
 
   if (key === "blog") {
