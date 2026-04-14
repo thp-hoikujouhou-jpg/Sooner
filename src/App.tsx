@@ -936,6 +936,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [journeyPhase, setJourneyPhase] = useState<JourneyPhase>("idle");
   const [lightningFlash, setLightningFlash] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const bottomRef = useRef<HTMLDivElement>(null);
   const audio = useAmbientAudio();
@@ -983,9 +984,23 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     audio.setRainVolume(vol[journeyPhase] ?? 0.03);
   }, [journeyPhase]);
 
+  useEffect(() => {
+    if (journeyPhase !== "done") { setShowScrollTop(false); return; }
+    const onScroll = () => {
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 200;
+      setShowScrollTop(nearBottom);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [journeyPhase]);
+
   const startJourney = () => { audio.start(); setJourneyPhase("thunder"); };
   const skipJourney = () => setJourneyPhase("done");
-  const goSignup = () => firebaseConfigured ? (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")) : onSkip();
+  const goApp = () => {
+    if (!firebaseConfigured) return onSkip();
+    if (isProduction) window.location.href = `${window.location.protocol}//sooner.sh`;
+    else setMode("signup");
+  };
   const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   const stagePhases: JourneyPhase[] = ["write", "debug", "preview", "ship"];
@@ -1040,7 +1055,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             {firebaseConfigured ? (
               <>
                 <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="px-4 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
-                <button type="button" onClick={goSignup} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
+                <button type="button" onClick={goApp} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
               <button type="button" onClick={onSkip} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
@@ -1065,7 +1080,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               {firebaseConfigured ? (
                 <>
                   <button type="button" onClick={() => { setMobileNavOpen(false); isProduction ? navigateToSubdomain("signin", lang) : setMode("login"); }} className="w-full py-2 text-sm font-semibold text-[#8E9299] text-left">{t.signIn}</button>
-                  <button type="button" onClick={() => { setMobileNavOpen(false); goSignup(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.getStarted}</button>
+                  <button type="button" onClick={() => { setMobileNavOpen(false); goApp(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.getStarted}</button>
                 </>
               ) : (
                 <button type="button" onClick={() => { setMobileNavOpen(false); onSkip(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.launchApp}</button>
@@ -1101,7 +1116,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 </motion.p>
 
                 <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1, duration: 0.8 }}>
-                  <LeafSVG trembling={false} onClick={goSignup} ctaText={t.leafCta} />
+                  <LeafSVG trembling={false} onClick={goApp} ctaText={t.leafCta} />
                 </motion.div>
 
                 <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4, duration: 0.6 }} className="mt-10 flex flex-col items-center gap-3">
@@ -1124,7 +1139,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 transition={{ duration: 0.5 }}
                 className="flex flex-col items-center pt-24 sm:pt-32 pb-12"
               >
-                <LeafSVG trembling={journeyPhase === "thunder"} onClick={goSignup} ctaText={t.leafCta} />
+                <LeafSVG trembling={journeyPhase === "thunder"} onClick={goApp} ctaText={t.leafCta} />
                 {journeyPhase === "detach" && (
                   <motion.div
                     initial={{ opacity: 1, y: 0, scale: 0.5 }}
@@ -1185,7 +1200,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                   <PoemSection
                     lines={t.poemLines}
                     ctaText={t.getStartedFree}
-                    onCta={goSignup}
+                    onCta={goApp}
                     onSkipToApp={onSkip}
                   />
                 )}
@@ -1198,7 +1213,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 1, delay: 0.5 }}
+              transition={{ duration: 0.6 }}
               className="w-full flex flex-col items-center px-4 sm:px-6 md:px-8 pb-16"
             >
               {/* Feature cards */}
@@ -1296,7 +1311,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                   <div className="relative z-10">
                     <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
                     <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
-                    <button type="button" onClick={goSignup} className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2">
+                    <button type="button" onClick={goApp} className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2">
                       {t.getStartedFree} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                     </button>
                   </div>
@@ -1332,20 +1347,24 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
             </div>
           )}
 
-          {/* Scroll to top button */}
-          {journeyPhase === "done" && (
-            <motion.button
-              type="button"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              onClick={scrollToTopFn}
-              className="fixed bottom-6 right-6 z-40 w-10 h-10 flex items-center justify-center rounded-full border border-white/[0.08] bg-[#09090B]/80 backdrop-blur-sm text-[#8E9299] hover:text-white hover:border-[#38BDF8]/30 transition-all"
-              aria-label={t.scrollToTop}
-            >
-              <ChevronRight className="w-4 h-4 -rotate-90" />
-            </motion.button>
-          )}
+          {/* Scroll to top button -- appears only near the bottom */}
+          <AnimatePresence>
+            {showScrollTop && (
+              <motion.button
+                key="scroll-top"
+                type="button"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.3 }}
+                onClick={scrollToTopFn}
+                className="fixed bottom-6 right-6 z-40 w-10 h-10 flex items-center justify-center rounded-full border border-white/[0.08] bg-[#09090B]/80 backdrop-blur-sm text-[#8E9299] hover:text-white hover:border-[#38BDF8]/30 transition-all"
+                aria-label={t.scrollToTop}
+              >
+                <ChevronRight className="w-4 h-4 -rotate-90" />
+              </motion.button>
+            )}
+          </AnimatePresence>
           <div ref={bottomRef} />
         </main>
 
