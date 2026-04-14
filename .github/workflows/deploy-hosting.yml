@@ -1,6 +1,7 @@
 # Push to main → build with secrets → Firebase Hosting (live)
 # Repo → Settings → Secrets and variables → Actions:
-#   FIREBASE_SERVICE_ACCOUNT  (full JSON of a CI service account with Firebase Hosting Admin)
+#   FIREBASE_SERVICE_ACCOUNT — full service account JSON (preferred for deploy action), OR
+#   FIREBASE_SERVICE_ACCOUNT_BASE64 — same JSON base64-encoded (same as Railway; either is enough)
 #   VITE_FIREBASE_* and VITE_BACKEND_URL (same values as local .env for production)
 name: Deploy Firebase Hosting
 
@@ -37,10 +38,32 @@ jobs:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: node scripts/check-vite-env.mjs && npm run build
 
+      - name: Resolve Firebase service account JSON
+        id: firebase_sa
+        env:
+          PLAIN: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
+        run: |
+          set -e
+          OUT="${RUNNER_TEMP}/firebase-sa.json"
+          if [ -n "${PLAIN}" ]; then
+            printf '%s' "${PLAIN}" > "${OUT}"
+          elif [ -n "${B64}" ]; then
+            printf '%s' "${B64}" | base64 -d > "${OUT}"
+          else
+            echo "Error: Set FIREBASE_SERVICE_ACCOUNT (JSON) or FIREBASE_SERVICE_ACCOUNT_BASE64 in Repository secrets." >&2
+            exit 1
+          fi
+          {
+            echo "json<<__FIREBASE_SA_JSON__"
+            cat "${OUT}"
+            echo "__FIREBASE_SA_JSON__"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          firebaseServiceAccount: ${{ steps.firebase_sa.outputs.json }}
           projectId: sooner-bb1f1
           channelId: live
