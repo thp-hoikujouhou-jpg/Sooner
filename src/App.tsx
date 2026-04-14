@@ -721,6 +721,7 @@ function CmsPage() {
             {loginError && <p className="text-xs text-red-400">{loginError}</p>}
             <button type="submit" className="w-full py-2.5 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors">{t.login}</button>
           </form>
+          <button type="button" onClick={() => { const n = lang === "en" ? "ja" : "en"; writeStoredLanguage(n); setLang(n); }} className="w-full text-center mt-6 text-xs text-[#52525B] hover:text-[#8E9299] transition-colors">{t.langToggle}</button>
         </motion.div>
       </div>
     );
