@@ -178,6 +178,39 @@ const landingI18n = {
     hasAccount: "Already have an account? ",
     signUp: "Sign up",
     backToHome: "Back to home",
+    startJourney: "Start Journey",
+    skipJourney: "Skip",
+    scrollToTop: "Back to top",
+    leafCta: "Get Started Free",
+    stageWriteNum: "01",
+    stageWriteTitle: "Write",
+    stageWriteDesc: "Describe your idea. AI writes production-ready code across multiple files in seconds.",
+    stageDebugNum: "02",
+    stageDebugTitle: "Debug",
+    stageDebugDesc: "Errors vanish like lightning. Terminal, linter, and AI fix issues before you notice them.",
+    stagePreviewNum: "03",
+    stagePreviewTitle: "Preview",
+    stagePreviewDesc: "See your app live in the browser. React, Vue, Three.js — instant, no config.",
+    stageShipNum: "04",
+    stageShipTitle: "Ship",
+    stageShipDesc: "Push to Git and deploy. From thought to production in one flow.",
+    poemLines: [
+      "In the storm of creation,",
+      "a single drop carries your vision.",
+      "",
+      "Write — thought becomes code.",
+      "Debug — clarity strikes like lightning.",
+      "Preview — watch it breathe.",
+      "Ship — it's already live.",
+      "",
+      "Faster than thunder follows lightning,",
+      "your idea reaches the world.",
+      "",
+      "Build sooner. Ship faster.",
+      "The AI-native IDE that lives in the preview.",
+      "",
+      "Sooner.",
+    ],
   },
   ja: {
     signIn: "ログイン",
@@ -228,6 +261,39 @@ const landingI18n = {
     hasAccount: "既にアカウントがある？ ",
     signUp: "新規登録",
     backToHome: "ホームに戻る",
+    startJourney: "旅を始める",
+    skipJourney: "スキップ",
+    scrollToTop: "トップへ戻る",
+    leafCta: "無料で始める",
+    stageWriteNum: "01",
+    stageWriteTitle: "Write",
+    stageWriteDesc: "アイデアを伝えるだけ。AIが数秒で本番品質のコードを複数ファイルにわたって書き上げます。",
+    stageDebugNum: "02",
+    stageDebugTitle: "Debug",
+    stageDebugDesc: "エラーは稲妻のように消える。ターミナル、リンター、AIが気づく前に修正します。",
+    stagePreviewNum: "03",
+    stagePreviewTitle: "Preview",
+    stagePreviewDesc: "ブラウザ上でアプリが動く。React, Vue, Three.js — 即座に、設定なしで。",
+    stageShipNum: "04",
+    stageShipTitle: "Ship",
+    stageShipDesc: "Gitにプッシュしてデプロイ。思考からプロダクションまで一つの流れで。",
+    poemLines: [
+      "創造の嵐の中、",
+      "一滴のしずくがビジョンを運ぶ。",
+      "",
+      "Write — 思考がコードになる。",
+      "Debug — 雷光のように明瞭さが走る。",
+      "Preview — 息づくのを見よ。",
+      "Ship — もう、世界に届いている。",
+      "",
+      "雷鳴より速く、",
+      "あなたのアイデアは世界へ。",
+      "",
+      "Build sooner. Ship faster.",
+      "プレビューの中で完結するAIネイティブIDE。",
+      "",
+      "Sooner.",
+    ],
   },
 };
 
@@ -486,6 +552,228 @@ function BlogPage() {
   );
 }
 
+type JourneyPhase = "idle" | "thunder" | "detach" | "write" | "debug" | "preview" | "ship" | "impact" | "poem" | "done";
+
+function RainCanvas({ intensity, flash }: { intensity: number; flash: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dropsRef = useRef<{ x: number; y: number; l: number; v: number; o: number }[]>([]);
+  const frameRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const count = window.innerWidth < 768 ? 100 : 220;
+    dropsRef.current = Array.from({ length: count }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      l: 10 + Math.random() * 20,
+      v: 4 + Math.random() * 8,
+      o: 0.1 + Math.random() * 0.25,
+    }));
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const drops = dropsRef.current;
+      const eff = intensity;
+      for (let i = 0; i < drops.length; i++) {
+        const d = drops[i];
+        d.y += d.v * eff;
+        d.x -= 0.8 * eff;
+        if (d.y > canvas.height) { d.y = -d.l; d.x = Math.random() * canvas.width; }
+        if (d.x < 0) d.x = canvas.width;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - 0.5, d.y + d.l * eff);
+        ctx.strokeStyle = `rgba(174,214,241,${d.o * eff})`;
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+      frameRef.current = requestAnimationFrame(draw);
+    };
+    frameRef.current = requestAnimationFrame(draw);
+    return () => { cancelAnimationFrame(frameRef.current); window.removeEventListener("resize", resize); };
+  }, [intensity]);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 z-10 pointer-events-none" style={{ opacity: flash ? 0.15 : 1 }} />;
+}
+
+function LeafSVG({ trembling, onClick, ctaText }: { trembling: boolean; onClick: () => void; ctaText: string }) {
+  return (
+    <div className={`relative inline-block ${trembling ? "animate-[tremble_0.08s_ease-in-out_infinite]" : "animate-[sway_5s_ease-in-out_infinite]"}`}>
+      <svg width="140" height="180" viewBox="0 0 140 180" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-[0_0_30px_rgba(56,189,248,0.15)]">
+        <path
+          d="M70 10 C30 50, 10 90, 20 130 C25 150, 45 170, 70 175 C95 170, 115 150, 120 130 C130 90, 110 50, 70 10Z"
+          fill="url(#leafGrad)" stroke="#38BDF8" strokeWidth="1.5" strokeOpacity="0.4"
+        />
+        <path d="M70 30 L70 160" stroke="#38BDF8" strokeWidth="0.8" strokeOpacity="0.2" />
+        <path d="M70 60 C50 55, 35 70, 30 90" stroke="#38BDF8" strokeWidth="0.5" strokeOpacity="0.15" fill="none" />
+        <path d="M70 80 C90 75, 105 90, 110 110" stroke="#38BDF8" strokeWidth="0.5" strokeOpacity="0.15" fill="none" />
+        <defs>
+          <radialGradient id="leafGrad" cx="0.5" cy="0.4" r="0.6">
+            <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.08" />
+            <stop offset="100%" stopColor="#0c4a6e" stopOpacity="0.03" />
+          </radialGradient>
+        </defs>
+      </svg>
+      <button
+        type="button"
+        onClick={onClick}
+        className="absolute inset-0 flex items-center justify-center group"
+      >
+        <span className="text-[11px] sm:text-xs font-bold text-[#38BDF8]/80 group-hover:text-[#38BDF8] transition-colors tracking-wide mt-4">
+          {ctaText}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function DropletShape({ children, phase, isMobile }: { children: React.ReactNode; phase: JourneyPhase; isMobile: boolean }) {
+  const stagePhases: JourneyPhase[] = ["write", "debug", "preview", "ship"];
+  const isActive = stagePhases.includes(phase);
+  const stageIndex = stagePhases.indexOf(phase);
+  const isLeft = stageIndex % 2 === 0;
+
+  const getPosition = () => {
+    if (!isActive) return { x: 0, y: 0, scale: 0, opacity: 0 };
+    if (isMobile) return { x: 0, y: 0, scale: 1, opacity: 1 };
+    return { x: isLeft ? -40 : 40, y: 0, scale: 1, opacity: 1 };
+  };
+
+  const pos = getPosition();
+
+  return (
+    <motion.div
+      animate={{ x: pos.x, y: pos.y, scale: pos.scale, opacity: pos.opacity }}
+      transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+      className="relative w-[300px] h-[380px] sm:w-[340px] sm:h-[420px] mx-auto"
+      style={{ clipPath: "ellipse(50% 48% at 50% 52%)" }}
+    >
+      <div className="absolute inset-0 rounded-full animate-[iridescent_8s_ease-in-out_infinite]"
+        style={{
+          background: "linear-gradient(135deg, rgba(56,189,248,0.08) 0%, rgba(168,85,247,0.06) 25%, rgba(236,72,153,0.05) 50%, rgba(34,211,238,0.07) 75%, rgba(56,189,248,0.08) 100%)",
+        }}
+      />
+      <div className="absolute inset-0 border border-white/[0.06] rounded-full" style={{ clipPath: "ellipse(50% 48% at 50% 52%)" }} />
+      <div className="absolute inset-[2px] backdrop-blur-[1px]" style={{ clipPath: "ellipse(50% 48% at 50% 52%)" }}>
+        <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent" />
+      </div>
+      <div className="relative z-10 flex flex-col items-center justify-center h-full px-8 py-10 text-center">
+        {children}
+      </div>
+    </motion.div>
+  );
+}
+
+function StageContent({ num, title, desc }: { num: string; title: string; desc: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+      className="flex flex-col items-center gap-3"
+    >
+      <span className="text-[10px] font-mono text-[#38BDF8]/50 tracking-widest">{num}</span>
+      <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">{title}</h3>
+      <p className="text-xs sm:text-sm text-[#A1A1AA] leading-relaxed max-w-[240px]">{desc}</p>
+    </motion.div>
+  );
+}
+
+function GroundImpact({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <div className="relative w-full flex justify-center">
+      <motion.div
+        initial={{ scale: 0, opacity: 0.8 }}
+        animate={{ scale: 3, opacity: 0 }}
+        transition={{ duration: 2, ease: "easeOut" }}
+        className="absolute w-20 h-10 rounded-full"
+        style={{ background: "radial-gradient(ellipse, rgba(56,189,248,0.3) 0%, transparent 70%)" }}
+      />
+      <motion.div
+        initial={{ scale: 0, opacity: 0.5 }}
+        animate={{ scale: 5, opacity: 0 }}
+        transition={{ duration: 2.5, ease: "easeOut", delay: 0.2 }}
+        className="absolute w-16 h-8 rounded-full"
+        style={{ background: "radial-gradient(ellipse, rgba(168,85,247,0.15) 0%, transparent 70%)" }}
+      />
+      <motion.div
+        initial={{ scaleY: 0 }}
+        animate={{ scaleY: 1 }}
+        transition={{ duration: 2, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="absolute w-1 h-32 origin-top"
+        style={{ background: "linear-gradient(to bottom, rgba(56,189,248,0.2) 0%, transparent 100%)" }}
+      />
+    </div>
+  );
+}
+
+function PoemSection({ lines, ctaText, onCta, onSkipToApp }: { lines: string[]; ctaText: string; onCta: () => void; onSkipToApp: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-1 mt-16 px-4">
+      {lines.map((line, i) => (
+        <motion.p
+          key={i}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: i * 0.35, ease: [0.16, 1, 0.3, 1] }}
+          className={cn(
+            "text-center leading-relaxed",
+            line === "" ? "h-3" : "",
+            line === "Sooner." ? "text-2xl sm:text-3xl font-black text-white mt-4" : "",
+            line.startsWith("Build sooner") ? "text-sm sm:text-base font-bold text-[#38BDF8] mt-2" : "",
+            !line.startsWith("Build sooner") && line !== "Sooner." && line !== "" ? "text-xs sm:text-sm text-[#8E9299] italic" : "",
+          )}
+        >
+          {line || "\u00A0"}
+        </motion.p>
+      ))}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: lines.length * 0.35 + 0.5 }}
+        className="mt-10 flex flex-col items-center gap-3"
+      >
+        <button
+          type="button"
+          onClick={onCta}
+          className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:scale-[1.02] inline-flex items-center gap-2"
+        >
+          {ctaText} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+        </button>
+        <button type="button" onClick={onSkipToApp} className="text-xs text-[#52525B] hover:text-[#8E9299] transition-colors">
+          Launch app →
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+function CloudyFooter({ text, copyright, lang }: { text: string; copyright: string; lang: string }) {
+  return (
+    <footer className="relative z-10 overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-[#0c0c10] via-[#0c0c10]/80 to-transparent" />
+        <div className="absolute bottom-[40%] left-[10%] w-[60%] h-[30%] rounded-full bg-[#1a1a2e]/40 blur-[60px] animate-[cloud-drift_20s_ease-in-out_infinite_alternate]" />
+        <div className="absolute bottom-[30%] right-[5%] w-[45%] h-[25%] rounded-full bg-[#1a1a2e]/30 blur-[50px] animate-[cloud-drift_25s_ease-in-out_infinite_alternate-reverse]" />
+        <div className="absolute inset-0 animate-[lightning-distant_8s_ease-in-out_infinite]" style={{ background: "radial-gradient(ellipse at 70% 30%, rgba(56,189,248,0.08), transparent 60%)" }} />
+      </div>
+      <div className="relative z-10 px-4 sm:px-8 py-10 text-center">
+        <p className="text-xs text-[#52525B]">{text}</p>
+        <p className="mt-2 text-[10px] text-[#3F3F46]">{copyright}</p>
+      </div>
+    </footer>
+  );
+}
+
 function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?: "landing" | "login" | "signup" }) {
   const [mode, setMode] = useState<"landing" | "login" | "signup">(initialMode ?? "landing");
   const [email, setEmail] = useState("");
@@ -554,66 +842,110 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
   };
 
+  const [journeyPhase, setJourneyPhase] = useState<JourneyPhase>("idle");
+  const [lightningFlash, setLightningFlash] = useState(false);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const doFlash = () => { setLightningFlash(true); setTimeout(() => setLightningFlash(false), 150); };
+
+  useEffect(() => {
+    if (journeyPhase === "idle") return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const schedule = (fn: () => void, ms: number) => { timers.push(setTimeout(fn, ms)); };
+
+    if (journeyPhase === "thunder") {
+      schedule(doFlash, 300);
+      schedule(doFlash, 800);
+      schedule(() => setJourneyPhase("detach"), 1800);
+    } else if (journeyPhase === "detach") {
+      schedule(() => setJourneyPhase("write"), 1500);
+    } else if (journeyPhase === "write") {
+      schedule(doFlash, 5000);
+      schedule(() => setJourneyPhase("debug"), 10000);
+    } else if (journeyPhase === "debug") {
+      schedule(() => setJourneyPhase("preview"), 10000);
+    } else if (journeyPhase === "preview") {
+      schedule(doFlash, 4000);
+      schedule(() => setJourneyPhase("ship"), 10000);
+    } else if (journeyPhase === "ship") {
+      schedule(doFlash, 3000);
+      schedule(doFlash, 3500);
+      schedule(() => setJourneyPhase("impact"), 8000);
+    } else if (journeyPhase === "impact") {
+      schedule(doFlash, 200);
+      schedule(() => setJourneyPhase("poem"), 2500);
+    } else if (journeyPhase === "poem") {
+      schedule(() => setJourneyPhase("done"), 18000);
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [journeyPhase]);
+
+  const startJourney = () => setJourneyPhase("thunder");
+  const skipJourney = () => setJourneyPhase("done");
+  const goSignup = () => firebaseConfigured ? (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")) : onSkip();
+  const scrollToTopFn = () => window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const stagePhases: JourneyPhase[] = ["write", "debug", "preview", "ship"];
+  const isInJourney = journeyPhase !== "idle" && journeyPhase !== "done";
+  const showDroplet = stagePhases.includes(journeyPhase);
+  const showImpact = journeyPhase === "impact" || journeyPhase === "poem" || journeyPhase === "done";
+  const showPoem = journeyPhase === "poem" || journeyPhase === "done";
+
+  const stageData = [
+    { num: t.stageWriteNum, title: t.stageWriteTitle, desc: t.stageWriteDesc },
+    { num: t.stageDebugNum, title: t.stageDebugTitle, desc: t.stageDebugDesc },
+    { num: t.stagePreviewNum, title: t.stagePreviewTitle, desc: t.stagePreviewDesc },
+    { num: t.stageShipNum, title: t.stageShipTitle, desc: t.stageShipDesc },
+  ];
+  const activeStageIndex = stagePhases.indexOf(journeyPhase);
+
   if (mode === "landing") {
     return (
       <div className="min-h-screen bg-[#09090B] text-white flex flex-col overflow-hidden relative">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[600px] rounded-full bg-[#38BDF8]/[0.04] blur-[150px]" />
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full bg-[#38BDF8]/[0.02] blur-[120px]" />
-          <div className="absolute top-[10%] left-[15%] w-[200px] h-[200px] rounded-full bg-[#0EA5E9]/[0.03] blur-[80px] animate-[float_8s_ease-in-out_infinite]" />
-          <div className="absolute top-[60%] right-[10%] w-[250px] h-[250px] rounded-full bg-[#38BDF8]/[0.025] blur-[90px] animate-[float_10s_ease-in-out_infinite_2s]" />
-          <div className="absolute top-[40%] left-[60%] w-[180px] h-[180px] rounded-full bg-[#7DD3FC]/[0.02] blur-[70px] animate-[float_7s_ease-in-out_infinite_4s]" />
-          <div className="absolute inset-0 dot-grid animate-[grid-fade_6s_ease-in-out_infinite] opacity-[0.03]" />
-        </div>
+        <RainCanvas intensity={journeyPhase === "idle" ? 0.6 : 1} flash={lightningFlash} />
 
-        <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.06]">
+        <AnimatePresence>
+          {lightningFlash && (
+            <motion.div
+              key="flash"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.12 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08 }}
+              className="fixed inset-0 z-50 bg-white pointer-events-none"
+            />
+          )}
+        </AnimatePresence>
+
+        <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.04] backdrop-blur-sm bg-[#09090B]/60">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <div className="relative shrink-0">
               <Zap className="w-6 h-6 text-[#38BDF8]" />
               <div className="absolute inset-0 w-6 h-6 bg-[#38BDF8]/20 blur-md rounded-full" />
             </div>
             <span className="font-black text-base sm:text-lg tracking-tight truncate">Sooner</span>
-            <span className="text-[10px] bg-[#38BDF8]/10 text-[#38BDF8] px-2 py-0.5 rounded-full font-semibold shrink-0 border border-[#38BDF8]/20">BETA</span>
           </div>
 
           <div className="hidden md:flex items-center gap-2 lg:gap-3">
-            <button
-              type="button"
-              onClick={() => navigateToBlog(lang)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
-              aria-label={t.navBlogAria}
-            >
+            <button type="button" onClick={() => navigateToBlog(lang)} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.06] rounded-lg transition-colors" aria-label={t.navBlogAria}>
               <BookOpen className="w-4 h-4 text-[#38BDF8]" />
               <span>{t.navBlog}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const next = lang === "en" ? "ja" : "en";
-                writeStoredLanguage(next);
-                setLang(next);
-              }}
-              className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors"
-            >
+            <button type="button" onClick={() => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); }} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.06] rounded-lg transition-colors">
               {lang === "en" ? "日本語" : "EN"}
             </button>
             {firebaseConfigured ? (
               <>
-                <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="px-4 lg:px-5 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
-                <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))} className="px-4 lg:px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
+                <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="px-4 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">{t.signIn}</button>
+                <button type="button" onClick={goSignup} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.getStarted}</button>
               </>
             ) : (
-              <button type="button" onClick={onSkip} className="px-4 lg:px-5 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
+              <button type="button" onClick={onSkip} className="px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-lg shadow-[#38BDF8]/20">{t.launchApp}</button>
             )}
           </div>
 
-          <button
-            type="button"
-            aria-expanded={mobileNavOpen}
-            aria-label={lang === "ja" ? "メニュー" : "Menu"}
-            onClick={() => setMobileNavOpen((o) => !o)}
-            className="md:hidden p-2 rounded-lg border border-white/[0.08] text-[#E4E4E7] hover:bg-white/[0.04]"
-          >
+          <button type="button" aria-expanded={mobileNavOpen} aria-label={lang === "ja" ? "メニュー" : "Menu"} onClick={() => setMobileNavOpen((o) => !o)} className="md:hidden p-2 rounded-lg border border-white/[0.06] text-[#E4E4E7] hover:bg-white/[0.04]">
             {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </header>
@@ -621,33 +953,17 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         {mobileNavOpen && (
           <>
             <button type="button" aria-hidden className="fixed inset-0 z-20 bg-black/70 md:hidden" onClick={() => setMobileNavOpen(false)} />
-            <div className="fixed top-[57px] sm:top-[61px] left-0 right-0 z-30 md:hidden border-b border-white/[0.06] bg-[#0c0c0e] shadow-xl px-4 py-4 flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileNavOpen(false);
-                  navigateToBlog(lang);
-                }}
-                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg"
-              >
-                <BookOpen className="w-4 h-4 text-[#38BDF8] shrink-0" />
-                {t.navBlog}
+            <div className="fixed top-[57px] left-0 right-0 z-30 md:hidden border-b border-white/[0.06] bg-[#0c0c0e]/95 backdrop-blur-md shadow-xl px-4 py-4 flex flex-col gap-3">
+              <button type="button" onClick={() => { setMobileNavOpen(false); navigateToBlog(lang); }} className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg">
+                <BookOpen className="w-4 h-4 text-[#38BDF8] shrink-0" />{t.navBlog}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = lang === "en" ? "ja" : "en";
-                  writeStoredLanguage(next);
-                  setLang(next);
-                }}
-                className="w-full px-3 py-2 text-xs font-semibold text-[#71717A] border border-white/[0.08] rounded-lg text-left"
-              >
+              <button type="button" onClick={() => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); }} className="w-full px-3 py-2 text-xs font-semibold text-[#71717A] border border-white/[0.08] rounded-lg text-left">
                 {lang === "en" ? "日本語" : "EN"}
               </button>
               {firebaseConfigured ? (
                 <>
                   <button type="button" onClick={() => { setMobileNavOpen(false); isProduction ? navigateToSubdomain("signin", lang) : setMode("login"); }} className="w-full py-2 text-sm font-semibold text-[#8E9299] text-left">{t.signIn}</button>
-                  <button type="button" onClick={() => { setMobileNavOpen(false); isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.getStarted}</button>
+                  <button type="button" onClick={() => { setMobileNavOpen(false); goSignup(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.getStarted}</button>
                 </>
               ) : (
                 <button type="button" onClick={() => { setMobileNavOpen(false); onSkip(); }} className="w-full py-2.5 text-sm font-bold bg-[#38BDF8] text-white rounded-xl">{t.launchApp}</button>
@@ -656,263 +972,157 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           </>
         )}
 
-        <main className="relative z-10 flex-1 flex flex-col items-center px-4 sm:px-6 md:px-8 text-center pt-12 sm:pt-16 md:pt-20 pb-12">
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-4 py-1.5 mb-8 backdrop-blur-sm">
-              <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#38BDF8] opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-[#38BDF8]"></span></span>
-              <span className="text-xs text-[#38BDF8] font-semibold">{t.betaBadge}</span>
-            </div>
-            <h1 className="text-4xl sm:text-5xl md:text-7xl font-black tracking-tight leading-[1.08] sm:leading-[1.05] mb-5 sm:mb-6 px-1">
-              {t.heroTitle1}
-              <span className="relative inline-block">
-                <LandingGradientText>{t.heroHighlight}</LandingGradientText>
-                <span className="absolute -bottom-1 left-0 w-full h-1 bg-gradient-to-r from-[#38BDF8]/80 to-transparent rounded-full" />
-              </span>
-              <br />
-              <span className="text-white/90">{t.heroTitle2}</span>
-            </h1>
-            <p className="text-base sm:text-lg text-[#71717A] max-w-xl mx-auto mb-8 sm:mb-10 leading-relaxed px-1">
-              {t.heroDesc}
-            </p>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none mx-auto">
-              {firebaseConfigured ? (
-                <button onClick={() => isProduction ? navigateToSubdomain("signup", lang) : setMode("signup")} className="group px-6 sm:px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.02] sm:hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center justify-center gap-2">
-                  {t.getStartedFree} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-                </button>
-              ) : (
-                <button onClick={onSkip} className="group px-6 sm:px-8 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all hover:scale-[1.02] sm:hover:scale-[1.03] shadow-xl shadow-[#38BDF8]/25 flex items-center justify-center gap-2">
-                  {t.launchApp} <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-                </button>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Animated tagline section */}
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1, delay: 0.5 }} className="mt-20 mb-12 max-w-3xl">
-            <div className="flex flex-col items-center gap-3">
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.6 }}
-                className="text-xl sm:text-2xl md:text-4xl font-black tracking-tight px-2"
+        <main className="relative z-20 flex-1 flex flex-col items-center">
+          {/* Hero: idle state with leaf */}
+          <AnimatePresence mode="wait">
+            {journeyPhase === "idle" && (
+              <motion.div
+                key="hero-idle"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: -40 }}
+                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                className="flex flex-col items-center text-center pt-16 sm:pt-24 md:pt-32 pb-12 px-4"
               >
-                <span className="text-white">Build </span>
-                <LandingGradientText>sooner</LandingGradientText>
-                <span className="text-white">, ship </span>
-                <LandingGradientText>faster</LandingGradientText>
-                <span className="text-[#38BDF8]">.</span>
-              </motion.p>
-              <motion.p
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.8, delay: 0.9 }}
-                className="text-lg md:text-xl text-[#71717A] font-medium"
-              >
-                {t.taglineSub}
-              </motion.p>
-            </div>
-          </motion.div>
+                <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="text-[10px] uppercase tracking-[0.3em] text-[#38BDF8]/60 font-semibold mb-6">
+                  The AI-native IDE
+                </motion.p>
+                <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.7 }} className="text-3xl sm:text-4xl md:text-6xl font-black tracking-tight leading-[1.1] mb-4">
+                  <span className="text-white">Build </span>
+                  <LandingGradientText>sooner</LandingGradientText>
+                  <span className="text-white">, ship </span>
+                  <LandingGradientText>faster</LandingGradientText>
+                  <span className="text-[#38BDF8]">.</span>
+                </motion.h1>
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 0.6 }} className="text-sm sm:text-base text-[#71717A] max-w-md mb-10 leading-relaxed">
+                  {t.taglineSub}
+                </motion.p>
 
-          {/* Mac-style browser frame with product screenshot */}
-          <motion.div
-            initial={{ opacity: 0, y: 60, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.9, delay: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-5xl mx-auto"
-            style={{ animation: 'float 6s ease-in-out infinite' }}
-          >
-            <div className="rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 bg-[#1A1A1A]">
-              {/* macOS title bar */}
-              <div className="flex items-center px-4 py-3 bg-[#1A1A1A] border-b border-white/[0.06]">
-                <div className="flex gap-2">
-                  <div className="w-3 h-3 rounded-full bg-[#FF5F57]" />
-                  <div className="w-3 h-3 rounded-full bg-[#FEBC2E]" />
-                  <div className="w-3 h-3 rounded-full bg-[#28C840]" />
-                </div>
-                <div className="flex-1 flex justify-center">
-                  <div className="flex items-center gap-2 bg-[#0D0D0D] rounded-lg px-4 py-1 text-xs text-[#71717A]">
-                    <Zap className="w-3 h-3 text-[#38BDF8]" />
-                    <span>sooner.sh</span>
-                  </div>
-                </div>
-                <div className="w-[52px]" />
-              </div>
-              {/* Product screenshot area */}
-              <div className="relative bg-[#0A0A0A] aspect-[16/9.5] flex items-center justify-center overflow-hidden">
-                <img
-                  src="/app-screenshot.png"
-                  alt="Sooner"
-                  className="w-full h-full object-cover object-top"
-                  onError={(e) => {
-                    const el = e.currentTarget;
-                    el.style.display = "none";
-                    const fallback = el.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.style.display = "flex";
-                  }}
-                />
-                {/* Fallback when no screenshot */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0A0A0A]" style={{ display: "none" }}>
-                  <Zap className="w-16 h-16 text-[#38BDF8]/20" />
-                  <p className="text-[#3F3F46] text-sm">Sooner preview</p>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 w-1/3 h-1 mx-auto rounded-full bg-gradient-to-r from-transparent via-[#38BDF8]/10 to-transparent" />
-          </motion.div>
-
-          {/* Feature cards */}
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 1.0, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
-            {([
-              { feat: t.feat1, Icon: Zap },
-              { feat: t.feat2, Icon: Rocket },
-              { feat: t.feat3, Icon: Package },
-            ]).map(({ feat: f, Icon }, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 1.1 + i * 0.1 }}
-                className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 text-left hover:border-[#38BDF8]/25 hover:bg-[#38BDF8]/[0.02] hover:-translate-y-1 transition-all duration-300 group">
-                <div className="w-11 h-11 rounded-xl bg-[#38BDF8]/[0.08] border border-[#38BDF8]/20 flex items-center justify-center mb-4 group-hover:bg-[#38BDF8]/[0.15] group-hover:shadow-[0_0_20px_rgba(56,189,248,0.15)] transition-all duration-300">
-                  <Icon className="w-5 h-5 text-[#38BDF8]" />
-                </div>
-                <h3 className="font-bold text-base mb-2 group-hover:text-[#38BDF8] transition-colors">{f.title}</h3>
-                <p className="text-sm text-[#71717A] leading-relaxed">{f.desc}</p>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          <motion.section
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6 }}
-            className="mt-20 sm:mt-28 w-full max-w-5xl text-left px-1"
-          >
-            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3">{lang === "ja" ? "ワークフロー" : "Workflow"}</p>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2">{t.secWorkflowTitle}</h2>
-            <p className="text-[#71717A] mb-10 max-w-2xl">{t.secWorkflowSub}</p>
-            <div className="grid md:grid-cols-3 gap-4">
-              {[t.workflow1, t.workflow2, t.workflow3].map((w, i) => (
-                <div key={i} className="relative rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-transparent p-6 overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-[#38BDF8]/50 to-transparent" />
-                  <span className="text-xs font-mono text-[#52525b] mb-4 block">0{i + 1}</span>
-                  <h3 className="font-bold text-lg text-white mb-2">{w.title}</h3>
-                  <p className="text-sm text-[#a1a1aa] leading-relaxed">{w.desc}</p>
-                </div>
-              ))}
-            </div>
-          </motion.section>
-
-          <motion.section
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-20 sm:mt-24 w-full max-w-5xl px-1"
-          >
-            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-3 text-center">{lang === "ja" ? "スタック" : "Stack"}</p>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-2 text-center">{t.secStackTitle}</h2>
-            <p className="text-[#71717A] text-center mb-10 max-w-xl mx-auto">{t.secStackSub}</p>
-            <div className="grid sm:grid-cols-3 gap-4">
-              {[
-                { k: "monaco", label: t.stackMonaco, Icon: FileCode },
-                { k: "ai", label: t.stackAi, Icon: Sparkles },
-                { k: "fb", label: t.stackFirebase, Icon: Cloud },
-              ].map((s) => (
-                <div
-                  key={s.k}
-                  className="group relative rounded-2xl border border-white/[0.06] bg-[#0c0c0e] px-6 py-8 text-center text-sm font-medium text-[#e4e4e7] hover:border-[#38BDF8]/30 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden"
-                >
-                  <div className="absolute left-0 top-0 w-0.5 h-full bg-gradient-to-b from-[#38BDF8]/0 via-[#38BDF8]/0 to-transparent group-hover:from-[#38BDF8]/60 group-hover:via-[#38BDF8]/20 transition-all duration-500" />
-                  <s.Icon className="w-8 h-8 text-[#38BDF8]/30 mx-auto mb-3 group-hover:text-[#38BDF8]/60 transition-colors duration-300" />
-                  {s.label}
-                </div>
-              ))}
-            </div>
-          </motion.section>
-
-          <motion.section
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-16 sm:mt-20 w-full max-w-5xl text-left px-1"
-          >
-            <p className="text-[10px] uppercase tracking-[0.25em] text-[#38BDF8] font-semibold mb-2">{lang === "ja" ? "エディタ" : "Editor"}</p>
-            <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3 sm:mb-4">{t.secMonacoEditorTitle}</h3>
-            <p className="text-sm sm:text-base text-[#a1a1aa] leading-relaxed max-w-3xl mb-6">{t.secMonacoEditorDesc}</p>
-            <div className="rounded-xl border border-white/[0.08] bg-[#0c0c0e] overflow-hidden max-w-2xl shadow-xl shadow-black/20">
-              <div className="flex items-center px-4 py-2.5 border-b border-white/[0.06] gap-2 bg-[#111113]">
-                <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]/50" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#FEBC2E]/50" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-[#28C840]/50" />
-                </div>
-                <span className="text-[10px] text-[#52525b] font-mono ml-2">App.tsx</span>
-              </div>
-              <pre className="p-5 text-[13px] font-mono leading-[1.7] overflow-x-auto"><code><span className="text-[#C586C0]">import</span> <span className="text-[#D4D4D4]">{"{"}</span> <span className="text-[#9CDCFE]">createApp</span> <span className="text-[#D4D4D4]">{"}"}</span> <span className="text-[#C586C0]">from</span> <span className="text-[#CE9178]">"sooner"</span><span className="text-[#D4D4D4]">;</span>{"\n"}{"\n"}<span className="text-[#C586C0]">const</span> <span className="text-[#4FC1FF]">app</span> <span className="text-[#D4D4D4]">=</span> <span className="text-[#DCDCAA]">createApp</span><span className="text-[#D4D4D4]">({"{"}</span>{"\n"}  <span className="text-[#9CDCFE]">editor</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#CE9178]">"monaco"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">ai</span><span className="text-[#D4D4D4]">:</span>     <span className="text-[#CE9178]">"gemini"</span><span className="text-[#D4D4D4]">,</span>{"\n"}  <span className="text-[#9CDCFE]">deploy</span><span className="text-[#D4D4D4]">:</span> <span className="text-[#569CD6]">true</span><span className="text-[#D4D4D4]">,</span>{"\n"}<span className="text-[#D4D4D4]">{"}"});"</span></code></pre>
-            </div>
-          </motion.section>
-
-          <motion.section
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-24 w-full max-w-5xl"
-          >
-            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white mb-10 text-center">{t.secMetricsTitle}</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              {[t.metric1, t.metric2, t.metric3].map((m, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true, margin: "-40px" }}
-                  transition={{ duration: 0.5, delay: i * 0.1 }}
-                  className="rounded-2xl border border-white/[0.06] p-8 text-center bg-white/[0.02] hover:border-[#38BDF8]/20 hover:bg-[#38BDF8]/[0.01] transition-all duration-300"
-                >
-                  <p className="text-4xl md:text-5xl font-black tracking-tight mb-2">
-                    <LandingGradientText>{m.value}</LandingGradientText>
-                  </p>
-                  <p className="text-xs text-[#71717A] uppercase tracking-wider">{m.label}</p>
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1, duration: 0.8 }}>
+                  <LeafSVG trembling={false} onClick={goSignup} ctaText={t.leafCta} />
                 </motion.div>
-              ))}
-            </div>
-          </motion.section>
 
-          <motion.section
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-24 mb-8 w-full max-w-3xl relative"
-          >
-            <div className="absolute -inset-px rounded-3xl bg-gradient-to-r from-[#38BDF8]/40 via-[#38BDF8]/10 to-[#38BDF8]/40 bg-[length:200%_100%] animate-[shimmer_4s_linear_infinite]" />
-            <div className="relative rounded-3xl bg-[#09090B] px-6 sm:px-10 py-10 sm:py-14 text-center overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-[#38BDF8]/[0.06] to-transparent pointer-events-none" />
-              <div className="relative z-10">
-                <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white mb-3">{t.secCtaTitle}</h2>
-                <p className="text-[#a1a1aa] mb-8">{t.secCtaDesc}</p>
-                {firebaseConfigured ? (
-                  <button
-                    type="button"
-                    onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))}
-                    className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2"
-                  >
-                    {t.getStartedFree} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4, duration: 0.6 }} className="mt-10 flex flex-col items-center gap-3">
+                  <button type="button" onClick={startJourney} className="group px-8 py-3 text-sm font-bold text-white border border-white/[0.1] rounded-xl hover:border-[#38BDF8]/40 hover:bg-[#38BDF8]/[0.05] transition-all inline-flex items-center gap-2">
+                    {t.startJourney} <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform text-[#38BDF8]" />
                   </button>
-                ) : (
-                  <button type="button" onClick={onSkip} className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:shadow-[#38BDF8]/40 hover:scale-[1.02] inline-flex items-center gap-2">
-                    {t.launchApp} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Thunder + detach phase: leaf shaking */}
+          <AnimatePresence>
+            {(journeyPhase === "thunder" || journeyPhase === "detach") && (
+              <motion.div
+                key="thunder-leaf"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="flex flex-col items-center pt-24 sm:pt-32 pb-12"
+              >
+                <LeafSVG trembling={journeyPhase === "thunder"} onClick={goSignup} ctaText={t.leafCta} />
+                {journeyPhase === "detach" && (
+                  <motion.div
+                    initial={{ opacity: 1, y: 0, scale: 0.5 }}
+                    animate={{ opacity: 0, y: 120, scale: 0.3 }}
+                    transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+                    className="mt-2 w-3 h-4 rounded-full animate-[iridescent_3s_ease-in-out_infinite]"
+                    style={{ background: "radial-gradient(ellipse at 30% 20%, rgba(56,189,248,0.6), rgba(168,85,247,0.3), rgba(236,72,153,0.2), transparent)" }}
+                  />
                 )}
-              </div>
-            </div>
-          </motion.section>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Stage droplet */}
+          <AnimatePresence mode="wait">
+            {showDroplet && (
+              <motion.div
+                key={`stage-${journeyPhase}`}
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: journeyPhase === "ship" ? 80 : -20, scale: journeyPhase === "ship" ? 0.3 : 0.9 }}
+                transition={{ duration: 1.0, ease: [0.16, 1, 0.3, 1] }}
+                className="flex flex-col items-center pt-10 sm:pt-16 pb-12 px-4"
+              >
+                <DropletShape phase={journeyPhase} isMobile={isMobile}>
+                  <AnimatePresence mode="wait">
+                    <StageContent
+                      key={journeyPhase}
+                      num={stageData[activeStageIndex]?.num ?? ""}
+                      title={stageData[activeStageIndex]?.title ?? ""}
+                      desc={stageData[activeStageIndex]?.desc ?? ""}
+                    />
+                  </AnimatePresence>
+                </DropletShape>
+
+                {/* Stage indicator dots */}
+                <div className="flex items-center gap-2 mt-8">
+                  {stagePhases.map((sp, i) => (
+                    <div key={sp} className={cn("w-1.5 h-1.5 rounded-full transition-all duration-500", i === activeStageIndex ? "bg-[#38BDF8] w-4" : "bg-[#3F3F46]")} />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Impact + Poem */}
+          <AnimatePresence>
+            {showImpact && (
+              <motion.div
+                key="impact-poem"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 1 }}
+                className="flex flex-col items-center pt-8 pb-20 px-4"
+              >
+                <GroundImpact active={journeyPhase === "impact" || journeyPhase === "poem"} />
+                {showPoem && (
+                  <PoemSection
+                    lines={t.poemLines}
+                    ctaText={t.getStartedFree}
+                    onCta={goSignup}
+                    onSkipToApp={onSkip}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Skip button during journey */}
+          {isInJourney && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 2 }}
+              onClick={skipJourney}
+              className="fixed bottom-6 left-6 z-40 px-4 py-2 text-[10px] font-semibold text-[#52525B] hover:text-[#8E9299] border border-white/[0.06] rounded-lg backdrop-blur-sm bg-[#09090B]/50 transition-colors"
+            >
+              {t.skipJourney}
+            </motion.button>
+          )}
+
+          {/* Scroll to top button */}
+          {journeyPhase === "done" && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              onClick={scrollToTopFn}
+              className="fixed bottom-6 right-6 z-40 w-10 h-10 flex items-center justify-center rounded-full border border-white/[0.08] bg-[#09090B]/80 backdrop-blur-sm text-[#8E9299] hover:text-white hover:border-[#38BDF8]/30 transition-all"
+              aria-label={t.scrollToTop}
+            >
+              <ChevronRight className="w-4 h-4 -rotate-90" />
+            </motion.button>
+          )}
+          <div ref={bottomRef} />
         </main>
 
-        <footer className="relative z-10 px-4 sm:px-8 py-6 border-t border-white/[0.06] text-center text-xs text-[#3F3F46]">
-          <p>{t.footer}</p>
-          <p className="mt-2 text-[10px] text-[#3F3F46]/80">{t.copyright}</p>
-        </footer>
+        <CloudyFooter text={t.footer} copyright={t.copyright} lang={lang} />
       </div>
     );
   }

@@ -59,3 +59,40 @@ body {
   background-size: 24px 24px;
 }
 
+@keyframes sway {
+  0%, 100% { transform: rotate(-3deg) translateX(0); }
+  50% { transform: rotate(3deg) translateX(4px); }
+}
+
+@keyframes tremble {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(-2px, 1px) rotate(-1deg); }
+  40% { transform: translate(2px, -1px) rotate(1deg); }
+  60% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+  80% { transform: translate(1px, -1px) rotate(0.5deg); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(0); opacity: 0.6; }
+  100% { transform: scale(4); opacity: 0; }
+}
+
+@keyframes cloud-drift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(30px); }
+}
+
+@keyframes iridescent {
+  0% { filter: hue-rotate(0deg); }
+  50% { filter: hue-rotate(40deg); }
+  100% { filter: hue-rotate(0deg); }
+}
+
+@keyframes lightning-distant {
+  0%, 94%, 100% { opacity: 0; }
+  95% { opacity: 0.06; }
+  96% { opacity: 0; }
+  97% { opacity: 0.1; }
+  98% { opacity: 0; }
+}
+
