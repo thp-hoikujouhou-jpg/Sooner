@@ -20,6 +20,18 @@ import {
   listAll,
   type FirebaseStorage,
 } from "firebase/storage";
+import {
+  getFirestore,
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+  type Firestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -35,11 +47,13 @@ const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let storage: FirebaseStorage | null = null;
+let db: Firestore | null = null;
 
 if (isConfigured) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   storage = getStorage(app);
+  db = getFirestore(app);
 }
 
 function userStoragePath(uid: string, project: string, filePath?: string): string {
@@ -141,9 +155,18 @@ export async function storageLoadChatHistory(uid: string, project: string): Prom
 }
 
 export {
+  db,
   auth,
   storage,
   isConfigured,
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  query,
+  where,
+  orderBy,
+  Timestamp,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,

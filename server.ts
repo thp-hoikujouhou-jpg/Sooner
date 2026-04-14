@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import * as esbuild from "esbuild";
 import dotenv from "dotenv";
 import http from "http";
+import crypto from "crypto";
 import admin from "firebase-admin";
 
 dotenv.config();
@@ -19,6 +20,7 @@ const __dirname = path.dirname(__filename);
 // --- Firebase Admin SDK Initialization ---
 let firebaseStorage: admin.storage.Storage | null = null;
 let firebaseAuth: admin.auth.Auth | null = null;
+let firebaseDb: admin.firestore.Firestore | null = null;
 const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || "";
 
 try {
@@ -43,6 +45,7 @@ try {
     });
     firebaseStorage = admin.storage();
     firebaseAuth = admin.auth();
+    firebaseDb = admin.firestore();
     console.log("Firebase Admin SDK initialized (Storage: " + STORAGE_BUCKET + ")");
   } else {
     console.log("Firebase Admin SDK not configured — running in local-only mode");
@@ -182,6 +185,8 @@ async function startServer() {
           "https://site.sooner.sh",
           "https://signup.sooner.sh",
           "https://signin.sooner.sh",
+          "https://blog.sooner.sh",
+          "https://cms.sooner.sh",
         ]
       : true,
     credentials: true,
@@ -1514,6 +1519,182 @@ async function startServer() {
       export default { template: __template };
     `;
   }
+
+  // ===================== CMS & Blog API =====================
+
+  const CMS_ADMIN_USER = process.env.CMS_ADMIN_USER || "";
+  const CMS_ADMIN_PASS = process.env.CMS_ADMIN_PASS || "";
+  const CMS_JWT_SECRET = process.env.CMS_JWT_SECRET || "dev-secret-change-me";
+
+  function signJwt(payload: object, expiresInSec = 86400): string {
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const body = Buffer.from(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + expiresInSec })).toString("base64url");
+    const sig = crypto.createHmac("sha256", CMS_JWT_SECRET).update(`${header}.${body}`).digest("base64url");
+    return `${header}.${body}.${sig}`;
+  }
+
+  function verifyJwt(token: string): object | null {
+    try {
+      const [header, body, sig] = token.split(".");
+      const expected = crypto.createHmac("sha256", CMS_JWT_SECRET).update(`${header}.${body}`).digest("base64url");
+      if (sig !== expected) return null;
+      const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+      return payload;
+    } catch { return null; }
+  }
+
+  function requireCmsAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+    const payload = verifyJwt(auth.slice(7));
+    if (!payload) return res.status(401).json({ error: "Invalid or expired token" });
+    (req as any).cmsUser = payload;
+    next();
+  }
+
+  // CMS Login
+  app.post("/api/cms/login", (req, res) => {
+    const { user, password } = req.body;
+    if (!CMS_ADMIN_USER || !CMS_ADMIN_PASS) return res.status(503).json({ error: "CMS not configured" });
+    if (user !== CMS_ADMIN_USER || password !== CMS_ADMIN_PASS) return res.status(401).json({ error: "Invalid credentials" });
+    const token = signJwt({ sub: user, role: "admin" });
+    res.json({ token });
+  });
+
+  // CMS: List all posts
+  app.get("/api/cms/posts", requireCmsAuth, async (_req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const snap = await firebaseDb.collection("blog_posts").orderBy("createdAt", "desc").get();
+      const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      res.json(posts);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // CMS: Get single post
+  app.get("/api/cms/posts/:id", requireCmsAuth, async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const doc = await firebaseDb.collection("blog_posts").doc(req.params.id).get();
+      if (!doc.exists) return res.status(404).json({ error: "Not found" });
+      res.json({ id: doc.id, ...doc.data() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // CMS: Create post
+  app.post("/api/cms/posts", requireCmsAuth, async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const now = admin.firestore.Timestamp.now();
+      const data = {
+        slug: req.body.slug || "",
+        title_en: req.body.title_en || "",
+        title_ja: req.body.title_ja || "",
+        content_en: req.body.content_en || "",
+        content_ja: req.body.content_ja || "",
+        excerpt_en: req.body.excerpt_en || "",
+        excerpt_ja: req.body.excerpt_ja || "",
+        author: req.body.author || "Sooner Team",
+        readingTime_en: req.body.readingTime_en || "",
+        readingTime_ja: req.body.readingTime_ja || "",
+        tags: req.body.tags || [],
+        status: req.body.status || "draft",
+        publishAt: req.body.publishAt ? admin.firestore.Timestamp.fromDate(new Date(req.body.publishAt)) : now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const ref = await firebaseDb.collection("blog_posts").add(data);
+      res.json({ id: ref.id, ...data });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // CMS: Update post
+  app.put("/api/cms/posts/:id", requireCmsAuth, async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const docRef = firebaseDb.collection("blog_posts").doc(req.params.id);
+      const doc = await docRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "Not found" });
+      const updates: any = { updatedAt: admin.firestore.Timestamp.now() };
+      const allowed = ["slug", "title_en", "title_ja", "content_en", "content_ja", "excerpt_en", "excerpt_ja", "author", "readingTime_en", "readingTime_ja", "tags", "status"];
+      for (const k of allowed) { if (req.body[k] !== undefined) updates[k] = req.body[k]; }
+      if (req.body.publishAt) updates.publishAt = admin.firestore.Timestamp.fromDate(new Date(req.body.publishAt));
+      await docRef.update(updates);
+      const updated = await docRef.get();
+      res.json({ id: updated.id, ...updated.data() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // CMS: Delete post
+  app.delete("/api/cms/posts/:id", requireCmsAuth, async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      await firebaseDb.collection("blog_posts").doc(req.params.id).delete();
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Public Blog: List published posts
+  app.get("/api/blog/posts", async (_req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const now = admin.firestore.Timestamp.now();
+      const snap = await firebaseDb.collection("blog_posts")
+        .where("status", "in", ["published", "scheduled"])
+        .where("publishAt", "<=", now)
+        .orderBy("publishAt", "desc")
+        .get();
+      const posts = snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id, slug: data.slug,
+          title_en: data.title_en, title_ja: data.title_ja,
+          excerpt_en: data.excerpt_en, excerpt_ja: data.excerpt_ja,
+          author: data.author,
+          readingTime_en: data.readingTime_en, readingTime_ja: data.readingTime_ja,
+          tags: data.tags, publishAt: data.publishAt,
+        };
+      });
+      res.json(posts);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Public Blog: Get single post by slug
+  app.get("/api/blog/posts/:slug", async (req, res) => {
+    if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
+    try {
+      const now = admin.firestore.Timestamp.now();
+      const snap = await firebaseDb.collection("blog_posts")
+        .where("slug", "==", req.params.slug)
+        .where("publishAt", "<=", now)
+        .limit(1)
+        .get();
+      if (snap.empty) return res.status(404).json({ error: "Not found" });
+      const doc = snap.docs[0];
+      res.json({ id: doc.id, ...doc.data() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Public Blog: Dynamic sitemap
+  app.get("/api/blog/sitemap.xml", async (_req, res) => {
+    if (!firebaseDb) { res.type("xml").send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'); return; }
+    try {
+      const now = admin.firestore.Timestamp.now();
+      const snap = await firebaseDb.collection("blog_posts")
+        .where("status", "in", ["published", "scheduled"])
+        .where("publishAt", "<=", now)
+        .orderBy("publishAt", "desc")
+        .get();
+      let urls = `  <url>\n    <loc>https://blog.sooner.sh/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
+      for (const d of snap.docs) {
+        const data = d.data();
+        const date = data.publishAt?.toDate?.()?.toISOString?.()?.slice(0, 10) || "";
+        urls += `  <url>\n    <loc>https://blog.sooner.sh/${data.slug}</loc>\n    <lastmod>${date}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      }
+      res.type("xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}</urlset>`);
+    } catch (e: any) { res.status(500).send("Error generating sitemap"); }
+  });
 
   // --- Health check ---
   app.get("/api/health", (_req, res) => {
