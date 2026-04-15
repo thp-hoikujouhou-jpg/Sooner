@@ -388,6 +388,30 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
 
   return (
     <div className="min-h-screen bg-[#09090B] text-white flex flex-col">
+      {/*
+        Tiptap ResizableNodeView does not ship CSS — handles are empty divs without width/height.
+        Without these rules they are invisible and effectively unclickable.
+        @see https://tiptap.dev/docs/editor/api/resizable-nodeviews
+      */}
+      <style>{`
+        .cms-tiptap-shell [data-resize-handle] {
+          box-sizing: border-box;
+          width: 12px;
+          height: 12px;
+          z-index: 5;
+          background: #09090b;
+          border: 2px solid #38bdf8;
+          border-radius: 3px;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+        }
+        .cms-tiptap-shell [data-resize-handle="top-left"] { cursor: nwse-resize; }
+        .cms-tiptap-shell [data-resize-handle="top-right"] { cursor: nesw-resize; }
+        .cms-tiptap-shell [data-resize-handle="bottom-left"] { cursor: nesw-resize; }
+        .cms-tiptap-shell [data-resize-handle="bottom-right"] { cursor: nwse-resize; }
+        .cms-tiptap-shell [data-resize-container][data-resize-state="true"] {
+          outline: 1px solid rgba(56, 189, 248, 0.35);
+        }
+      `}</style>
       <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-[#1A1A1A] shrink-0">
         <div className="flex items-center gap-3">
           <button type="button" onClick={onCancel} className="p-1.5 hover:bg-[#1A1A1A] rounded text-[#8E9299]"><ArrowRight className="w-4 h-4 rotate-180" /></button>
@@ -509,7 +533,7 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
 
           <div className="flex-1 overflow-y-auto p-4">
             {viewMode === "editor" ? (
-              <div className="min-h-[400px] [&_.tiptap]:outline-none [&_.tiptap]:min-h-[400px] [&_.tiptap_p]:mb-3 [&_.tiptap_h2]:text-xl [&_.tiptap_h2]:font-black [&_.tiptap_h2]:mt-6 [&_.tiptap_h2]:mb-3 [&_.tiptap_h3]:text-lg [&_.tiptap_h3]:font-bold [&_.tiptap_h3]:mt-4 [&_.tiptap_h3]:mb-2 [&_.tiptap_ul]:list-disc [&_.tiptap_ul]:pl-6 [&_.tiptap_ol]:list-decimal [&_.tiptap_ol]:pl-6 [&_.tiptap_li]:mb-1 [&_.tiptap_a]:text-[#38BDF8] [&_.tiptap_a]:underline [&_.tiptap_blockquote]:border-l-2 [&_.tiptap_blockquote]:border-[#38BDF8]/30 [&_.tiptap_blockquote]:pl-4 [&_.tiptap_blockquote]:text-[#8E9299] [&_.tiptap_pre]:bg-[#0F0F0F] [&_.tiptap_pre]:p-3 [&_.tiptap_pre]:rounded-lg [&_.tiptap_pre]:my-3 [&_.tiptap_code]:bg-[#1A1A1A] [&_.tiptap_code]:px-1 [&_.tiptap_code]:rounded [&_.tiptap_img]:rounded-xl [&_.tiptap_img]:my-4 [&_.tiptap_[data-resize-container]]:max-w-full [&_.tiptap_[data-resize-container]_img]:max-w-full [&_.tiptap_.is-editor-empty:first-child::before]:text-[#3F3F46] [&_.tiptap_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.tiptap_.is-editor-empty:first-child::before]:float-left [&_.tiptap_.is-editor-empty:first-child::before]:h-0 [&_.tiptap_.is-editor-empty:first-child::before]:pointer-events-none">
+              <div className="cms-tiptap-shell min-h-[400px] [&_.tiptap]:outline-none [&_.tiptap]:min-h-[400px] [&_.tiptap_p]:mb-3 [&_.tiptap_h2]:text-xl [&_.tiptap_h2]:font-black [&_.tiptap_h2]:mt-6 [&_.tiptap_h2]:mb-3 [&_.tiptap_h3]:text-lg [&_.tiptap_h3]:font-bold [&_.tiptap_h3]:mt-4 [&_.tiptap_h3]:mb-2 [&_.tiptap_ul]:list-disc [&_.tiptap_ul]:pl-6 [&_.tiptap_ol]:list-decimal [&_.tiptap_ol]:pl-6 [&_.tiptap_li]:mb-1 [&_.tiptap_a]:text-[#38BDF8] [&_.tiptap_a]:underline [&_.tiptap_blockquote]:border-l-2 [&_.tiptap_blockquote]:border-[#38BDF8]/30 [&_.tiptap_blockquote]:pl-4 [&_.tiptap_blockquote]:text-[#8E9299] [&_.tiptap_pre]:bg-[#0F0F0F] [&_.tiptap_pre]:p-3 [&_.tiptap_pre]:rounded-lg [&_.tiptap_pre]:my-3 [&_.tiptap_code]:bg-[#1A1A1A] [&_.tiptap_code]:px-1 [&_.tiptap_code]:rounded [&_.tiptap_img]:rounded-xl [&_.tiptap_img]:my-4 [&_.tiptap_[data-resize-container]]:max-w-full [&_.tiptap_[data-resize-container]_img]:max-w-full [&_.tiptap_.is-editor-empty:first-child::before]:text-[#3F3F46] [&_.tiptap_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.tiptap_.is-editor-empty:first-child::before]:float-left [&_.tiptap_.is-editor-empty:first-child::before]:h-0 [&_.tiptap_.is-editor-empty:first-child::before]:pointer-events-none">
                 {contentTab === "en" ? <EditorContent editor={editorEn} /> : <EditorContent editor={editorJa} />}
               </div>
             ) : (
