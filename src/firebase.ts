@@ -186,9 +186,9 @@ export async function recordNewUserLegalProfile(
           termsAcceptedAt: serverTimestamp(),
           privacyAcceptedAt: serverTimestamp(),
           recordedFactEn:
-            "At account creation on sooner.sh, the user completed the signup flow including required acceptance of the Terms of Service and Privacy Policy (checkbox confirmation for email sign-up; same requirement before OAuth sign-up).",
+            "At account creation on sooner.sh (sign-in/sign-up only at /signin and /signup; legacy sign-in/sign-up hostnames removed from auth and hosting), the user confirmed they read and agree to the Terms of Service and Privacy Policy (checkboxes for email sign-up; equivalent confirmation before OAuth sign-up).",
           recordedFactJa:
-            "アカウント作成時（sooner.sh）に、利用規約およびプライバシーポリシーへの同意（メール登録はチェックボックス、OAuth 登録はポップアップ前に同意完了）を完了した事実。",
+            "アカウント作成時（sooner.sh、サインイン／新規登録は /signin および /signup のみ。認証専用の旧ホスト名は廃止し Firebase Authentication・ホスティング等から除外済み）に、利用規約およびプライバシーポリシーを読み内容に同意した旨（メール登録はチェックボックス、OAuth 登録はポップアップ前に同等の同意）を確認した事実。",
         },
       },
       { merge: true }

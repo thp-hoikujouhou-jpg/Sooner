@@ -184,7 +184,7 @@ const landingI18n = {
     terms: "Terms of Service",
     privacy: "Privacy Policy",
     legalAgreeCombined:
-      "By continuing, you agree to the Terms of Service and Privacy Policy. Links are at the bottom of this page.",
+      "I have read the Terms of Service and Privacy Policy and agree to their contents.",
     agreeTermsBefore: "I have read and agree to the ",
     agreeTermsAfter: ".",
     agreePrivacyBefore: "I have read and agree to the ",
@@ -274,7 +274,7 @@ const landingI18n = {
     terms: "利用規約",
     privacy: "プライバシーポリシー",
     legalAgreeCombined:
-      "続行により、ページ下部の利用規約およびプライバシーポリシーに同意したものとみなされます。",
+      "利用規約とプライバシーポリシーを読み、内容に同意します。",
     agreeTermsBefore: "",
     agreeTermsAfter: "を読み、内容に同意します。",
     agreePrivacyBefore: "",

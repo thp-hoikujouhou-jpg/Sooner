@@ -8,7 +8,7 @@
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
 /** Bump when Terms or Privacy body changes; stored on user signup in Firestore `users`. */
-export const LEGAL_DOCUMENT_VERSION_ID = "2026-04-15";
+export const LEGAL_DOCUMENT_VERSION_ID = "2026-04-16";
 
 export const termsEn: LegalSection[] = [
   {
@@ -239,7 +239,7 @@ export const privacyEn: LegalSection[] = [
     id: "intro",
     title: "1. Introduction",
     paragraphs: [
-      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh (including sign-in and sign-up at https://sooner.sh/signin and https://sooner.sh/signup), site.sooner.sh (marketing), blog.sooner.sh (public blog and aggregated article view counts), cms.sooner.sh (admin content tools), and other subdomains we operate for the Service.",
+      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh (sign-in and sign-up are only at https://sooner.sh/signin and https://sooner.sh/signup; we do not operate separate sign-in or sign-up hostnames for authentication, and any previously used have been removed from our hosting and auth configuration), site.sooner.sh (marketing), blog.sooner.sh (public blog and aggregated article view counts), cms.sooner.sh (admin content tools), and other subdomains we operate for the Service.",
       "By using the Service, you agree to this policy. If you do not agree, please do not use the Service.",
     ],
   },
@@ -247,7 +247,7 @@ export const privacyEn: LegalSection[] = [
     id: "collect",
     title: "2. Information we collect",
     paragraphs: [
-      "Account data: email address, display identifiers, and authentication data when you sign in or create an account with email, Google, or GitHub (including on our dedicated sign-in and sign-up flows).",
+      "Account data: email address, display identifiers, and authentication data when you sign in or create an account with email, Google, or GitHub at https://sooner.sh/signin or https://sooner.sh/signup.",
       "Project and usage data: files, code, chat messages, and settings you store or generate in the Service.",
       "Technical data: IP address, device/browser type, approximate location derived from IP, timestamps, and diagnostic logs needed to operate and secure the Service.",
       "Blog: when you read public blog pages, we may record aggregated page-view counts associated with articles.",
@@ -335,7 +335,7 @@ export const privacyJa: LegalSection[] = [
     id: "intro",
     title: "第1条（はじめに）",
     paragraphs: [
-      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh（https://sooner.sh/signin および https://sooner.sh/signup を含む）、site.sooner.sh（マーケティング）、blog.sooner.sh（公開ブログおよび記事ごとの閲覧回数の集計）、cms.sooner.sh（管理用CMS）、その他本サービス運用のため当社が運用するサブドメインが含まれます。",
+      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh（サインインおよび新規登録は https://sooner.sh/signin および https://sooner.sh/signup のみ。認証専用の別ホスト名は運用しておらず、過去に用いたものは廃止し、Firebase Authentication・ホスティング等の設定からも除外済みです）、site.sooner.sh（マーケティング）、blog.sooner.sh（公開ブログおよび記事ごとの閲覧回数の集計）、cms.sooner.sh（管理用CMS）、その他本サービス運用のため当社が運用するサブドメインが含まれます。",
       "本サービスを利用することにより、本ポリシーに同意したものとみなされます。同意いただけない場合は、本サービスをご利用いただけません。",
     ],
   },
@@ -343,7 +343,7 @@ export const privacyJa: LegalSection[] = [
     id: "collect",
     title: "第2条（取得する情報）",
     paragraphs: [
-      "アカウント情報：メールアドレス、表示名等の識別子、メール・Google・GitHub等によるサインイン・新規登録時の認証に関する情報。",
+      "アカウント情報：メールアドレス、表示名等の識別子、https://sooner.sh/signin および https://sooner.sh/signup において、メール・Google・GitHub等でサインイン・新規登録を行う際の認証に関する情報。",
       "利用・コンテンツ情報：本サービス上で保存または生成されるファイル、コード、チャット内容、設定等。",
       "技術情報：IPアドレス、端末・ブラウザの種類、IPアドレスから推定されるおおよその地域、タイムスタンプ、運用・セキュリティに必要なログ。",
       "ブログ：公開記事を閲覧した際に、記事単位の閲覧回数等を集計する場合があります。",
@@ -435,7 +435,7 @@ export const legalMeta = {
     switchEn: "English",
     otherDocTerms: "Terms of Service",
     otherDocPrivacy: "Privacy Policy",
-    lastUpdated: "Last updated: April 15, 2026",
+    lastUpdated: "Last updated: April 16, 2026",
     notice:
       "This document is provided for informational purposes and does not constitute legal advice. You may wish to consult a qualified attorney for your jurisdiction.",
     contactEmailLabel: "Contact:",
@@ -457,7 +457,7 @@ export const legalMeta = {
     switchEn: "English",
     otherDocTerms: "利用規約",
     otherDocPrivacy: "プライバシーポリシー",
-    lastUpdated: "最終更新日：2026年4月15日",
+    lastUpdated: "最終更新日：2026年4月16日",
     notice:
       "本書は一般的な説明を目的とするものであり、法的助言を構成するものではありません。必要に応じて専門家にご相談ください。",
     contactEmailLabel: "お問い合わせ：",
