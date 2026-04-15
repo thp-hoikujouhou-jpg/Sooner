@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Zap, Loader2, X, Menu, BookOpen, ArrowRight, Clock, User } from "lucide-react";
 import { motion } from "motion/react";
 import axios from "axios";
@@ -6,16 +6,25 @@ import { applyDocumentSeo, applyArticleSeo } from "./seo";
 import { writeStoredLanguage } from "./language";
 import { cn, BACKEND_BASE, blogI18n, getInitialLang, legalDocHref, type BlogPost } from "./shared";
 
+function pathSegmentToSlug(pathname: string): string | null {
+  const raw = pathname.replace(/^\/+/, "").split("/")[0];
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export default function BlogPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSlug, setActiveSlug] = useState<string | null>(() => {
-    const p = window.location.pathname.replace(/^\//, "");
-    return p || null;
-  });
+  const [activeSlug, setActiveSlug] = useState<string | null>(() => pathSegmentToSlug(window.location.pathname));
   const [activePost, setActivePost] = useState<BlogPost | null>(null);
+  const [postLoading, setPostLoading] = useState(false);
+  const [postError, setPostError] = useState<"notfound" | "network" | null>(null);
   const t = blogI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
@@ -26,26 +35,55 @@ export default function BlogPage() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileNavOpen]);
 
-  useEffect(() => {
-    setLoading(true);
-    axios.get(`${BACKEND_BASE}/api/blog/posts`).then(r => setPosts(r.data)).catch(() => {}).finally(() => setLoading(false));
+  const fetchPostList = useCallback((opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    axios
+      .get(`${BACKEND_BASE}/api/blog/posts`)
+      .then((r) => setPosts(r.data))
+      .catch(() => {})
+      .finally(() => {
+        if (!opts?.silent) setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    const onPop = () => {
-      const p = window.location.pathname.replace(/^\//, "");
-      setActiveSlug(p || null);
-    };
+    fetchPostList();
+  }, [fetchPostList]);
+
+  useEffect(() => {
+    if (activeSlug != null) return;
+    const id = window.setInterval(() => fetchPostList({ silent: true }), 45_000);
+    return () => window.clearInterval(id);
+  }, [activeSlug, fetchPostList]);
+
+  useEffect(() => {
+    const onPop = () => setActiveSlug(pathSegmentToSlug(window.location.pathname));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
-    if (!activeSlug) { setActivePost(null); return; }
-    axios.get(`${BACKEND_BASE}/api/blog/posts/${activeSlug}`).then(r => {
-      setActivePost(r.data);
-      axios.post(`${BACKEND_BASE}/api/blog/posts/${activeSlug}/view`).catch(() => {});
-    }).catch(() => setActiveSlug(null));
+    if (!activeSlug) {
+      setActivePost(null);
+      setPostError(null);
+      setPostLoading(false);
+      return;
+    }
+    setActivePost(null);
+    setPostError(null);
+    setPostLoading(true);
+    const enc = encodeURIComponent(activeSlug);
+    axios
+      .get(`${BACKEND_BASE}/api/blog/posts/${enc}`)
+      .then((r) => {
+        setActivePost(r.data);
+        axios.post(`${BACKEND_BASE}/api/blog/posts/${enc}/view`).catch(() => {});
+      })
+      .catch((err) => {
+        const st = err?.response?.status;
+        setPostError(st === 404 ? "notfound" : "network");
+      })
+      .finally(() => setPostLoading(false));
   }, [activeSlug]);
 
   useEffect(() => {
@@ -64,8 +102,35 @@ export default function BlogPage() {
     });
   }, [activePost, activeSlug, lang]);
 
-  const openPost = (slug: string) => { setActiveSlug(slug); window.history.pushState(null, "", `/${slug}`); };
-  const goBack = () => { setActiveSlug(null); setActivePost(null); window.history.pushState(null, "", "/"); };
+  const openPost = (slug: string) => {
+    setPostError(null);
+    setActiveSlug(slug);
+    window.history.pushState(null, "", `/${encodeURIComponent(slug)}`);
+  };
+  const goBack = () => {
+    setActiveSlug(null);
+    setActivePost(null);
+    setPostError(null);
+    window.history.pushState(null, "", "/");
+  };
+
+  const retryArticle = () => {
+    if (!activeSlug) return;
+    setPostError(null);
+    setPostLoading(true);
+    const enc = encodeURIComponent(activeSlug);
+    axios
+      .get(`${BACKEND_BASE}/api/blog/posts/${enc}`)
+      .then((r) => {
+        setActivePost(r.data);
+        axios.post(`${BACKEND_BASE}/api/blog/posts/${enc}/view`).catch(() => {});
+      })
+      .catch((err) => {
+        const st = err?.response?.status;
+        setPostError(st === 404 ? "notfound" : "network");
+      })
+      .finally(() => setPostLoading(false));
+  };
 
   const goMarketing = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//lp.sooner.sh${lang !== "en" ? `?lang=${lang}` : ""}`; } else { window.location.href = "/"; } };
   const goApp = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//sooner.sh`; } else { window.location.href = "/"; } };
@@ -192,6 +257,30 @@ export default function BlogPage() {
               </button>
             </div>
           </motion.article>
+        ) : activeSlug ? (
+          <div className="max-w-2xl mx-auto py-12">
+            <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline group">
+              <ArrowRight className="w-3 h-3 rotate-180 transition-transform group-hover:-translate-x-0.5" /> {t.backToList}
+            </button>
+            {postLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <Loader2 className="w-8 h-8 text-[#38BDF8] animate-spin" />
+                <p className="text-sm text-[#71717A]">{t.articleLoading}</p>
+              </div>
+            ) : postError ? (
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-6 py-10 text-center">
+                <p className="text-[#A1A1AA] text-sm mb-6">{postError === "notfound" ? t.articleNotFound : t.articleLoadError}</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button type="button" onClick={retryArticle} className="px-4 py-2 rounded-xl text-xs font-bold bg-[#38BDF8] text-white hover:bg-[#0EA5E9] transition-colors">
+                    {t.retryArticle}
+                  </button>
+                  <button type="button" onClick={goBack} className="px-4 py-2 rounded-xl text-xs font-semibold border border-white/[0.12] text-[#E4E4E7] hover:bg-white/[0.04] transition-colors">
+                    {t.backToList}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <>
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>

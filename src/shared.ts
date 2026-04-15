@@ -28,6 +28,36 @@ export type BlogPost = {
   viewCount?: number;
 };
 
+/** Milliseconds for publishAt (Firestore shape, ISO string, etc.) — mirrors server `publishAtMillis`. */
+export function blogPublishAtMillis(pub: unknown): number | null {
+  if (pub == null) return null;
+  if (typeof pub === "object" && pub !== null && "_seconds" in pub) {
+    const o = pub as { _seconds: number; _nanoseconds?: number };
+    return o._seconds * 1000 + Math.floor((o._nanoseconds || 0) / 1e6);
+  }
+  if (typeof pub === "string") {
+    const t = new Date(pub).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+/** Same rules as server `isBlogPostPublicVisible` for list/detail. */
+export function isBlogPostPublicVisibleClient(
+  post: Pick<BlogPost, "status" | "publishAt">,
+  nowMs: number
+): boolean {
+  const st = post.status;
+  if (st === "draft") return false;
+  if (st === "published") return true;
+  if (st === "scheduled") {
+    const ms = blogPublishAtMillis(post.publishAt);
+    if (ms === null) return false;
+    return ms <= nowMs;
+  }
+  return false;
+}
+
 export const blogI18n = {
   en: {
     title: "Sooner Blog",
@@ -44,6 +74,10 @@ export const blogI18n = {
     copyright: "© 2026 Sooner. All rights reserved.",
     terms: "Terms of Service",
     privacy: "Privacy Policy",
+    articleLoading: "Loading article…",
+    articleNotFound: "This article is not available or is not public yet.",
+    articleLoadError: "Could not load the article. Check your connection and try again.",
+    retryArticle: "Try again",
   },
   ja: {
     title: "Sooner ブログ",
@@ -60,6 +94,10 @@ export const blogI18n = {
     copyright: "© 2026 Sooner. All rights reserved.",
     terms: "利用規約",
     privacy: "プライバシーポリシー",
+    articleLoading: "記事を読み込み中…",
+    articleNotFound: "この記事は表示できないか、まだ公開されていません。",
+    articleLoadError: "記事を読み込めませんでした。接続を確認して再度お試しください。",
+    retryArticle: "再試行",
   },
 };
 
@@ -103,6 +141,11 @@ export const cmsI18n = {
     views: "views",
     uploadImage: "Upload Image",
     uploading: "Uploading...",
+    blogOnPublicBlog: "Public blog: visible now",
+    blogDraftHidden: "Public blog: hidden (draft)",
+    blogScheduledHidden: "Public blog: hidden until publish time",
+    refreshPosts: "Refresh",
+    viewOnBlog: "Open on blog",
   },
   ja: {
     title: "Sooner CMS",
@@ -143,6 +186,11 @@ export const cmsI18n = {
     views: "閲覧",
     uploadImage: "画像アップロード",
     uploading: "アップロード中...",
+    blogOnPublicBlog: "公開ブログ: 現在表示中",
+    blogDraftHidden: "公開ブログ: 非表示（下書き）",
+    blogScheduledHidden: "公開ブログ: 公開日時までは非表示",
+    refreshPosts: "更新",
+    viewOnBlog: "ブログで開く",
   },
 };
 

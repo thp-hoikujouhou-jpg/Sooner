@@ -1764,7 +1764,8 @@ async function startServer() {
       for (const d of snap.docs.filter((doc) => isBlogPostPublicVisible(doc.data(), now))) {
         const data = d.data();
         const date = data.publishAt?.toDate?.()?.toISOString?.()?.slice(0, 10) || "";
-        urls += `  <url>\n    <loc>https://blog.sooner.sh/${data.slug}</loc>\n    <lastmod>${date}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+        const pathSlug = encodeURIComponent(String(data.slug ?? ""));
+        urls += `  <url>\n    <loc>https://blog.sooner.sh/${pathSlug}</loc>\n    <lastmod>${date}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
       }
       res.type("xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}</urlset>`);
     } catch (e: any) { res.status(500).send("Error generating sitemap"); }

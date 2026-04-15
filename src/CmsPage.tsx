@@ -8,7 +8,22 @@ import TiptapImage from "@tiptap/extension-image";
 import TiptapLink from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import { writeStoredLanguage } from "./language";
-import { cn, BACKEND_BASE, cmsI18n, getInitialLang, type BlogPost } from "./shared";
+import { cn, BACKEND_BASE, cmsI18n, getInitialLang, isBlogPostPublicVisibleClient, type BlogPost } from "./shared";
+
+function cmsPublicBlogOrigin(): string {
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return window.location.origin;
+  if (h === "blog.sooner.sh") return window.location.origin;
+  if (h.endsWith("sooner.sh")) return "https://blog.sooner.sh";
+  return window.location.origin;
+}
+
+function cmsPublicBlogHint(post: Pick<BlogPost, "status" | "publishAt">, nowMs: number, t: typeof cmsI18n.en): string {
+  if (isBlogPostPublicVisibleClient(post, nowMs)) return t.blogOnPublicBlog;
+  if (post.status === "draft") return t.blogDraftHidden;
+  if (post.status === "scheduled") return t.blogScheduledHidden;
+  return t.blogDraftHidden;
+}
 
 export default function CmsPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
@@ -23,9 +38,15 @@ export default function CmsPage() {
   const [saving, setSaving] = useState(false);
   const [contentTab, setContentTab] = useState<"en" | "ja">("en");
   const [viewMode, setViewMode] = useState<"editor" | "preview">("editor");
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const t = cmsI18n[lang];
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -150,7 +171,7 @@ export default function CmsPage() {
   }
 
   if (editingPost) {
-    return <CmsEditor post={editingPost} lang={lang} t={t} contentTab={contentTab} setContentTab={setContentTab} viewMode={viewMode} setViewMode={setViewMode} updateField={updateField} onSave={savePost} onCancel={() => setEditingPost(null)} saving={saving} token={token} />;
+    return <CmsEditor post={editingPost} lang={lang} t={t} nowTick={nowTick} contentTab={contentTab} setContentTab={setContentTab} viewMode={viewMode} setViewMode={setViewMode} updateField={updateField} onSave={savePost} onCancel={() => setEditingPost(null)} saving={saving} token={token} />;
   }
 
   return (
@@ -168,7 +189,10 @@ export default function CmsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-        <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#38BDF8] mb-6">{t.posts}</h2>
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#38BDF8]">{t.posts}</h2>
+          <button type="button" onClick={() => fetchPosts()} className="px-3 py-1.5 text-[10px] font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg shrink-0">{t.refreshPosts}</button>
+        </div>
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 text-[#38BDF8] animate-spin" /></div>
         ) : posts.length === 0 ? (
@@ -185,6 +209,10 @@ export default function CmsPage() {
                   </div>
                   <h3 className="text-sm font-bold truncate">{lang === "ja" ? post.title_ja || post.title_en : post.title_en || post.title_ja}</h3>
                   <p className="text-[10px] text-[#52525B] truncate">{post.slug}</p>
+                  <p className="text-[10px] text-[#71717A] mt-1">{cmsPublicBlogHint(post, nowTick, t)}</p>
+                  {isBlogPostPublicVisibleClient(post, nowTick) && post.slug ? (
+                    <a href={`${cmsPublicBlogOrigin()}/${encodeURIComponent(post.slug)}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#38BDF8] hover:underline mt-1 inline-block">{t.viewOnBlog}</a>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button type="button" onClick={() => editPost(post)} className="p-1.5 hover:bg-[#1A1A1A] rounded text-[#8E9299]"><FileCode className="w-4 h-4" /></button>
@@ -199,8 +227,8 @@ export default function CmsPage() {
   );
 }
 
-function CmsEditor({ post, lang, t, contentTab, setContentTab, viewMode, setViewMode, updateField, onSave, onCancel, saving, token }: {
-  post: Partial<BlogPost>; lang: "en" | "ja"; t: typeof cmsI18n.en; contentTab: "en" | "ja";
+function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode, setViewMode, updateField, onSave, onCancel, saving, token }: {
+  post: Partial<BlogPost>; lang: "en" | "ja"; t: typeof cmsI18n.en; nowTick: number; contentTab: "en" | "ja";
   setContentTab: (t: "en" | "ja") => void; viewMode: "editor" | "preview"; setViewMode: (v: "editor" | "preview") => void;
   updateField: (f: string, v: any) => void; onSave: () => void; onCancel: () => void; saving: boolean; token: string;
 }) {
@@ -300,6 +328,10 @@ function CmsEditor({ post, lang, t, contentTab, setContentTab, viewMode, setView
                 <option value="scheduled">{t.scheduled}</option>
                 <option value="published">{t.published}</option>
               </select>
+              <p className="text-[10px] text-[#71717A] mt-1.5 leading-snug">{cmsPublicBlogHint({ status: post.status || "draft", publishAt: post.publishAt }, nowTick, t)}</p>
+              {isBlogPostPublicVisibleClient({ status: post.status || "draft", publishAt: post.publishAt }, nowTick) && post.slug ? (
+                <a href={`${cmsPublicBlogOrigin()}/${encodeURIComponent(post.slug)}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#38BDF8] hover:underline mt-1 inline-block">{t.viewOnBlog}</a>
+              ) : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
