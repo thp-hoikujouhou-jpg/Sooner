@@ -203,3 +203,17 @@ export function legalDocHref(locale: "en" | "ja", doc: "terms" | "privacy"): str
   }
   return path;
 }
+
+/** Archived legal index: /legal/{en|ja}/archive */
+export function legalArchiveIndexHref(locale: "en" | "ja"): string {
+  const path = `/legal/${locale}/archive`;
+  if (typeof window === "undefined") return `https://sooner.sh${path}`;
+  const h = window.location.hostname;
+  if (h === "sooner.sh" || h === "localhost" || h === "127.0.0.1") {
+    return path;
+  }
+  if (h.endsWith("sooner.sh")) {
+    return `${window.location.protocol}//sooner.sh${path}`;
+  }
+  return path;
+}

@@ -22,9 +22,9 @@ export type LegalSnapshotBundle = {
  */
 export const LEGAL_SNAPSHOTS: LegalSnapshotBundle[] = [
   {
-    id: "2026-04-16",
-    labelEn: "April 16, 2026 — before lp.sooner.sh (marketing host was site.sooner.sh)",
-    labelJa: "2026年4月16日 — lp.sooner.sh 移行前（マーケ用ホストは site.sooner.sh）",
+    id: "2026-04-15",
+    labelEn: "April 15, 2026 archive — text frozen from prior publish (marketing host was site.sooner.sh; in-repo version id had been 2026-04-16)",
+    labelJa: "2026年4月15日アーカイブ — 直前までの公開文面を固定（マーケは site.sooner.sh。リポジトリ上の版IDは2026-04-16でした）",
     archivedOn: "2026-04-15",
     termsEn: snap20260416.termsEn as LegalSection[],
     termsJa: snap20260416.termsJa as LegalSection[],

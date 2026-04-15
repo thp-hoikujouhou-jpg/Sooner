@@ -203,7 +203,6 @@ export {
   auth,
   storage,
   isConfigured,
-  recordNewUserLegalProfile,
   collection,
   doc,
   getDocs,

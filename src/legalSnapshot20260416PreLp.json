@@ -1,7 +1,8 @@
 {
   "_meta": {
-    "legalDocumentVersionId": "2026-04-16",
-    "note": "Frozen before lp.sooner.sh; marketing host was site.sooner.sh"
+    "archiveRouteId": "2026-04-15",
+    "legalDocumentVersionIdInSourceAtFreeze": "2026-04-16",
+    "note": "Frozen body from git 3bd5995 before lp.sooner.sh; marketing host in text was site.sooner.sh. URL slug is 2026-04-15 per operator request."
   },
   "termsEn": [
     {

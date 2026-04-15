@@ -95,7 +95,7 @@ import CmsPage from "./CmsPage";
 import LegalPage from "./LegalPage";
 import LegalArchiveIndex from "./LegalArchiveIndex";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
-import { legalDocHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
+import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
   auth,
   isConfigured as firebaseConfigured,
@@ -1804,6 +1804,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       deletingAccount: "Deleting…",
       reenterPassword: "Enter your account password to confirm:",
       deleteAccountFailed: "Could not delete the account. Sign out, sign in again, and retry—or contact support.",
+      legalSection: "Legal",
+      legalTermsLink: "Terms of Service",
+      legalPrivacyLink: "Privacy Policy",
+      legalArchiveLink: "Prior versions",
       filesPanel: "Files panel",
       aiChat: "AI Chat",
       closeChat: "Close chat",
@@ -1924,6 +1928,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       deletingAccount: "削除中…",
       reenterPassword: "確認のためアカウントのパスワードを入力してください:",
       deleteAccountFailed: "削除に失敗しました。一度ログアウトして再ログイン後に再試行するか、サポートへお問い合わせください。",
+      legalSection: "法的情報",
+      legalTermsLink: "利用規約",
+      legalPrivacyLink: "プライバシーポリシー",
+      legalArchiveLink: "過去のバージョン",
       filesPanel: "ファイルパネル",
       aiChat: "AIチャット",
       closeChat: "チャットを閉じる",
@@ -3266,6 +3274,19 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A] space-y-1">
+          <div className="px-3 pb-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-tight">
+            <a href={legalDocHref(language, "terms")} className="text-[#52525B] hover:text-[#38BDF8] transition-colors">
+              {t.legalTermsLink}
+            </a>
+            <span className="text-[#2A2A2A] select-none">·</span>
+            <a href={legalDocHref(language, "privacy")} className="text-[#52525B] hover:text-[#38BDF8] transition-colors">
+              {t.legalPrivacyLink}
+            </a>
+            <span className="text-[#2A2A2A] select-none">·</span>
+            <a href={legalArchiveIndexHref(language)} className="text-[#52525B] hover:text-[#38BDF8] transition-colors">
+              {t.legalArchiveLink}
+            </a>
+          </div>
           <button 
             onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1A1A1A] text-sm text-[#8E9299] transition-colors"
@@ -3923,6 +3944,21 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       >
                         日本語
                       </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-4 border-t border-white/[0.06]">
+                    <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.legalSection}</label>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                      <a href={legalDocHref(language, "terms")} className="text-[#38BDF8] hover:underline font-medium">
+                        {t.legalTermsLink}
+                      </a>
+                      <a href={legalDocHref(language, "privacy")} className="text-[#38BDF8] hover:underline font-medium">
+                        {t.legalPrivacyLink}
+                      </a>
+                      <a href={legalArchiveIndexHref(language)} className="text-[#38BDF8] hover:underline font-medium">
+                        {t.legalArchiveLink}
+                      </a>
                     </div>
                   </div>
 

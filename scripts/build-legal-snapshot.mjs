@@ -35,8 +35,9 @@ const privacyJa = evalArrayLiteral(sliceExport("privacyJa"));
 
 const bundle = {
   _meta: {
-    legalDocumentVersionId: "2026-04-16",
-    note: "Frozen before lp.sooner.sh; marketing host was site.sooner.sh",
+    archiveRouteId: "2026-04-15",
+    legalDocumentVersionIdInSourceAtFreeze: "2026-04-16",
+    note: "Frozen body from prior legalContent; marketing host in text was site.sooner.sh.",
   },
   termsEn,
   termsJa,
