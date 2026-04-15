@@ -1384,7 +1384,7 @@ export default function App() {
 
   const host = window.location.hostname;
   const isMainDomain = host === "sooner.sh";
-  const isLandingSite = host.startsWith("lp.") || host.startsWith("site.");
+  const isLandingSite = host.startsWith("lp.");
   const isBlogSite = host.startsWith("blog.");
   const isCmsSite = host.startsWith("cms.");
   const isSignupSite = host.startsWith("signup.");

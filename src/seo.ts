@@ -117,7 +117,7 @@ function hostKey(hostname: string, pathname: string): string {
     if (path === "/signup") return "signup";
     return "site";
   }
-  if (h.startsWith("lp.") || h.startsWith("site.")) return "site";
+  if (h.startsWith("lp.")) return "site";
   if (h.startsWith("blog.")) return "blog";
   if (h.startsWith("signup.")) return "signup";
   if (h.startsWith("signin.") || h.startsWith("login.")) return "signin";
@@ -167,7 +167,7 @@ function removeOldHreflang() {
 function injectHreflangForLanding() {
   removeOldHreflang();
   const host = window.location.hostname.toLowerCase();
-  if (!host.startsWith("lp.") && !host.startsWith("site.") && !host.startsWith("blog.")) return;
+  if (!host.startsWith("lp.") && !host.startsWith("blog.")) return;
   try {
     const proto = window.location.protocol;
     const path = window.location.pathname || "/";

@@ -8,7 +8,7 @@
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
 /** Bump when Terms or Privacy body changes; stored on user signup in Firestore `users`. */
-export const LEGAL_DOCUMENT_VERSION_ID = "2026-04-17";
+export const LEGAL_DOCUMENT_VERSION_ID = "2026-04-15";
 
 export const termsEn: LegalSection[] = [
   {
@@ -435,7 +435,7 @@ export const legalMeta = {
     switchEn: "English",
     otherDocTerms: "Terms of Service",
     otherDocPrivacy: "Privacy Policy",
-    lastUpdated: "Last updated: April 17, 2026",
+    lastUpdated: "Last updated: April 15, 2026",
     notice:
       "This document is provided for informational purposes and does not constitute legal advice. You may wish to consult a qualified attorney for your jurisdiction.",
     contactEmailLabel: "Contact:",
@@ -457,7 +457,7 @@ export const legalMeta = {
     switchEn: "English",
     otherDocTerms: "利用規約",
     otherDocPrivacy: "プライバシーポリシー",
-    lastUpdated: "最終更新日：2026年4月17日",
+    lastUpdated: "最終更新日：2026年4月15日",
     notice:
       "本書は一般的な説明を目的とするものであり、法的助言を構成するものではありません。必要に応じて専門家にご相談ください。",
     contactEmailLabel: "お問い合わせ：",
