@@ -271,12 +271,12 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
   const imgInputRef = useRef<HTMLInputElement>(null);
 
   const editorEn = useEditor({
-    extensions: [StarterKit, TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "Write your article..." })],
+    extensions: [StarterKit.configure({ link: false }), TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "Write your article..." })],
     content: post.content_en || "",
     onUpdate: ({ editor }) => updateField("content_en", editor.getHTML()),
   });
   const editorJa = useEditor({
-    extensions: [StarterKit, TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "記事を書いてください..." })],
+    extensions: [StarterKit.configure({ link: false }), TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "記事を書いてください..." })],
     content: post.content_ja || "",
     onUpdate: ({ editor }) => updateField("content_ja", editor.getHTML()),
   });

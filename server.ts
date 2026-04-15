@@ -1813,6 +1813,44 @@ async function startServer() {
     } catch (e: any) { res.status(500).send("Error generating sitemap"); }
   });
 
+  /** Public base URL for image links (Railway: set PUBLIC_API_BASE_URL if Host header is wrong). */
+  function imagePublicBaseUrl(req: express.Request): string {
+    const fromEnv = process.env.PUBLIC_API_BASE_URL?.trim();
+    if (fromEnv) return fromEnv.replace(/\/$/, "");
+    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "";
+    return `${proto}://${host}`;
+  }
+
+  // Public: proxy blog images from Storage (no public bucket or long-lived signed URLs needed)
+  app.get("/api/blog/image", async (req, res) => {
+    if (!firebaseStorage) return res.status(503).json({ error: "Storage not configured" });
+    const raw = req.query.p;
+    if (typeof raw !== "string" || !raw.startsWith("blog/images/") || raw.includes("..") || raw.includes("\\")) {
+      return res.status(400).json({ error: "Invalid path" });
+    }
+    try {
+      const bucket = firebaseStorage.bucket();
+      const file = bucket.file(raw);
+      const [exists] = await file.exists();
+      if (!exists) return res.status(404).end();
+      const [metadata] = await file.getMetadata();
+      const ct = metadata.contentType || "application/octet-stream";
+      res.setHeader("Content-Type", ct);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      const stream = file.createReadStream();
+      stream.on("error", (err) => {
+        console.error("blog/image stream:", err);
+        if (!res.headersSent) res.status(500).end();
+        else res.destroy();
+      });
+      stream.pipe(res);
+    } catch (e: any) {
+      console.error("blog/image:", e);
+      res.status(500).json({ error: e.message || "Failed to load image" });
+    }
+  });
+
   // --- Page view tracking ---
   app.post("/api/blog/posts/:slug/view", async (req, res) => {
     if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
@@ -1860,19 +1898,8 @@ async function startServer() {
         metadata: { cacheControl: "public, max-age=31536000" },
       });
 
-      const pathEncoded = storagePath.split("/").map((p) => encodeURIComponent(p)).join("/");
-      let publicUrl = `https://storage.googleapis.com/${bucket.name}/${pathEncoded}`;
-      try {
-        await file.makePublic();
-      } catch (aclErr: any) {
-        console.warn("upload-image: makePublic failed, using signed URL:", aclErr?.message);
-        const [signed] = await file.getSignedUrl({
-          version: "v4",
-          action: "read",
-          expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000,
-        });
-        publicUrl = signed;
-      }
+      const baseUrl = imagePublicBaseUrl(req);
+      const publicUrl = `${baseUrl}/api/blog/image?p=${encodeURIComponent(storagePath)}`;
 
       res.json({ url: publicUrl, path: storagePath });
     } catch (e: any) {
