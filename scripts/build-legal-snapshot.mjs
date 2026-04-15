@@ -1,3 +1,10 @@
+/**
+ * One-off / rare: rebuild `src/legalSnapshot20260416PreLp.json` from a frozen `legalContent.ts`.
+ * 1. Save the target commit file as UTF-8 `_extract_prev_legal.ts` in repo root, e.g.:
+ *    git show 3bd5995:src/legalContent.ts > _extract_prev_legal.ts
+ * 2. node scripts/build-legal-snapshot.mjs
+ * 3. Remove `_extract_prev_legal.ts` (do not commit).
+ */
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
