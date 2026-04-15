@@ -291,34 +291,45 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
       setUploadError(`${t.imageUploadFailed}: ${t.imageUploadTooLarge}`);
       return;
     }
+
+    const blobUrl = URL.createObjectURL(file);
+    activeEditor.chain().focus().setImage({ src: blobUrl }).run();
+
+    const stripImgWithSrc = (html: string, src: string) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html;
+      wrap.querySelectorAll("img").forEach((img) => {
+        if (img.getAttribute("src") === src) img.remove();
+      });
+      return wrap.innerHTML;
+    };
+
     setUploading(true);
     try {
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onerror = () => reject(new Error("read failed"));
-        reader.onload = () => {
-          const result = reader.result as string;
-          const part = result.split(",")[1];
-          if (!part) reject(new Error("no data"));
-          else resolve(part);
-        };
-        reader.readAsDataURL(file);
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      const res = await axios.post(`${BACKEND_BASE}/api/cms/upload-image`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      const res = await axios.post(`${BACKEND_BASE}/api/cms/upload-image`, {
-        data: base64,
-        filename: file.name,
-        contentType: file.type || "image/png",
-      }, { headers: { Authorization: `Bearer ${token}` } });
       const url = res.data?.url;
       if (!url) throw new Error("No URL in response");
-      activeEditor.chain().focus().setImage({ src: url }).run();
+      const html = activeEditor.getHTML();
+      if (html.includes(blobUrl)) {
+        activeEditor.commands.setContent(html.split(blobUrl).join(url));
+      }
     } catch (e: unknown) {
+      const html = activeEditor.getHTML();
+      if (html.includes(blobUrl)) {
+        activeEditor.commands.setContent(stripImgWithSrc(html, blobUrl));
+      }
       const ax = e as { response?: { data?: { error?: string }; status?: number } };
       const serverMsg = ax.response?.data?.error;
       const detail = serverMsg || (e instanceof Error ? e.message : "unknown");
       setUploadError(`${t.imageUploadFailed}: ${detail}`);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+      setUploading(false);
     }
-    setUploading(false);
   };
 
   const insertImageFromManualUrl = () => {

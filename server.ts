@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
@@ -176,6 +177,11 @@ function isValidName(name: string): boolean {
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "3000", 10);
+
+  const cmsImageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+  });
 
   app.use(cors({
     origin: process.env.NODE_ENV === "production"
@@ -1872,29 +1878,20 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // --- CMS: Blog image upload to Firebase Storage ---
-  app.post("/api/cms/upload-image", requireCmsAuth, async (req, res) => {
+  // --- CMS: Blog image upload to Firebase Storage (multipart binary — no base64) ---
+  app.post("/api/cms/upload-image", requireCmsAuth, cmsImageUpload.single("file"), async (req, res) => {
     if (!firebaseStorage) return res.status(503).json({ error: "Storage not configured" });
-    const { data, filename, contentType } = req.body;
-    if (!data || !filename) return res.status(400).json({ error: "data and filename required" });
+    const up = req.file;
+    if (!up?.buffer) return res.status(400).json({ error: "file required (multipart field name: file)" });
     try {
       const bucket = firebaseStorage.bucket();
-      const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180);
+      const safeName = String(up.originalname || "image.png").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180);
       const storagePath = `blog/images/${Date.now()}_${safeName}`;
       const file = bucket.file(storagePath);
+      const contentType = up.mimetype || "image/png";
 
-      let buffer: Buffer;
-      try {
-        buffer = Buffer.from(data, "base64");
-      } catch {
-        return res.status(400).json({ error: "Invalid base64 image data" });
-      }
-      if (buffer.length > 25 * 1024 * 1024) {
-        return res.status(413).json({ error: "Image too large (max 25MB)" });
-      }
-
-      await file.save(buffer, {
-        contentType: contentType || "image/png",
+      await file.save(up.buffer, {
+        contentType,
         metadata: { cacheControl: "public, max-age=31536000" },
       });
 
@@ -1932,6 +1929,17 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const e = err as { code?: string; name?: string; message?: string };
+    if (e?.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: "Image too large (max 25MB)" });
+    }
+    if (e?.name === "MulterError") {
+      return res.status(400).json({ error: e.message || "Upload failed" });
+    }
+    next(err);
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT} (${process.env.NODE_ENV || "development"})`);
