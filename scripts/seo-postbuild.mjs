@@ -19,6 +19,6 @@ if (existsSync(distIndex)) {
   if (m) console.log(`  build-time: ${m[1]}`);
 }
 console.log("\n  Next steps:");
-console.log("  • Submit sitemap: https://site.sooner.sh/sitemap.xml (Search Console)");
+console.log("  • Submit sitemap: https://lp.sooner.sh/sitemap.xml (Search Console)");
 console.log("  • Register custom hosts in Firebase: site, sooner, signup, signin, blog");
 console.log("  • Runtime SEO: applyDocumentSeo() updates title/meta per subdomain after load\n");

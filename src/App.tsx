@@ -1384,7 +1384,7 @@ export default function App() {
 
   const host = window.location.hostname;
   const isMainDomain = host === "sooner.sh";
-  const isLandingSite = host.startsWith("site.");
+  const isLandingSite = host.startsWith("lp.") || host.startsWith("site.");
   const isBlogSite = host.startsWith("blog.");
   const isCmsSite = host.startsWith("cms.");
   const isSignupSite = host.startsWith("signup.");
@@ -1544,7 +1544,7 @@ export default function App() {
     return <Sooner user={authUser} onSignOut={() => {
       if (auth) firebaseSignOut(auth);
       setSkipAuth(false);
-      window.location.href = `${window.location.protocol}//site.sooner.sh`;
+      window.location.href = `${window.location.protocol}//lp.sooner.sh`;
     }} />;
   }
 
@@ -1967,7 +1967,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const projects = await storageListProjects(uid);
       for (const p of projects) await storageDeleteProject(uid, p);
       await deleteUser(u);
-      window.location.href = `${window.location.protocol}//site.sooner.sh`;
+      window.location.href = `${window.location.protocol}//lp.sooner.sh`;
     } catch (e: any) {
       alert(e?.message || tk.deleteAccountFailed);
     }

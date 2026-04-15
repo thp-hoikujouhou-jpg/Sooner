@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Firebase Hosting](https://img.shields.io/badge/Hosted%20on-Firebase-orange)](https://sooner.sh)
 
-[Launch app](https://sooner.sh) · [Landing Page](https://site.sooner.sh) · [Blog](https://blog.sooner.sh) · [Sign up](https://sooner.sh/signup)
+[Launch app](https://sooner.sh) · [Landing page](https://lp.sooner.sh) · [Blog](https://blog.sooner.sh) · [Sign up](https://sooner.sh/signup)
 
 </div>
 
@@ -36,7 +36,7 @@ Sooner is a browser-based workspace powered by AI. Build, preview, and deploy fr
 
 | Domain | Purpose |
 |---|---|
-| [site.sooner.sh](https://site.sooner.sh) | Landing page |
+| [lp.sooner.sh](https://lp.sooner.sh) | Marketing landing page |
 | [sooner.sh](https://sooner.sh) | Main application |
 | [sooner.sh/signup](https://sooner.sh/signup) | Account registration |
 | [sooner.sh/signin](https://sooner.sh/signin) | Sign in |

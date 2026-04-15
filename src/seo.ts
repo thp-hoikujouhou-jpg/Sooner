@@ -5,7 +5,7 @@
 
 import { readStoredLanguage } from "./language";
 
-const OG_IMAGE = "https://site.sooner.sh/og-image.png";
+const OG_IMAGE = "https://lp.sooner.sh/og-image.png";
 
 export type SeoLang = "en" | "ja";
 
@@ -117,7 +117,7 @@ function hostKey(hostname: string, pathname: string): string {
     if (path === "/signup") return "signup";
     return "site";
   }
-  if (h.startsWith("site.")) return "site";
+  if (h.startsWith("lp.") || h.startsWith("site.")) return "site";
   if (h.startsWith("blog.")) return "blog";
   if (h.startsWith("signup.")) return "signup";
   if (h.startsWith("signin.") || h.startsWith("login.")) return "signin";
@@ -167,7 +167,7 @@ function removeOldHreflang() {
 function injectHreflangForLanding() {
   removeOldHreflang();
   const host = window.location.hostname.toLowerCase();
-  if (!host.startsWith("site.") && !host.startsWith("blog.")) return;
+  if (!host.startsWith("lp.") && !host.startsWith("site.") && !host.startsWith("blog.")) return;
   try {
     const proto = window.location.protocol;
     const path = window.location.pathname || "/";
@@ -231,7 +231,7 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
       { name: "Sign up", url: "https://sooner.sh/signup" },
       { name: "Sign in", url: "https://sooner.sh/signin" },
       { name: "Blog", url: "https://blog.sooner.sh/" },
-      { name: "Product page", url: "https://site.sooner.sh/" },
+      { name: "Landing page", url: "https://lp.sooner.sh/" },
     ];
     const siteNav = {
       "@context": "https://schema.org",

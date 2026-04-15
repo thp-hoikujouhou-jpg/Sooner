@@ -67,7 +67,7 @@ export default function BlogPage() {
   const openPost = (slug: string) => { setActiveSlug(slug); window.history.pushState(null, "", `/${slug}`); };
   const goBack = () => { setActiveSlug(null); setActivePost(null); window.history.pushState(null, "", "/"); };
 
-  const goMarketing = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//site.sooner.sh${lang !== "en" ? `?lang=${lang}` : ""}`; } else { window.location.href = "/"; } };
+  const goMarketing = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//lp.sooner.sh${lang !== "en" ? `?lang=${lang}` : ""}`; } else { window.location.href = "/"; } };
   const goApp = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//sooner.sh`; } else { window.location.href = "/"; } };
   const toggleLang = () => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); };
 

@@ -182,6 +182,7 @@ async function startServer() {
       ? [
           "https://sooner.sh",
           "https://www.sooner.sh",
+          "https://lp.sooner.sh",
           "https://site.sooner.sh",
           "https://blog.sooner.sh",
           "https://cms.sooner.sh",

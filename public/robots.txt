@@ -1,5 +1,5 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://site.sooner.sh/sitemap.xml
+Sitemap: https://lp.sooner.sh/sitemap.xml
 Sitemap: https://blog.sooner.sh/api/blog/sitemap.xml

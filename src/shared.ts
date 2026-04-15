@@ -175,7 +175,7 @@ export function navigateToSubdomain(sub: "site" | "signup" | "signin", lang?: "e
   const proto = window.location.protocol;
   const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";
   if (sub === "site") {
-    window.location.href = `${proto}//site.sooner.sh${langParam}`;
+    window.location.href = `${proto}//lp.sooner.sh${langParam}`;
     return;
   }
   navigateToAuthPage(sub === "signin" ? "signin" : "signup", lang);
