@@ -1,0 +1,28 @@
+{
+  "hosting": [
+    {
+      "site": "sooner-signin-redirect",
+      "public": "signin-public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "redirects": [
+        {
+          "source": "**",
+          "destination": "https://sooner.sh/signin",
+          "type": 301
+        }
+      ]
+    },
+    {
+      "site": "sooner-signup-redirect",
+      "public": "signup-public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "redirects": [
+        {
+          "source": "**",
+          "destination": "https://sooner.sh/signup",
+          "type": 301
+        }
+      ]
+    }
+  ]
+}

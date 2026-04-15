@@ -11,7 +11,8 @@
     "build:ci": "node scripts/check-vite-env.mjs && vite build && node scripts/seo-postbuild.mjs",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "deploy:legacy-auth-redirects": "firebase deploy --only hosting --config legacy-hosting/firebase.json"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
