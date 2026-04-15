@@ -1,5 +1,6 @@
 import type { LegalSection } from "./legalContent";
-import snap20260416 from "./legalSnapshot20260416PreLp.json";
+import snap20260415 from "./legalSnapshot20260415PreLp.json";
+import snap20260415PreCookie from "./legalSnapshot20260415PreCookieConsent.json";
 
 /** One frozen snapshot of all four legal bodies (add a new entry before you edit legalContent.ts). */
 export type LegalSnapshotBundle = {
@@ -22,14 +23,26 @@ export type LegalSnapshotBundle = {
  */
 export const LEGAL_SNAPSHOTS: LegalSnapshotBundle[] = [
   {
-    id: "2026-04-15",
-    labelEn: "April 15, 2026 archive — text frozen from prior publish (marketing host was site.sooner.sh; in-repo version id had been 2026-04-16)",
-    labelJa: "2026年4月15日アーカイブ — 直前までの公開文面を固定（マーケは site.sooner.sh。リポジトリ上の版IDは2026-04-16でした）",
+    id: "2026-04-15-pre-cookie",
+    labelEn:
+      "April 15, 2026 archive — text frozen before cookie consent banner and Privacy Policy “Cookies, local storage” section (version id in source at freeze: 2026-04-15)",
+    labelJa:
+      "2026年4月15日アーカイブ — Cookie 同意バナーおよびプライバシーポリシー「Cookie・ローカルストレージ」条の直前の文面（凍結時の版IDは2026-04-15）",
     archivedOn: "2026-04-15",
-    termsEn: snap20260416.termsEn as LegalSection[],
-    termsJa: snap20260416.termsJa as LegalSection[],
-    privacyEn: snap20260416.privacyEn as LegalSection[],
-    privacyJa: snap20260416.privacyJa as LegalSection[],
+    termsEn: snap20260415PreCookie.termsEn as LegalSection[],
+    termsJa: snap20260415PreCookie.termsJa as LegalSection[],
+    privacyEn: snap20260415PreCookie.privacyEn as LegalSection[],
+    privacyJa: snap20260415PreCookie.privacyJa as LegalSection[],
+  },
+  {
+    id: "2026-04-15",
+    labelEn: "April 15, 2026 archive — text frozen from prior publish (marketing host in text was site.sooner.sh; version id 2026-04-15)",
+    labelJa: "2026年4月15日アーカイブ — 直前までの公開文面を固定（本文中のマーケ表記は site.sooner.sh、版ID 2026-04-15）",
+    archivedOn: "2026-04-15",
+    termsEn: snap20260415.termsEn as LegalSection[],
+    termsJa: snap20260415.termsJa as LegalSection[],
+    privacyEn: snap20260415.privacyEn as LegalSection[],
+    privacyJa: snap20260415.privacyJa as LegalSection[],
   },
 ];
 

@@ -35,9 +35,12 @@ const privacyJa = evalArrayLiteral(sliceExport("privacyJa"));
 
 const bundle = {
   _meta: {
-    archiveRouteId: "2026-04-15",
-    legalDocumentVersionIdInSourceAtFreeze: "2026-04-16",
-    note: "Frozen body from prior legalContent; marketing host in text was site.sooner.sh.",
+    archiveRouteId: process.env.LEGAL_ARCHIVE_ID || "2026-04-15",
+    legalDocumentVersionIdInSourceAtFreeze:
+      process.env.LEGAL_VERSION_AT_FREEZE || "2026-04-15",
+    note:
+      process.env.LEGAL_SNAP_NOTE ||
+      "Frozen body from prior legalContent; marketing host in text was site.sooner.sh.",
   },
   termsEn,
   termsJa,
@@ -45,6 +48,7 @@ const bundle = {
   privacyJa,
 };
 
-const outPath = path.join(root, "src", "legalSnapshot20260416PreLp.json");
+const outFile = process.env.LEGAL_SNAP_OUT || "legalSnapshot20260416PreLp.json";
+const outPath = path.join(root, "src", outFile);
 fs.writeFileSync(outPath, JSON.stringify(bundle, null, 2), "utf8");
 console.log("Wrote", outPath);

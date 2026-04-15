@@ -244,8 +244,19 @@ export const privacyEn: LegalSection[] = [
     ],
   },
   {
+    id: "cookies-local-storage",
+    title: "2. Cookies, local storage, and your choices",
+    paragraphs: [
+      "Sooner runs primarily in your browser. We use local storage to remember choices such as UI language, whether you responded to our storage notice, and—if you use the in-app editor—API keys or model settings you choose to save locally. Those values stay on your device unless you use features that send requests to AI or other APIs you configure.",
+      "If you accept on the storage notice, we may set a first-party cookie (sooner_lang) scoped to .sooner.sh so your language preference can apply across our subdomains (for example lp.sooner.sh and sooner.sh). If you decline, we do not set that cookie and rely on per-hostname storage only, so language may not carry over when you move between subdomains.",
+      "We record Accept or Decline in local storage so we do not show the notice on every visit. Clearing site data for our domains may reset this and show the notice again.",
+      "We do not sell your personal information. This processing is for operating the Service and honoring your preferences.",
+      "Hosting and optional gateways: If we deploy the Service on Vercel or similar infrastructure, those providers may process request metadata (such as IP address and timestamps) under their own privacy policies. The Sooner client does not embed a separate analytics product branded “Vercel Logs.” If you optionally choose “Vercel AI Gateway” (or similar) in Settings and send API traffic through it, that traffic is handled under Vercel’s terms as the gateway operator.",
+    ],
+  },
+  {
     id: "collect",
-    title: "2. Information we collect",
+    title: "3. Information we collect",
     paragraphs: [
       "Account data: email address, display identifiers, and authentication data when you sign in or create an account with email, Google, or GitHub at https://sooner.sh/signin or https://sooner.sh/signup.",
       "Project and usage data: files, code, chat messages, and settings you store or generate in the Service.",
@@ -255,7 +266,7 @@ export const privacyEn: LegalSection[] = [
   },
   {
     id: "use",
-    title: "3. How we use information",
+    title: "4. How we use information",
     paragraphs: [
       "To provide, maintain, and improve the Service (including AI features when enabled).",
       "To authenticate you, sync projects, prevent fraud and abuse, and comply with legal obligations.",
@@ -266,14 +277,14 @@ export const privacyEn: LegalSection[] = [
   },
   {
     id: "legal-basis",
-    title: "4. Legal bases (EEA/UK users)",
+    title: "5. Legal bases (EEA/UK users)",
     paragraphs: [
-      "Where GDPR applies, we rely on: performance of a contract (providing the Service); legitimate interests (security, improvement, analytics in aggregate); consent where required (e.g. certain cookies or marketing, if offered); and legal obligation where applicable.",
+      "Where GDPR applies, we rely on: performance of a contract (providing the Service); legitimate interests (security, improvement, analytics in aggregate); consent where required (for example the optional cross-subdomain language cookie when you click Accept, or marketing if offered); and legal obligation where applicable.",
     ],
   },
   {
     id: "sharing",
-    title: "5. Sharing and processors",
+    title: "6. Sharing and processors",
     paragraphs: [
       "We use service providers to host and operate the Service, including Google Firebase (authentication, Firestore, Storage), Google Cloud / AI (Gemini when you use AI features), and infrastructure providers. They process data on our instructions and under their own terms and policies.",
       "We may disclose information if required by law, to protect rights and safety, or in connection with a merger or asset sale (with notice where required).",
@@ -281,49 +292,49 @@ export const privacyEn: LegalSection[] = [
   },
   {
     id: "retention",
-    title: "6. Retention",
+    title: "7. Retention",
     paragraphs: [
       "We retain information as long as your account is active and as needed to provide the Service, comply with law, resolve disputes, and enforce agreements. You may delete your stored projects from the IDE and may delete your account from Settings (Account) where available; this removes your Firebase Authentication account and attempts to remove associated project files in our storage. Some records may be retained for a limited period for backups and legal compliance.",
     ],
   },
   {
     id: "security",
-    title: "7. Security",
+    title: "8. Security",
     paragraphs: [
       "We implement reasonable technical and organizational measures to protect your information. No method of transmission or storage is 100% secure.",
     ],
   },
   {
     id: "rights",
-    title: "8. Your rights",
+    title: "9. Your rights",
     paragraphs: [
       "Depending on your location, you may have rights to access, correct, delete, or export your personal data, and to object to or restrict certain processing. You can request account deletion in the app (Settings) or by emailing soonerutingna@gmail.com. You may also lodge a complaint with your local data protection authority.",
     ],
   },
   {
     id: "children",
-    title: "9. Children",
+    title: "10. Children",
     paragraphs: [
       "The Service is not directed to children under 16 (or the age required in your jurisdiction). We do not knowingly collect personal information from children.",
     ],
   },
   {
     id: "transfers",
-    title: "10. International transfers",
+    title: "11. International transfers",
     paragraphs: [
       "We may process data in Japan, the United States, the European Economic Area, and other regions where our providers operate. Where required, we use appropriate safeguards (such as standard contractual clauses).",
     ],
   },
   {
     id: "changes",
-    title: "11. Changes to this policy",
+    title: "12. Changes to this policy",
     paragraphs: [
       "We may update this Privacy Policy from time to time. We will post the updated version on this page and update the “Last updated” date. Prior versions are listed at /legal/en/archive (and /legal/ja/archive) when archived.",
     ],
   },
   {
     id: "contact",
-    title: "12. Contact",
+    title: "13. Contact",
     paragraphs: [
       "For privacy questions, contact us at soonerutingna@gmail.com or through the channels published on https://lp.sooner.sh.",
     ],
@@ -340,8 +351,19 @@ export const privacyJa: LegalSection[] = [
     ],
   },
   {
+    id: "cookies-local-storage",
+    title: "第2条（Cookie・ローカルストレージと選択）",
+    paragraphs: [
+      "Sooner は主にブラウザ上で動作します。表示言語、本通知への対応の記録、およびエディタ利用時に端末へ保存する API キーやモデル設定など、利用者の選択をローカルストレージに保存する場合があります。利用者が設定した AI 等の API を呼び出す機能を使うまで、当社がそれらの値を取得することはありません。",
+      "ストレージに関する通知で「同意する」を選んだ場合、.sooner.sh ドメインにスコープされたファーストパーティ Cookie（sooner_lang）を設定し、サブドメイン間（例：lp.sooner.sh と sooner.sh）で言語設定を揃えやすくすることがあります。「拒否する」を選んだ場合は当該 Cookie を設定せず、ホスト名ごとの保存にとどめるため、サイトをまたいだときに言語等が引き継がれないことがあります。",
+      "同意または拒否の記録は繰り返し通知を表示しないためローカルストレージに保存します。当社ドメインのサイトデータを消去するとリセットされ、通知が再表示される場合があります。",
+      "当社は、利用者の個人情報を販売しません。本処理は本サービスの運用および利用者の選択の尊重のために行います。",
+      "ホスティングおよび任意のゲートウェイ：本サービスを Vercel 等のインフラ上にデプロイする場合、当該事業者がリクエストに関するメタデータ（IP アドレス、タイムスタンプ等）を各事業者のプライバシーポリシーに従い処理することがあります。Sooner のクライアントに、分析製品としての「Vercel Logs」を別途埋め込んでいるわけではありません。設定画面で「Vercel AI Gateway」等を任意に選択し、当該経路で API 通信を行う場合、その通信はゲートウェイ事業者（例：Vercel）の条項の下で処理されます。",
+    ],
+  },
+  {
     id: "collect",
-    title: "第2条（取得する情報）",
+    title: "第3条（取得する情報）",
     paragraphs: [
       "アカウント情報：メールアドレス、表示名等の識別子、https://sooner.sh/signin および https://sooner.sh/signup において、メール・Google・GitHub等でサインイン・新規登録を行う際の認証に関する情報。",
       "利用・コンテンツ情報：本サービス上で保存または生成されるファイル、コード、チャット内容、設定等。",
@@ -351,7 +373,7 @@ export const privacyJa: LegalSection[] = [
   },
   {
     id: "use",
-    title: "第3条（利用目的）",
+    title: "第4条（利用目的）",
     paragraphs: [
       "本サービスの提供・維持・改善（AI機能を含む）。",
       "認証、プロジェクトの同期、不正利用の防止、法令に基づく対応。",
@@ -362,14 +384,14 @@ export const privacyJa: LegalSection[] = [
   },
   {
     id: "legal-basis",
-    title: "第4条（法的根拠：EEA/英国の利用者）",
+    title: "第5条（法的根拠：EEA/英国の利用者）",
     paragraphs: [
-      "GDPR等が適用される場合、当社は契約の履行、正当な利益（セキュリティ、改善、集計分析等）、同意が必要な処理に対する同意、法令上の義務に基づき処理を行います。",
+      "GDPR等が適用される場合、当社は契約の履行、正当な利益（セキュリティ、改善、集計分析等）、同意が必要な処理に対する同意（例：通知で「同意する」を選んだ場合のサブドメイン間言語用 Cookie）、法令上の義務に基づき処理を行います。",
     ],
   },
   {
     id: "sharing",
-    title: "第5条（第三者提供・委託）",
+    title: "第6条（第三者提供・委託）",
     paragraphs: [
       "当社は、本サービスのホスティングおよび運用のため、Google Firebase（認証、Firestore、Storage等）、Google Cloud / AI（Gemini等）、その他インフラ事業者に情報の処理を委託する場合があります。これらの事業者は、各事業者の利用規約およびプライバシーポリシーに従います。",
       "法令に基づく要請、権利・安全の保護、合併・事業譲渡等に伴い、必要な範囲で情報を開示する場合があります（法令上必要な場合は通知等を行います）。",
@@ -377,49 +399,49 @@ export const privacyJa: LegalSection[] = [
   },
   {
     id: "retention",
-    title: "第6条（保存期間）",
+    title: "第7条（保存期間）",
     paragraphs: [
       "当社は、アカウントが有効な期間、および本サービスの提供、法令遵守、紛争解決、契約の執行に必要な期間、情報を保持します。IDE上で保存したプロジェクトの削除、および設定画面からのアカウント削除（Firebase Authentication アカウントの削除とストレージ上のプロジェクトファイルの削除を試みます）が可能です。バックアップや法令遵守のため、一定期間保持される場合があります。",
     ],
   },
   {
     id: "security",
-    title: "第7条（セキュリティ）",
+    title: "第8条（セキュリティ）",
     paragraphs: [
       "当社は、情報を保護するために合理的な技術的・組織的安全管理措置を講じます。ただし、インターネット上の送信および電子的保存は完全に安全ではありません。",
     ],
   },
   {
     id: "rights",
-    title: "第8条（利用者の権利）",
+    title: "第9条（利用者の権利）",
     paragraphs: [
       "お住まいの地域の法令に従い、保有個人データの開示、訂正、削除、利用停止、データポータビリティ等を請求できる場合があります。アプリの設定からアカウント削除を行うか、soonerutingna@gmail.com までご連絡ください。また、管轄のデータ保護当局に苦情を申し立てる権利を有する場合があります。",
     ],
   },
   {
     id: "children",
-    title: "第9条（児童）",
+    title: "第10条（児童）",
     paragraphs: [
       "本サービスは、16歳未満の児童（お住まいの地域で定められる年齢を下回る方）を主な対象とするものではありません。当社は、意図的に児童から個人情報を取得しません。",
     ],
   },
   {
     id: "transfers",
-    title: "第10条（国外への移転）",
+    title: "第11条（国外への移転）",
     paragraphs: [
       "データは、日本、米国、欧州経済領域、その他当社の委託先が所在する地域で処理される場合があります。必要に応じて、標準契約条項等の適切な保護措置を講じます。",
     ],
   },
   {
     id: "changes",
-    title: "第11条（本ポリシーの変更）",
+    title: "第12条（本ポリシーの変更）",
     paragraphs: [
       "当社は、本ポリシーを変更することがあります。変更後の内容は本ページに掲載し、末尾の「最終更新日」を更新します。過去版はアーカイブした場合 /legal/en/archive および /legal/ja/archive から参照できます。",
     ],
   },
   {
     id: "contact",
-    title: "第12条（お問い合わせ）",
+    title: "第13条（お問い合わせ）",
     paragraphs: [
       "本ポリシーに関するお問い合わせは、soonerutingna@gmail.com または https://lp.sooner.sh に掲載する連絡方法にて受け付けます。",
     ],

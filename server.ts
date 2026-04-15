@@ -1694,10 +1694,16 @@ async function startServer() {
 
   function isBlogPostPublicVisible(data: any, now: admin.firestore.Timestamp): boolean {
     const st = data.status;
-    if (st !== "published" && st !== "scheduled") return false;
-    const ms = publishAtMillis(data.publishAt);
-    if (ms === null) return false;
-    return ms <= now.toMillis();
+    if (st === "draft") return false;
+    if (st === "published") {
+      return true;
+    }
+    if (st === "scheduled") {
+      const ms = publishAtMillis(data.publishAt);
+      if (ms === null) return false;
+      return ms <= now.toMillis();
+    }
+    return false;
   }
 
   // Public Blog: List published posts (filter in memory to avoid required composite index on status + publishAt)

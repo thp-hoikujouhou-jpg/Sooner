@@ -1561,6 +1561,11 @@ function apiUrl(path: string): string {
   return `${BACKEND_URL}${path}`;
 }
 
+function previewProjectUrl(projectId: string): string {
+  const base = BACKEND_URL.replace(/\/$/, "");
+  return `${base}/preview/${encodeURIComponent(projectId)}/`;
+}
+
 function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
   useEffect(() => {
     const interceptor = axios.interceptors.request.use(async (config) => {
@@ -1781,10 +1786,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitCommit: "Commit all",
       gitPull: "Pull from origin",
       gitPush: "Push to origin",
-      gitNoBackend: "Set VITE_BACKEND_URL to use Git (Railway).",
+      gitNoBackend:
+        "Git clone, commit, push/pull, and dev-server run need a workspace backend (self-hosted build with VITE_BACKEND_URL). On hosted Sooner, use ZIP upload and browser preview.",
       gitNoProject: "Select a project first.",
       gitNoRepo: "Not a git repository. Clone from GitHub to enable push.",
       gitPushNeedToken: "Connect GitHub in Settings (or paste a PAT) to push.",
+      gitPanelDisabledHint: "Git panel needs a workspace backend. Use ZIP upload on hosted Sooner.",
+      previewUnavailableHosted:
+        "Live preview is not available in this deployment. The preview server (see the repo’s Node workspace) is not bundled with static hosting. Edit files here, use Download, or self-host with VITE_BACKEND_URL and the server so /preview can serve your project.",
+      agentAutoPreviewNoBackend:
+        "Changes were saved. Live preview does not run on this hosted build—use the editor or export a ZIP, or self-host the full stack.",
       brandTagline: "AI-native IDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
       newProject: "New Project",
@@ -1905,10 +1916,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitCommit: "すべてコミット",
       gitPull: "origin からプル",
       gitPush: "origin にプッシュ",
-      gitNoBackend: "Git 機能には VITE_BACKEND_URL（Railway）が必要です。",
+      gitNoBackend:
+        "Git のクローン・コミット・プッシュ／プル、および開発サーバー起動にはワークスペース用バックエンド（VITE_BACKEND_URL を設定したセルフホストビルド）が必要です。ホスト版では ZIP アップロードとブラウザプレビューをご利用ください。",
       gitNoProject: "先にプロジェクトを選択してください。",
       gitNoRepo: "Git リポジトリではありません。GitHub からクローンすると push できます。",
       gitPushNeedToken: "プッシュには設定で GitHub を接続するか PAT を入力してください。",
+      gitPanelDisabledHint: "Git パネルはワークスペース用バックエンドが必要です。ホスト版では ZIP をご利用ください。",
+      previewUnavailableHosted:
+        "このホスト構成ではライブプレビューは利用できません。プレビュー用サーバー（リポジトリの Node ワークスペース）は静的ホスティングに含まれていません。エディタで編集・ダウンロードするか、VITE_BACKEND_URL とサーバーを用意して /preview を配信するセルフホストをご利用ください。",
+      agentAutoPreviewNoBackend:
+        "変更を保存しました。このホスト版ではライブプレビューは動きません。エディタで確認するか ZIP で書き出すか、フルスタックをセルフホストしてください。",
       brandTagline: "AIネイティブIDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
       newProject: "新規プロジェクト",
@@ -2788,6 +2805,28 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         // 2. Plan for Code
         updateLastStep("completed", `Creating execution plan (${agentMode} mode)...`);
         let planResponse;
+
+        const backendServerSection = BACKEND_URL
+          ? `
+        BACKEND PROJECTS:
+        - The preview can run backend servers (Node.js, Python, Go, Rust).
+        - For Node.js: Create package.json with "scripts": { "start": "node server.js" } or "dev" script. The server MUST listen on the port from process.env.PORT.
+        - For Python (Flask/FastAPI): Create app.py or main.py + requirements.txt. Use port from os.environ.get("PORT", 4001).
+        - For Go: Create go.mod + main.go. Read port from os.Getenv("PORT").
+        - CRITICAL: The server MUST use the PORT environment variable, not a hardcoded port.
+        - Backend servers are auto-detected and started when the user clicks Preview.
+`
+          : `
+        NO WORKSPACE BACKEND IN THIS SESSION:
+        - run_command steps do not execute (only write_file saves files). Do not rely on npm install, pip install, flutter build, or shell commands.
+        - Do not plan server-side backends (Node/Python/Go APIs) for this user unless they only need static client assets.
+        - Prefer browser-side stacks; keep package.json for dependency metadata; bare imports can target esm.sh when preview is available on a self-hosted workspace.
+`;
+
+        const depsInstruction = BACKEND_URL
+          ? `1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').`
+          : `1. Do not use 'run_command' for installs or builds. Use write_file only; list packages in package.json and use bare imports suitable for browser preview (esm.sh).`;
+
         const planPrompt = `
         You are an expert developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
         You MUST follow the conversation history and the user's request to determine the correct language/framework.
@@ -2824,15 +2863,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         - For Three.js/GSAP/etc: Just import them normally (e.g. import * as THREE from "three"). They resolve to esm.sh automatically.
         - Always use RELATIVE paths (e.g., './src/main.tsx', not '/src/main.tsx').
         - For Flutter web: create web/index.html as the entry point.
-        
-        BACKEND PROJECTS:
-        - The preview can run backend servers (Node.js, Python, Go, Rust).
-        - For Node.js: Create package.json with "scripts": { "start": "node server.js" } or "dev" script. The server MUST listen on the port from process.env.PORT.
-        - For Python (Flask/FastAPI): Create app.py or main.py + requirements.txt. Use port from os.environ.get("PORT", 4001).
-        - For Go: Create go.mod + main.go. Read port from os.Getenv("PORT").
-        - CRITICAL: The server MUST use the PORT environment variable, not a hardcoded port.
-        - Backend servers are auto-detected and started when the user clicks Preview.
-        
+        ${backendServerSection}
         INSTRUCTIONS FOR MODES:
         - 'plan': Just describe the steps in the JSON 'description' fields.
         - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
@@ -2840,7 +2871,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         - 'auto-preview': Build a complete app that works immediately in the preview.
         
         IMPORTANT: 
-        1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').
+        ${depsInstruction}
         2. Check existing files for missing dependencies or imports and fix them.
         3. If the user previously discussed a plan in 'Chat' or 'Plan' mode, EXECUTE that plan now.
         4. Use the language/framework the user explicitly requests. NEVER force React if not asked.
@@ -2923,27 +2954,36 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           fetchFiles();
           
           if (agentMode === "auto-preview") {
-            addStep("test", language === "ja" ? "ビルドチェック中..." : "Checking build requirements...");
-            const buildOk = await buildAndPreview();
-            updateLastStep("completed", language === "ja" ? "ビルドチェック完了" : "Build check complete");
+            if (BACKEND_URL) {
+              addStep("test", language === "ja" ? "ビルドチェック中..." : "Checking build requirements...");
+              await buildAndPreview();
+              updateLastStep("completed", language === "ja" ? "ビルドチェック完了" : "Build check complete");
 
-            addStep("test", language === "ja" ? "自動プレビューを起動中..." : "Launching Auto-Preview...");
-            setActiveTab("preview");
-            
-            setTimeout(() => {
-              const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
-              if (iframe) iframe.src = iframe.src;
-              updateLastStep("completed", language === "ja" ? "プレビューが更新されました。" : "Preview updated.");
-            }, 500);
+              addStep("test", language === "ja" ? "自動プレビューを起動中..." : "Launching Auto-Preview...");
+              setActiveTab("preview");
+
+              setTimeout(() => {
+                const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+                if (iframe) iframe.src = iframe.src;
+                updateLastStep("completed", language === "ja" ? "プレビューが更新されました。" : "Preview updated.");
+              }, 500);
+            } else {
+              setActiveTab("preview");
+            }
           }
           
           if (!abortControllerRef.current?.signal.aborted) {
-            const completionMsg = language === "ja" ? `実行が完了しました。${agentMode === "auto-preview" ? "プレビューが更新されました。" : "結果を確認してください。"}` : `I've executed the changes in ${agentMode} mode. ${agentMode === "auto-preview" ? "The preview has been updated." : "You can check the results now."}`;
+            const completionMsg =
+              agentMode === "auto-preview" && !BACKEND_URL
+                ? t.agentAutoPreviewNoBackend
+                : language === "ja"
+                  ? `実行が完了しました。${agentMode === "auto-preview" ? "プレビューが更新されました。" : "結果を確認してください。"}`
+                  : `I've executed the changes in ${agentMode} mode. ${agentMode === "auto-preview" ? "The preview has been updated." : "You can check the results now."}`;
             setMessages(prev => [...prev, { role: "assistant", content: completionMsg }]);
           }
 
-          // Automatic Visual Review Loop for auto-preview
-          if (agentMode === "auto-preview") {
+          // Automatic Visual Review Loop for auto-preview (needs live preview iframe)
+          if (agentMode === "auto-preview" && BACKEND_URL) {
             const runVisualReview = async (iteration = 1) => {
               if (iteration > 5 || abortControllerRef.current?.signal.aborted) {
                 if (iteration > 5) {
@@ -3160,13 +3200,19 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               <GitHubIcon className="w-4 h-4" />
             </button>
             <button
+              type="button"
+              disabled={!BACKEND_URL}
               onClick={() => {
+                if (!BACKEND_URL) return;
                 setIsGitOpen(true);
                 setGitError("");
-                if (activeProject && BACKEND_URL) void refreshGitPanel();
+                if (activeProject) void refreshGitPanel();
               }}
-              title={t.gitPanel}
-              className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+              title={BACKEND_URL ? t.gitPanel : t.gitPanelDisabledHint}
+              className={cn(
+                "p-1 rounded text-[#8E9299]",
+                BACKEND_URL ? "hover:bg-[#1A1A1A]" : "opacity-40 cursor-not-allowed"
+              )}
             >
               <GitMerge className="w-4 h-4" />
             </button>
@@ -3408,27 +3454,34 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
               <Tabs.Content value="preview" className="absolute inset-0 bg-white outline-none">
                 {activeProject ? (
-                  <>
-                    <div className="absolute top-2 right-2 z-10 flex gap-2">
-                      <button 
-                        onClick={() => {
-                          const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
-                          if (iframe) iframe.src = iframe.src;
-                        }}
-                        className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
-                        title={t.refreshPreview}
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
+                  !BACKEND_URL ? (
+                    <div className="w-full h-full flex items-center justify-center bg-[#0A0A0A] text-[#8E9299] px-6">
+                      <p className="text-sm text-center max-w-lg leading-relaxed">{t.previewUnavailableHosted}</p>
                     </div>
-                    <iframe 
-                      id="preview-frame"
-                      src={`/preview/${activeProject}/`}
-                      className="w-full h-full border-none"
-                      title={t.projectPreview}
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
-                    />
-                  </>
+                  ) : (
+                    <>
+                      <div className="absolute top-2 right-2 z-10 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+                            if (iframe) iframe.src = iframe.src;
+                          }}
+                          className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
+                          title={t.refreshPreview}
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <iframe
+                        id="preview-frame"
+                        src={previewProjectUrl(activeProject)}
+                        className="w-full h-full border-none"
+                        title={t.projectPreview}
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+                      />
+                    </>
+                  )
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-[#0A0A0A] text-[#8E9299]">
                     Select a project to preview
@@ -3892,6 +3945,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   {/* 4. GitHub Integration */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">GitHub</label>
+                    {!BACKEND_URL && (
+                      <p className="text-[11px] text-amber-400/90 leading-relaxed">{t.gitNoBackend}</p>
+                    )}
                     {githubToken ? (
                       <div className="flex items-center gap-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4">
                         <GitHubIcon className="w-5 h-5 text-white" />
@@ -4028,6 +4084,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   </button>
                 </div>
 
+                {!BACKEND_URL && (
+                  <p className="text-sm text-amber-400/90 mb-4 leading-relaxed">{t.gitNoBackend}</p>
+                )}
+
                 {cloneTab === "github" ? (
                   <div className="flex-1 min-h-0 flex flex-col">
                     {!githubToken ? (
@@ -4082,8 +4142,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                               return filtered.length > 0 ? filtered.map(repo => (
                                 <div
                                   key={repo.full_name}
-                                  className="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#1A1A1A] transition-colors cursor-pointer border border-transparent hover:border-[#252525]"
-                                  onClick={() => handleCloneFromGitHub(repo)}
+                                  className={cn(
+                                    "group flex items-center gap-3 px-3 py-2.5 rounded-xl border border-transparent transition-colors",
+                                    BACKEND_URL
+                                      ? "hover:bg-[#1A1A1A] cursor-pointer hover:border-[#252525]"
+                                      : "opacity-50 cursor-not-allowed"
+                                  )}
+                                  onClick={() => BACKEND_URL && handleCloneFromGitHub(repo)}
                                 >
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
@@ -4098,8 +4163,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                                     </div>
                                   </div>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); handleCloneFromGitHub(repo); }}
-                                    className="px-3 py-1.5 bg-[#38BDF8]/10 text-[#38BDF8] rounded-lg text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#38BDF8]/20"
+                                    type="button"
+                                    disabled={!BACKEND_URL}
+                                    onClick={(e) => { e.stopPropagation(); if (BACKEND_URL) handleCloneFromGitHub(repo); }}
+                                    className="px-3 py-1.5 bg-[#38BDF8]/10 text-[#38BDF8] rounded-lg text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#38BDF8]/20 disabled:opacity-30 disabled:pointer-events-none"
                                   >
                                     {t.cloneRepo}
                                   </button>
@@ -4137,8 +4204,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     </div>
                     <div className="flex justify-end">
                       <button
+                        type="button"
                         onClick={handleClone}
-                        disabled={!repoUrl || !cloneName}
+                        disabled={!BACKEND_URL || !repoUrl || !cloneName}
                         className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
                       >
                         {t.cloneRepo}
