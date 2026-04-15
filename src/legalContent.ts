@@ -7,6 +7,9 @@
 
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
+/** Bump when Terms or Privacy body changes; stored on user signup in Firestore `users`. */
+export const LEGAL_DOCUMENT_VERSION_ID = "2026-04-15";
+
 export const termsEn: LegalSection[] = [
   {
     id: "acceptance",
@@ -236,7 +239,7 @@ export const privacyEn: LegalSection[] = [
     id: "intro",
     title: "1. Introduction",
     paragraphs: [
-      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh (including sign-in and sign-up pages at /signin and /signup), site.sooner.sh, signin.sooner.sh, signup.sooner.sh (which redirect to sooner.sh for authentication), login.sooner.sh if used, blog.sooner.sh, cms.sooner.sh, and related subdomains.",
+      "This Privacy Policy explains how Sooner (“we”, “us”) collects, uses, and shares information when you use our websites and services (collectively, the “Service”), including sooner.sh (including sign-in and sign-up at https://sooner.sh/signin and https://sooner.sh/signup), site.sooner.sh (marketing), blog.sooner.sh (public blog and aggregated article view counts), cms.sooner.sh (admin content tools), and other subdomains we operate for the Service.",
       "By using the Service, you agree to this policy. If you do not agree, please do not use the Service.",
     ],
   },
@@ -258,6 +261,7 @@ export const privacyEn: LegalSection[] = [
       "To authenticate you, sync projects, prevent fraud and abuse, and comply with legal obligations.",
       "To communicate with you about the Service (e.g. security notices) where permitted.",
       "To analyze usage in aggregate to improve performance and user experience.",
+      "For public blog posts, we may use Google’s URL Inspection / Indexing API (with a service account you configure on our backend) to request faster discovery of new or updated article URLs. This does not grant Google access to non-public data.",
     ],
   },
   {
@@ -331,7 +335,7 @@ export const privacyJa: LegalSection[] = [
     id: "intro",
     title: "第1条（はじめに）",
     paragraphs: [
-      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh（/signin および /signup を含む）、site.sooner.sh、認証のため sooner.sh へ誘導する signin.sooner.sh・signup.sooner.sh、使用する場合の login.sooner.sh、blog.sooner.sh、cms.sooner.sh 等のサブドメインが含まれます。",
+      "本プライバシーポリシー（以下「本ポリシー」）は、Sooner（以下「当社」）が提供するウェブサイトおよびサービス（以下「本サービス」）において、利用者の情報をどのように取り扱うかを説明するものです。対象には sooner.sh（https://sooner.sh/signin および https://sooner.sh/signup を含む）、site.sooner.sh（マーケティング）、blog.sooner.sh（公開ブログおよび記事ごとの閲覧回数の集計）、cms.sooner.sh（管理用CMS）、その他本サービス運用のため当社が運用するサブドメインが含まれます。",
       "本サービスを利用することにより、本ポリシーに同意したものとみなされます。同意いただけない場合は、本サービスをご利用いただけません。",
     ],
   },
@@ -353,6 +357,7 @@ export const privacyJa: LegalSection[] = [
       "認証、プロジェクトの同期、不正利用の防止、法令に基づく対応。",
       "セキュリティ上重要な通知等、必要に応じた連絡。",
       "集計された形での利用状況の分析（パフォーマンスおよび体験の向上のため）。",
+      "公開ブログ記事については、バックエンドに設定したサービスアカウント等を用い、Google の Indexing API（URL 通知）により新規・更新記事URLのクロール促進を行う場合があります。非公開データへのアクセスを Google に与えるものではありません。",
     ],
   },
   {

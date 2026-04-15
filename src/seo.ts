@@ -109,14 +109,23 @@ const ja: Record<string, Pack> = {
   },
 };
 
-function hostKey(hostname: string): string {
+function hostKey(hostname: string, pathname: string): string {
   const h = hostname.toLowerCase();
-  if (h === "localhost" || h === "127.0.0.1") return "site";
+  const path = (pathname || "/").split("?")[0].replace(/\/$/, "") || "/";
+  if (h === "localhost" || h === "127.0.0.1") {
+    if (path === "/signin") return "signin";
+    if (path === "/signup") return "signup";
+    return "site";
+  }
   if (h.startsWith("site.")) return "site";
   if (h.startsWith("blog.")) return "blog";
   if (h.startsWith("signup.")) return "signup";
   if (h.startsWith("signin.") || h.startsWith("login.")) return "signin";
-  if (h === "sooner.sh") return "app";
+  if (h === "sooner.sh") {
+    if (path === "/signin") return "signin";
+    if (path === "/signup") return "signup";
+    return "app";
+  }
   return "app";
 }
 
@@ -220,52 +229,84 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
     },
   };
 
-  if (key === "site" || key === "app") {
-    const softwareApp = {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      name: "Sooner",
-      applicationCategory: "DeveloperApplication",
-      operatingSystem: "Web",
-      url: "https://sooner.sh/",
-      description: (lang === "ja" ? ja : en).site.description,
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-      author: { "@type": "Organization", name: "Sooner" },
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.8",
-        ratingCount: "12",
-      },
-    };
-
-    const faq = {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      mainEntity: lang === "ja" ? [
-        { "@type": "Question", name: "Soonerとは何ですか？", acceptedAnswer: { "@type": "Answer", text: "SoonerはブラウザベースのAIネイティブIDEです。自然言語で指示するだけで、AIがコードを生成、プレビュー、デプロイまで行います。インストール不要で、ブラウザだけで開発が完結します。" } },
-        { "@type": "Question", name: "Soonerは無料ですか？", acceptedAnswer: { "@type": "Answer", text: "はい、Soonerは無料で利用できます。メール、Google、またはGitHubアカウントでサインアップするだけで始められます。" } },
-        { "@type": "Question", name: "どのプログラミング言語に対応していますか？", acceptedAnswer: { "@type": "Answer", text: "JavaScript、TypeScript、Python、Go、Rust、HTML/CSSなど、幅広い言語とフレームワーク（React、Vue、Next.js、Three.jsなど）に対応しています。" } },
-      ] : [
-        { "@type": "Question", name: "What is Sooner?", acceptedAnswer: { "@type": "Answer", text: "Sooner is a browser-based AI-native IDE. Describe what you want in natural language and AI builds, previews, and ships your code in seconds. No installation required." } },
-        { "@type": "Question", name: "Is Sooner free?", acceptedAnswer: { "@type": "Answer", text: "Yes, Sooner is free to use. Sign up with email, Google, or GitHub and start building immediately." } },
-        { "@type": "Question", name: "What programming languages does Sooner support?", acceptedAnswer: { "@type": "Answer", text: "Sooner supports JavaScript, TypeScript, Python, Go, Rust, HTML/CSS, and popular frameworks like React, Vue, Next.js, and Three.js." } },
-      ],
-    };
-
+  if (key === "site" || key === "app" || key === "signin" || key === "signup") {
+    const navItems = lang === "ja"
+      ? [
+          { name: "ホーム", url: "https://site.sooner.sh/" },
+          { name: "アプリ（IDE）", url: "https://sooner.sh/" },
+          { name: "新規登録", url: "https://sooner.sh/signup" },
+          { name: "ログイン", url: "https://sooner.sh/signin" },
+          { name: "ブログ", url: "https://blog.sooner.sh/" },
+        ]
+      : [
+          { name: "Home", url: "https://site.sooner.sh/" },
+          { name: "App (IDE)", url: "https://sooner.sh/" },
+          { name: "Sign up", url: "https://sooner.sh/signup" },
+          { name: "Sign in", url: "https://sooner.sh/signin" },
+          { name: "Blog", url: "https://blog.sooner.sh/" },
+        ];
     const siteNav = {
       "@context": "https://schema.org",
-      "@type": "SiteNavigationElement",
-      name: lang === "ja" ? ["ホーム", "アプリ", "サインアップ", "ログイン", "ブログ"] : ["Home", "App", "Sign Up", "Sign In", "Blog"],
-      url: [
-        "https://site.sooner.sh/",
-        "https://sooner.sh/",
-        "https://signup.sooner.sh/",
-        "https://signin.sooner.sh/",
-        "https://blog.sooner.sh/",
-      ],
+      "@type": "ItemList",
+      name: lang === "ja" ? "Sooner 主要ナビゲーション" : "Sooner primary navigation",
+      itemListElement: navItems.map((item, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: item.name,
+        item: item.url,
+      })),
     };
 
-    return [org, website, softwareApp, faq, siteNav];
+    const out: object[] = [org, website];
+
+    if (key === "site" || key === "app") {
+      const softwareApp = {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "Sooner",
+        applicationCategory: "DeveloperApplication",
+        operatingSystem: "Web",
+        url: "https://sooner.sh/",
+        description: (lang === "ja" ? ja : en).site.description,
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        author: { "@type": "Organization", name: "Sooner" },
+        aggregateRating: {
+          "@type": "AggregateRating",
+          ratingValue: "4.8",
+          ratingCount: "12",
+        },
+      };
+
+      const faq = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: lang === "ja" ? [
+          { "@type": "Question", name: "Soonerとは何ですか？", acceptedAnswer: { "@type": "Answer", text: "SoonerはブラウザベースのAIネイティブIDEです。自然言語で指示するだけで、AIがコードを生成、プレビュー、デプロイまで行います。インストール不要で、ブラウザだけで開発が完結します。" } },
+          { "@type": "Question", name: "Soonerは無料ですか？", acceptedAnswer: { "@type": "Answer", text: "はい、Soonerは無料で利用できます。メール、Google、またはGitHubアカウントでサインアップするだけで始められます。" } },
+          { "@type": "Question", name: "どのプログラミング言語に対応していますか？", acceptedAnswer: { "@type": "Answer", text: "JavaScript、TypeScript、Python、Go、Rust、HTML/CSSなど、幅広い言語とフレームワーク（React、Vue、Next.js、Three.jsなど）に対応しています。" } },
+        ] : [
+          { "@type": "Question", name: "What is Sooner?", acceptedAnswer: { "@type": "Answer", text: "Sooner is a browser-based AI-native IDE. Describe what you want in natural language and AI builds, previews, and ships your code in seconds. No installation required." } },
+          { "@type": "Question", name: "Is Sooner free?", acceptedAnswer: { "@type": "Answer", text: "Yes, Sooner is free to use. Sign up with email, Google, or GitHub and start building immediately." } },
+          { "@type": "Question", name: "What programming languages does Sooner support?", acceptedAnswer: { "@type": "Answer", text: "Sooner supports JavaScript, TypeScript, Python, Go, Rust, HTML/CSS, and popular frameworks like React, Vue, Next.js, and Three.js." } },
+        ],
+      };
+      out.push(softwareApp);
+      out.push(faq);
+    } else {
+      const table = lang === "ja" ? ja : en;
+      const pack = key === "signin" ? table.signin : table.signup;
+      out.push({
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: pack.title,
+        url: key === "signin" ? "https://sooner.sh/signin" : "https://sooner.sh/signup",
+        description: pack.description,
+        isPartOf: { "@type": "WebSite", name: "Sooner", url: "https://site.sooner.sh/" },
+      });
+    }
+
+    out.push(siteNav);
+    return out;
   }
 
   if (key === "blog") {
@@ -288,7 +329,7 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   if (typeof document === "undefined") return;
 
   const hostname = window.location.hostname;
-  const key = hostKey(hostname);
+  const key = hostKey(hostname, window.location.pathname);
   const lang = override?.lang ?? getLangForSeo();
   const table = lang === "ja" ? ja : en;
   const pack = table[key] ?? table.app;

@@ -183,8 +183,6 @@ async function startServer() {
           "https://sooner.sh",
           "https://www.sooner.sh",
           "https://site.sooner.sh",
-          "https://signup.sooner.sh",
-          "https://signin.sooner.sh",
           "https://blog.sooner.sh",
           "https://cms.sooner.sh",
         ]
@@ -1617,7 +1615,8 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // --- Google Indexing API helper ---
+  // --- Google Indexing API (Web Search / URL notifications) ---
+  // Uses the service account JSON you configure for the project; requests faster crawl of public blog URLs after CMS publish.
   async function notifyGoogleIndexing(url: string): Promise<{ success: boolean; error?: string }> {
     if (!admin.apps.length) return { success: false, error: "Firebase Admin not initialized" };
     try {

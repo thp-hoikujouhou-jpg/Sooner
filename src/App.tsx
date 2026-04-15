@@ -94,6 +94,7 @@ import BlogPage from "./BlogPage";
 import CmsPage from "./CmsPage";
 import LegalPage from "./LegalPage";
 import LegalArchiveIndex from "./LegalArchiveIndex";
+import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
   auth,
@@ -118,8 +119,10 @@ import {
   storageDeleteProject,
   storageSaveChatHistory,
   storageLoadChatHistory,
+  recordNewUserLegalProfile,
   type User,
 } from "./firebase";
+import { getAdditionalUserInfo } from "firebase/auth";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -731,7 +734,13 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
     setError("");
     try {
       if (mode === "signup") {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await recordNewUserLegalProfile(cred.user.uid, {
+          signupMethod: "email",
+          locale: lang,
+          termsVersionId: LEGAL_DOCUMENT_VERSION_ID,
+          privacyVersionId: LEGAL_DOCUMENT_VERSION_ID,
+        });
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -748,7 +757,21 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       setError(t.mustAcceptTerms);
       return;
     }
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); redirectToApp(); } catch (err: any) { setError(err.message || "Google sign-in failed"); }
+    try {
+      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+      if (mode === "signup") {
+        const info = getAdditionalUserInfo(cred);
+        if (info?.isNewUser && cred.user) {
+          await recordNewUserLegalProfile(cred.user.uid, {
+            signupMethod: "google",
+            locale: lang,
+            termsVersionId: LEGAL_DOCUMENT_VERSION_ID,
+            privacyVersionId: LEGAL_DOCUMENT_VERSION_ID,
+          });
+        }
+      }
+      redirectToApp();
+    } catch (err: any) { setError(err.message || "Google sign-in failed"); }
   };
 
   const handleGithub = async () => {
@@ -762,6 +785,17 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       provider.addScope("repo");
       provider.addScope("read:user");
       const result = await signInWithPopup(auth, provider);
+      if (mode === "signup") {
+        const info = getAdditionalUserInfo(result);
+        if (info?.isNewUser && result.user) {
+          await recordNewUserLegalProfile(result.user.uid, {
+            signupMethod: "github",
+            locale: lang,
+            termsVersionId: LEGAL_DOCUMENT_VERSION_ID,
+            privacyVersionId: LEGAL_DOCUMENT_VERSION_ID,
+          });
+        }
+      }
       const credential = GithubAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         localStorage.setItem("github_token", credential.accessToken);
@@ -1923,11 +1957,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         if (!u.email) throw new Error("No email on account");
         await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, pwd));
       } else if (pid === "google.com") {
-        await reauthenticateWithPopup(auth, new GoogleAuthProvider());
+        await reauthenticateWithPopup(u, new GoogleAuthProvider());
       } else if (pid === "github.com") {
-        await reauthenticateWithPopup(auth, new GithubAuthProvider());
+        await reauthenticateWithPopup(u, new GithubAuthProvider());
       } else {
-        await reauthenticateWithPopup(auth, new GoogleAuthProvider());
+        await reauthenticateWithPopup(u, new GoogleAuthProvider());
       }
       const uid = u.uid;
       const projects = await storageListProjects(uid);

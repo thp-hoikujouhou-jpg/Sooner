@@ -157,8 +157,8 @@ export function getInitialLang(): "en" | "ja" {
 export const LEGAL_CONTACT_EMAIL = "soonerutingna@gmail.com";
 
 /**
- * Sign-in and sign-up must use the same origin as the app (sooner.sh) so Firebase Auth
- * session is shared. Subdomains like signin.sooner.sh cannot see auth state on sooner.sh.
+ * Sign-in and sign-up use the same origin as the IDE (sooner.sh) so Firebase Auth persists.
+ * Legacy signin.* / signup.* hostnames should redirect to /signin and /signup on sooner.sh.
  */
 export function navigateToAuthPage(mode: "signin" | "signup", lang?: "en" | "ja") {
   const langParam = lang && lang !== "en" ? `?lang=${lang}` : "";

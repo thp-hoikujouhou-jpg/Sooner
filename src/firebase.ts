@@ -34,6 +34,8 @@ import {
   where,
   orderBy,
   Timestamp,
+  setDoc,
+  serverTimestamp,
   type Firestore,
 } from "firebase/firestore";
 
@@ -158,11 +160,50 @@ export async function storageLoadChatHistory(uid: string, project: string): Prom
   try { return JSON.parse(content); } catch { return []; }
 }
 
+/** New account: Firestore `users/{uid}` with legal consent facts (merge-safe). Requires Firestore rules allowing user to write own doc. */
+export async function recordNewUserLegalProfile(
+  uid: string,
+  opts: {
+    signupMethod: "email" | "google" | "github";
+    locale: "en" | "ja";
+    termsVersionId: string;
+    privacyVersionId: string;
+  }
+): Promise<void> {
+  if (!db) return;
+  try {
+    await setDoc(
+      doc(db, "users", uid),
+      {
+        profile: {
+          signupMethod: opts.signupMethod,
+          localeAtSignup: opts.locale,
+          createdAt: serverTimestamp(),
+        },
+        legalConsent: {
+          termsVersionId: opts.termsVersionId,
+          privacyVersionId: opts.privacyVersionId,
+          termsAcceptedAt: serverTimestamp(),
+          privacyAcceptedAt: serverTimestamp(),
+          recordedFactEn:
+            "At account creation on sooner.sh, the user completed the signup flow including required acceptance of the Terms of Service and Privacy Policy (checkbox confirmation for email sign-up; same requirement before OAuth sign-up).",
+          recordedFactJa:
+            "アカウント作成時（sooner.sh）に、利用規約およびプライバシーポリシーへの同意（メール登録はチェックボックス、OAuth 登録はポップアップ前に同意完了）を完了した事実。",
+        },
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("recordNewUserLegalProfile:", e);
+  }
+}
+
 export {
   db,
   auth,
   storage,
   isConfigured,
+  recordNewUserLegalProfile,
   collection,
   doc,
   getDocs,
@@ -171,6 +212,8 @@ export {
   where,
   orderBy,
   Timestamp,
+  setDoc,
+  serverTimestamp,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
