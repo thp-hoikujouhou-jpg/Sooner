@@ -271,17 +271,67 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
   const imgInputRef = useRef<HTMLInputElement>(null);
 
   const editorEn = useEditor({
-    extensions: [StarterKit.configure({ link: false }), TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "Write your article..." })],
+    extensions: [
+      StarterKit.configure({ link: false }),
+      TiptapImage.configure({
+        resize: {
+          enabled: true,
+          minWidth: 64,
+          minHeight: 64,
+          alwaysPreserveAspectRatio: true,
+        },
+      }),
+      TiptapLink.configure({ openOnClick: false }),
+      Placeholder.configure({ placeholder: "Write your article..." }),
+    ],
     content: post.content_en || "",
     onUpdate: ({ editor }) => updateField("content_en", editor.getHTML()),
   });
   const editorJa = useEditor({
-    extensions: [StarterKit.configure({ link: false }), TiptapImage, TiptapLink.configure({ openOnClick: false }), Placeholder.configure({ placeholder: "記事を書いてください..." })],
+    extensions: [
+      StarterKit.configure({ link: false }),
+      TiptapImage.configure({
+        resize: {
+          enabled: true,
+          minWidth: 64,
+          minHeight: 64,
+          alwaysPreserveAspectRatio: true,
+        },
+      }),
+      TiptapLink.configure({ openOnClick: false }),
+      Placeholder.configure({ placeholder: "記事を書いてください..." }),
+    ],
     content: post.content_ja || "",
     onUpdate: ({ editor }) => updateField("content_ja", editor.getHTML()),
   });
 
   const activeEditor = contentTab === "en" ? editorEn : editorJa;
+
+  const uploadImageFile = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    const res = await axios.post(`${BACKEND_BASE}/api/cms/upload-image`, formData, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const url = res.data?.url as string | undefined;
+    if (!url) throw new Error("No URL in response");
+    return url;
+  };
+
+  const stripImgWithSrc = (html: string, src: string) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    wrap.querySelectorAll("img").forEach((img) => {
+      if (img.getAttribute("src") === src) img.remove();
+    });
+    return wrap.innerHTML;
+  };
+
+  const openImagePicker = () => {
+    if (!activeEditor) return;
+    setUploadError(null);
+    imgInputRef.current?.click();
+  };
 
   const handleImageUpload = async (file: File) => {
     if (!activeEditor) return;
@@ -295,24 +345,9 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
     const blobUrl = URL.createObjectURL(file);
     activeEditor.chain().focus().setImage({ src: blobUrl }).run();
 
-    const stripImgWithSrc = (html: string, src: string) => {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = html;
-      wrap.querySelectorAll("img").forEach((img) => {
-        if (img.getAttribute("src") === src) img.remove();
-      });
-      return wrap.innerHTML;
-    };
-
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file, file.name);
-      const res = await axios.post(`${BACKEND_BASE}/api/cms/upload-image`, formData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const url = res.data?.url;
-      if (!url) throw new Error("No URL in response");
+      const url = await uploadImageFile(file);
       const html = activeEditor.getHTML();
       if (html.includes(blobUrl)) {
         activeEditor.commands.setContent(html.split(blobUrl).join(url));
@@ -446,8 +481,18 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
                   const url = prompt("URL:");
                   if (url) activeEditor.chain().focus().setLink({ href: url }).run();
                 })}
-                {toolbarBtn(uploading ? "..." : "Img", () => { setUploadError(null); imgInputRef.current?.click(); })}
-                <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ""; }} />
+                {toolbarBtn(uploading ? "..." : "Img", () => openImagePicker())}
+                <input
+                  ref={imgInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImageUpload(f);
+                    e.target.value = "";
+                  }}
+                />
               </div>
             )}
             {uploadError ? <p className="text-[10px] text-red-400 px-4 max-w-[90vw] break-words">{uploadError}</p> : null}
@@ -464,7 +509,7 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
 
           <div className="flex-1 overflow-y-auto p-4">
             {viewMode === "editor" ? (
-              <div className="min-h-[400px] [&_.tiptap]:outline-none [&_.tiptap]:min-h-[400px] [&_.tiptap_p]:mb-3 [&_.tiptap_h2]:text-xl [&_.tiptap_h2]:font-black [&_.tiptap_h2]:mt-6 [&_.tiptap_h2]:mb-3 [&_.tiptap_h3]:text-lg [&_.tiptap_h3]:font-bold [&_.tiptap_h3]:mt-4 [&_.tiptap_h3]:mb-2 [&_.tiptap_ul]:list-disc [&_.tiptap_ul]:pl-6 [&_.tiptap_ol]:list-decimal [&_.tiptap_ol]:pl-6 [&_.tiptap_li]:mb-1 [&_.tiptap_a]:text-[#38BDF8] [&_.tiptap_a]:underline [&_.tiptap_blockquote]:border-l-2 [&_.tiptap_blockquote]:border-[#38BDF8]/30 [&_.tiptap_blockquote]:pl-4 [&_.tiptap_blockquote]:text-[#8E9299] [&_.tiptap_pre]:bg-[#0F0F0F] [&_.tiptap_pre]:p-3 [&_.tiptap_pre]:rounded-lg [&_.tiptap_pre]:my-3 [&_.tiptap_code]:bg-[#1A1A1A] [&_.tiptap_code]:px-1 [&_.tiptap_code]:rounded [&_.tiptap_img]:rounded-xl [&_.tiptap_img]:my-4 [&_.tiptap_.is-editor-empty:first-child::before]:text-[#3F3F46] [&_.tiptap_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.tiptap_.is-editor-empty:first-child::before]:float-left [&_.tiptap_.is-editor-empty:first-child::before]:h-0 [&_.tiptap_.is-editor-empty:first-child::before]:pointer-events-none">
+              <div className="min-h-[400px] [&_.tiptap]:outline-none [&_.tiptap]:min-h-[400px] [&_.tiptap_p]:mb-3 [&_.tiptap_h2]:text-xl [&_.tiptap_h2]:font-black [&_.tiptap_h2]:mt-6 [&_.tiptap_h2]:mb-3 [&_.tiptap_h3]:text-lg [&_.tiptap_h3]:font-bold [&_.tiptap_h3]:mt-4 [&_.tiptap_h3]:mb-2 [&_.tiptap_ul]:list-disc [&_.tiptap_ul]:pl-6 [&_.tiptap_ol]:list-decimal [&_.tiptap_ol]:pl-6 [&_.tiptap_li]:mb-1 [&_.tiptap_a]:text-[#38BDF8] [&_.tiptap_a]:underline [&_.tiptap_blockquote]:border-l-2 [&_.tiptap_blockquote]:border-[#38BDF8]/30 [&_.tiptap_blockquote]:pl-4 [&_.tiptap_blockquote]:text-[#8E9299] [&_.tiptap_pre]:bg-[#0F0F0F] [&_.tiptap_pre]:p-3 [&_.tiptap_pre]:rounded-lg [&_.tiptap_pre]:my-3 [&_.tiptap_code]:bg-[#1A1A1A] [&_.tiptap_code]:px-1 [&_.tiptap_code]:rounded [&_.tiptap_img]:rounded-xl [&_.tiptap_img]:my-4 [&_.tiptap_[data-resize-container]]:max-w-full [&_.tiptap_[data-resize-container]_img]:max-w-full [&_.tiptap_.is-editor-empty:first-child::before]:text-[#3F3F46] [&_.tiptap_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] [&_.tiptap_.is-editor-empty:first-child::before]:float-left [&_.tiptap_.is-editor-empty:first-child::before]:h-0 [&_.tiptap_.is-editor-empty:first-child::before]:pointer-events-none">
                 {contentTab === "en" ? <EditorContent editor={editorEn} /> : <EditorContent editor={editorJa} />}
               </div>
             ) : (
