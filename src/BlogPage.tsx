@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Zap, Loader2, X, Menu, BookOpen, ArrowRight, Clock, User } from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Zap, Loader2, X, Menu, BookOpen, ArrowRight, Clock, User, Share2, Link2, Check, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
 import axios from "axios";
 import { applyDocumentSeo, applyArticleSeo } from "./seo";
@@ -16,6 +16,53 @@ function pathSegmentToSlug(pathname: string): string | null {
   }
 }
 
+function blogArticlePublicUrl(slug: string): string {
+  const h = window.location.hostname;
+  const path = `/${encodeURIComponent(slug)}`;
+  if (h === "blog.sooner.sh" || h === "localhost" || h === "127.0.0.1") {
+    return `${window.location.origin}${path}`;
+  }
+  return `https://blog.sooner.sh${path}`;
+}
+
+function publishTimeMs(p: BlogPost): number {
+  const pub = p.publishAt;
+  if (pub && typeof pub === "object" && "_seconds" in pub) {
+    return (pub as { _seconds: number })._seconds * 1000;
+  }
+  if (typeof pub === "string") {
+    const t = new Date(pub).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+  return 0;
+}
+
+function pickMostViewed(posts: BlogPost[], excludeSlug: string | undefined, n: number): BlogPost[] {
+  return [...posts]
+    .filter((p) => p.slug !== excludeSlug)
+    .sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))
+    .slice(0, n);
+}
+
+function pickRelated(posts: BlogPost[], current: BlogPost, n: number): BlogPost[] {
+  const others = posts.filter((p) => p.slug !== current.slug);
+  const tagSet = new Set(current.tags || []);
+  const scored = others.map((p) => ({
+    p,
+    score: (p.tags || []).filter((t) => tagSet.has(t)).length,
+    t: publishTimeMs(p),
+  }));
+  scored.sort((a, b) => (b.score !== a.score ? b.score - a.score : b.t - a.t));
+  const withTags = scored.filter((s) => s.score > 0).map((s) => s.p);
+  if (withTags.length >= n) return withTags.slice(0, n);
+  const picked = new Set(withTags.map((p) => p.slug));
+  const rest = scored
+    .filter((s) => !picked.has(s.p.slug))
+    .sort((a, b) => b.t - a.t)
+    .map((s) => s.p);
+  return [...withTags, ...rest].slice(0, n);
+}
+
 export default function BlogPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -28,7 +75,6 @@ export default function BlogPage() {
   const t = blogI18n[lang];
   const isProduction = window.location.hostname.endsWith("sooner.sh");
 
-  useEffect(() => { applyDocumentSeo({ lang }); }, [lang]);
   useEffect(() => {
     if (mobileNavOpen) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
@@ -87,19 +133,22 @@ export default function BlogPage() {
   }, [activeSlug]);
 
   useEffect(() => {
-    if (!activePost || !activeSlug) return;
-    const post = activePost;
-    const pubDate = post.publishAt?._seconds
-      ? new Date(post.publishAt._seconds * 1000).toISOString()
-      : typeof post.publishAt === "string" ? post.publishAt : new Date().toISOString();
-    applyArticleSeo({
-      title: lang === "ja" ? (post.title_ja || post.title_en) : (post.title_en || post.title_ja),
-      description: lang === "ja" ? (post.excerpt_ja || post.excerpt_en) : (post.excerpt_en || post.excerpt_ja),
-      slug: post.slug,
-      author: post.author,
-      publishedAt: pubDate,
-      lang,
-    });
+    if (activePost && activeSlug) {
+      const post = activePost;
+      const pubDate = post.publishAt?._seconds
+        ? new Date(post.publishAt._seconds * 1000).toISOString()
+        : typeof post.publishAt === "string" ? post.publishAt : new Date().toISOString();
+      applyArticleSeo({
+        title: lang === "ja" ? (post.title_ja || post.title_en) : (post.title_en || post.title_ja),
+        description: lang === "ja" ? (post.excerpt_ja || post.excerpt_en) : (post.excerpt_en || post.excerpt_ja),
+        slug: post.slug,
+        author: post.author,
+        publishedAt: pubDate,
+        lang,
+      });
+      return;
+    }
+    applyDocumentSeo({ lang });
   }, [activePost, activeSlug, lang]);
 
   const openPost = (slug: string) => {
@@ -142,6 +191,20 @@ export default function BlogPage() {
     return lang === "ja" ? `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日` : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
   };
 
+  const mostViewed = useMemo(
+    () => (activePost ? pickMostViewed(posts, activePost.slug, 3) : []),
+    [posts, activePost]
+  );
+  const relatedPosts = useMemo(
+    () => (activePost ? pickRelated(posts, activePost, 4) : []),
+    [posts, activePost]
+  );
+
+  useEffect(() => {
+    if (!activePost) return;
+    fetchPostList({ silent: true });
+  }, [activePost?.slug, fetchPostList]);
+
   const navButtons = (
     <>
       <button type="button" onClick={() => { toggleLang(); setMobileNavOpen(false); }} className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center">{t.langToggle}</button>
@@ -174,89 +237,113 @@ export default function BlogPage() {
         </>
       )}
 
-      <main className="relative z-10 flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-14 max-w-3xl mx-auto w-full">
+      <main className="relative z-10 flex-1 px-4 sm:px-6 md:px-8 py-8 sm:py-14 w-full max-w-6xl mx-auto">
         {activePost ? (
-          <motion.article
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            className="max-w-2xl mx-auto"
-          >
-            <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline group">
-              <ArrowRight className="w-3 h-3 rotate-180 transition-transform group-hover:-translate-x-0.5" /> {t.backToList}
-            </button>
-
-            <div
-              className={cn(
-                "rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.04] to-white/[0.01]",
-                "shadow-[0_0_0_1px_rgba(56,189,248,0.06),0_24px_48px_-12px_rgba(0,0,0,0.5)]",
-                "overflow-hidden"
-              )}
-            >
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-[#38BDF8]/40 to-transparent" />
-              <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-10 sm:pb-12">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6 text-[11px] text-[#71717A]">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141416] border border-white/[0.08] text-[#A1A1AA]">
-                    <Clock className="w-3 h-3 text-[#38BDF8]/80 shrink-0" />
-                    {formatDate(activePost.publishAt)}
-                  </span>
-                  <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <User className="w-3 h-3 text-[#52525B] shrink-0" />
-                    {activePost.author}
-                  </span>
-                  <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
-                  <span>{lang === "ja" ? activePost.readingTime_ja : activePost.readingTime_en}</span>
-                </div>
-
-                <h1 className="text-[1.75rem] sm:text-4xl md:text-[2.35rem] font-black tracking-tight text-white leading-[1.15] mb-8">
-                  {lang === "ja" ? activePost.title_ja : activePost.title_en}
-                </h1>
-
-                {activePost.tags && activePost.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-10">
-                    {activePost.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md bg-[#38BDF8]/[0.08] text-[#7dd3fc] border border-[#38BDF8]/15"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="h-px w-full bg-gradient-to-r from-[#38BDF8]/20 via-white/[0.08] to-transparent mb-10" />
+          <>
+            <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10 lg:items-start">
+              <motion.article
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                className="min-w-0 max-w-2xl lg:max-w-none mx-auto lg:mx-0 w-full"
+              >
+                <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline group">
+                  <ArrowRight className="w-3 h-3 rotate-180 transition-transform group-hover:-translate-x-0.5" /> {t.backToList}
+                </button>
 
                 <div
                   className={cn(
-                    "prose prose-invert max-w-none text-[#D4D4D8] leading-[1.85] text-[15px] sm:text-base",
-                    "[&_h2]:text-xl [&_h2]:font-black [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:text-white [&_h2]:tracking-tight",
-                    "[&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-10 [&_h3]:mb-3 [&_h3]:text-[#E4E4E7]",
-                    "[&_p]:mb-5 [&_p]:text-[#C4C4CC]",
-                    "[&_a]:text-[#38BDF8] [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-[#38BDF8]/40 hover:[&_a]:decoration-[#38BDF8]",
-                    "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1.5 [&_li]:text-[#C4C4CC]",
-                    "[&_code]:bg-[#141416] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded-md [&_code]:text-[#7dd3fc] [&_code]:text-[0.85em] [&_code]:border [&_code]:border-white/[0.06]",
-                    "[&_pre]:bg-[#0a0a0c] [&_pre]:p-5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:mb-8 [&_pre]:border [&_pre]:border-white/[0.07] [&_pre]:shadow-inner",
-                    "[&_img]:rounded-xl [&_img]:my-8 [&_img]:border [&_img]:border-white/[0.06] [&_img]:shadow-lg",
-                    "[&_blockquote]:border-l-[3px] [&_blockquote]:border-[#38BDF8]/50 [&_blockquote]:pl-5 [&_blockquote]:text-[#9CA3AF] [&_blockquote]:italic [&_blockquote]:bg-white/[0.02] [&_blockquote]:py-3 [&_blockquote]:pr-4 [&_blockquote]:rounded-r-lg"
+                    "rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.04] to-white/[0.01]",
+                    "shadow-[0_0_0_1px_rgba(56,189,248,0.06),0_24px_48px_-12px_rgba(0,0,0,0.5)]",
+                    "overflow-hidden"
                   )}
-                  dangerouslySetInnerHTML={{ __html: lang === "ja" ? activePost.content_ja : activePost.content_en }}
-                />
-              </div>
+                >
+                  <div className="h-px w-full bg-gradient-to-r from-transparent via-[#38BDF8]/40 to-transparent" />
+                  <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-10 sm:pb-12">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6 text-[11px] text-[#71717A]">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141416] border border-white/[0.08] text-[#A1A1AA]">
+                        <Clock className="w-3 h-3 text-[#38BDF8]/80 shrink-0" />
+                        {formatDate(activePost.publishAt)}
+                      </span>
+                      <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <User className="w-3 h-3 text-[#52525B] shrink-0" />
+                        {activePost.author}
+                      </span>
+                      <span className="text-[#3F3F46] select-none" aria-hidden>·</span>
+                      <span>{lang === "ja" ? activePost.readingTime_ja : activePost.readingTime_en}</span>
+                    </div>
+
+                    <h1 className="text-[1.75rem] sm:text-4xl md:text-[2.35rem] font-black tracking-tight text-white leading-[1.15] mb-8">
+                      {lang === "ja" ? activePost.title_ja : activePost.title_en}
+                    </h1>
+
+                    {activePost.tags && activePost.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-10">
+                        {activePost.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md bg-[#38BDF8]/[0.08] text-[#7dd3fc] border border-[#38BDF8]/15"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="h-px w-full bg-gradient-to-r from-[#38BDF8]/20 via-white/[0.08] to-transparent mb-10" />
+
+                    <div
+                      className={cn(
+                        "prose prose-invert max-w-none text-[#D4D4D8] leading-[1.85] text-[15px] sm:text-base",
+                        "[&_h2]:text-xl [&_h2]:font-black [&_h2]:mt-12 [&_h2]:mb-4 [&_h2]:text-white [&_h2]:tracking-tight",
+                        "[&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-10 [&_h3]:mb-3 [&_h3]:text-[#E4E4E7]",
+                        "[&_p]:mb-5 [&_p]:text-[#C4C4CC]",
+                        "[&_a]:text-[#38BDF8] [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-[#38BDF8]/40 hover:[&_a]:decoration-[#38BDF8]",
+                        "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1.5 [&_li]:text-[#C4C4CC]",
+                        "[&_code]:bg-[#141416] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded-md [&_code]:text-[#7dd3fc] [&_code]:text-[0.85em] [&_code]:border [&_code]:border-white/[0.06]",
+                        "[&_pre]:bg-[#0a0a0c] [&_pre]:p-5 [&_pre]:rounded-xl [&_pre]:overflow-x-auto [&_pre]:mb-8 [&_pre]:border [&_pre]:border-white/[0.07] [&_pre]:shadow-inner",
+                        "[&_img]:rounded-xl [&_img]:my-8 [&_img]:border [&_img]:border-white/[0.06] [&_img]:shadow-lg",
+                        "[&_blockquote]:border-l-[3px] [&_blockquote]:border-[#38BDF8]/50 [&_blockquote]:pl-5 [&_blockquote]:text-[#9CA3AF] [&_blockquote]:italic [&_blockquote]:bg-white/[0.02] [&_blockquote]:py-3 [&_blockquote]:pr-4 [&_blockquote]:rounded-r-lg"
+                      )}
+                      dangerouslySetInnerHTML={{ __html: lang === "ja" ? activePost.content_ja : activePost.content_en }}
+                    />
+
+                    <div className="mt-10 pt-8 border-t border-white/[0.06]">
+                      <BlogShareBar
+                        url={blogArticlePublicUrl(activePost.slug)}
+                        title={lang === "ja" ? (activePost.title_ja || activePost.title_en) : (activePost.title_en || activePost.title_ja)}
+                        t={t}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-8 border-t border-white/[0.06]">
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-white/[0.04] border border-white/[0.08] text-[#E4E4E7] hover:border-[#38BDF8]/30 hover:bg-[#38BDF8]/[0.06] transition-all"
+                  >
+                    <ArrowRight className="w-4 h-4 rotate-180" />
+                    {t.backToList}
+                  </button>
+                </div>
+              </motion.article>
+
+              <aside className="hidden lg:block shrink-0">
+                <div className="sticky top-28">
+                  <MostViewedSidebar posts={mostViewed} lang={lang} t={t} onOpen={openPost} formatDate={formatDate} />
+                </div>
+              </aside>
             </div>
 
-            <div className="mt-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-8 border-t border-white/[0.06]">
-              <button
-                type="button"
-                onClick={goBack}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-white/[0.04] border border-white/[0.08] text-[#E4E4E7] hover:border-[#38BDF8]/30 hover:bg-[#38BDF8]/[0.06] transition-all"
-              >
-                <ArrowRight className="w-4 h-4 rotate-180" />
-                {t.backToList}
-              </button>
+            <div className="lg:hidden mt-10 max-w-2xl mx-auto">
+              <MostViewedSidebar posts={mostViewed} lang={lang} t={t} onOpen={openPost} formatDate={formatDate} />
             </div>
-          </motion.article>
+
+            <RelatedPostsSection posts={relatedPosts} lang={lang} t={t} onOpen={openPost} formatDate={formatDate} />
+          </>
         ) : activeSlug ? (
           <div className="max-w-2xl mx-auto py-12">
             <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs text-[#38BDF8] font-semibold mb-8 hover:underline group">
@@ -282,7 +369,7 @@ export default function BlogPage() {
             ) : null}
           </div>
         ) : (
-          <>
+          <div className="max-w-3xl mx-auto w-full">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
               <div className="mb-10 sm:mb-14 pb-8 sm:pb-10 border-b border-white/[0.06]">
                 <div className="inline-flex items-center gap-2 bg-[#38BDF8]/[0.06] border border-[#38BDF8]/15 rounded-full px-3 py-1 mb-5">
@@ -320,7 +407,7 @@ export default function BlogPage() {
                 ))}
               </ul>
             )}
-          </>
+          </div>
         )}
       </main>
 
@@ -334,5 +421,139 @@ export default function BlogPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function BlogShareBar({ url, title, t }: { url: string; title: string; t: (typeof blogI18n)["en"] }) {
+  const [copied, setCopied] = useState(false);
+  const encUrl = encodeURIComponent(url);
+  const encTitle = encodeURIComponent(title);
+  const threadsText = encodeURIComponent(`${title} ${url}`);
+  const bskyText = encodeURIComponent(`${title} ${url}`);
+  const links: { label: string; href: string }[] = [
+    { label: "X", href: `https://twitter.com/intent/tweet?text=${encTitle}&url=${encUrl}` },
+    { label: "Facebook", href: `https://www.facebook.com/sharer/sharer.php?u=${encUrl}` },
+    { label: "LinkedIn", href: `https://www.linkedin.com/sharing/share-offsite/?url=${encUrl}` },
+    { label: "LINE", href: `https://social-plugins.line.me/lineit/share?url=${encUrl}` },
+    { label: "WhatsApp", href: `https://api.whatsapp.com/send?text=${encodeURIComponent(`${title} ${url}`)}` },
+    { label: "Telegram", href: `https://t.me/share/url?url=${encUrl}&text=${encTitle}` },
+    { label: "Threads", href: `https://www.threads.net/intent/post?text=${threadsText}` },
+    { label: "Bluesky", href: `https://bsky.app/intent/compose?text=${bskyText}` },
+    { label: "Reddit", href: `https://www.reddit.com/submit?url=${encUrl}&title=${encTitle}` },
+    { label: "Email", href: `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(`${title}\n\n${url}`)}` },
+  ];
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-4">
+      <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-wider text-[#38BDF8]">
+        <Share2 className="w-3.5 h-3.5 shrink-0" aria-hidden /> {t.share}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {links.map((l) => (
+          <a
+            key={l.label}
+            href={l.href}
+            {...(l.href.startsWith("mailto:")
+              ? {}
+              : { target: "_blank", rel: "nofollow noopener noreferrer" })}
+            className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#141416] border border-white/[0.08] text-[#E4E4E7] hover:border-[#38BDF8]/40 hover:text-[#38BDF8] transition-colors"
+          >
+            {l.label}
+          </a>
+        ))}
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#141416] border border-white/[0.08] text-[#E4E4E7] hover:border-[#38BDF8]/40 hover:text-[#38BDF8] transition-colors"
+        >
+          {copied ? <Check className="w-3 h-3 text-emerald-400 shrink-0" aria-hidden /> : <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
+          {copied ? t.linkCopied : t.copyLink}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MostViewedSidebar({
+  posts,
+  lang,
+  t,
+  onOpen,
+  formatDate,
+}: {
+  posts: BlogPost[];
+  lang: "en" | "ja";
+  t: (typeof blogI18n)["en"];
+  onOpen: (slug: string) => void;
+  formatDate: (ts: unknown) => string;
+}) {
+  if (posts.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+      <div className="flex items-center gap-2 mb-4 text-[10px] font-bold uppercase tracking-wider text-[#38BDF8]">
+        <TrendingUp className="w-3.5 h-3.5 shrink-0" aria-hidden /> {t.mostViewed}
+      </div>
+      <ol className="space-y-4 list-none m-0 p-0">
+        {posts.map((p, i) => (
+          <li key={p.id}>
+            <button type="button" onClick={() => onOpen(p.slug)} className="w-full text-left group">
+              <span className="text-[10px] font-mono text-[#3F3F46]">{i + 1}</span>
+              <span className="block text-sm font-bold text-white group-hover:text-[#38BDF8] leading-snug line-clamp-2 mt-0.5">
+                {lang === "ja" ? p.title_ja || p.title_en : p.title_en || p.title_ja}
+              </span>
+              <span className="text-[10px] text-[#52525B] mt-1 block">
+                {formatDate(p.publishAt)} · {p.viewCount ?? 0} {t.viewsLabel}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function RelatedPostsSection({
+  posts,
+  lang,
+  t,
+  onOpen,
+  formatDate,
+}: {
+  posts: BlogPost[];
+  lang: "en" | "ja";
+  t: (typeof blogI18n)["en"];
+  onOpen: (slug: string) => void;
+  formatDate: (ts: unknown) => string;
+}) {
+  if (posts.length === 0) return null;
+  return (
+    <section className="mt-14 pt-10 border-t border-white/[0.08] w-full max-w-4xl mx-auto px-0 sm:px-0">
+      <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#38BDF8] mb-6">{t.relatedPosts}</h2>
+      <ul className="grid sm:grid-cols-2 gap-4 list-none m-0 p-0">
+        {posts.map((p) => (
+          <li key={p.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(p.slug)}
+              className="w-full text-left rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 hover:border-[#38BDF8]/25 transition-colors min-h-[7rem]"
+            >
+              <p className="text-[10px] text-[#71717A] mb-1">{formatDate(p.publishAt)}</p>
+              <p className="text-sm font-bold text-white line-clamp-2">{lang === "ja" ? p.title_ja || p.title_en : p.title_en || p.title_ja}</p>
+              <p className="text-xs text-[#A1A1AA] line-clamp-2 mt-2 leading-relaxed">{lang === "ja" ? p.excerpt_ja || p.excerpt_en : p.excerpt_en || p.excerpt_ja}</p>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

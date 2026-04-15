@@ -189,7 +189,7 @@ async function startServer() {
       : true,
     credentials: true,
   }));
-  app.use(bodyParser.json({ limit: "10mb" }));
+  app.use(bodyParser.json({ limit: "32mb" }));
 
   const PROJECTS_ROOT = path.resolve(process.cwd(), "projects");
 
@@ -1565,7 +1565,13 @@ async function startServer() {
     if (!firebaseDb) return res.status(503).json({ error: "Firestore not configured" });
     try {
       const snap = await firebaseDb.collection("blog_posts").orderBy("createdAt", "desc").get();
-      const posts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const now = admin.firestore.Timestamp.now();
+      const promoted = await promoteDueScheduledPosts(snap.docs, now);
+      const posts = snap.docs.map((d) => {
+        const data = d.data();
+        const status = promoted.has(d.id) ? "published" : data?.status;
+        return { id: d.id, ...data, status };
+      });
       res.json(posts);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -1576,7 +1582,11 @@ async function startServer() {
     try {
       const doc = await firebaseDb.collection("blog_posts").doc(req.params.id).get();
       if (!doc.exists) return res.status(404).json({ error: "Not found" });
-      res.json({ id: doc.id, ...doc.data() });
+      const now = admin.firestore.Timestamp.now();
+      const promoted = await promoteDueScheduledPosts([doc], now);
+      const data = doc.data();
+      const status = promoted.has(doc.id) ? "published" : data?.status;
+      res.json({ id: doc.id, ...data, status });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1692,6 +1702,33 @@ async function startServer() {
     return null;
   }
 
+  /** Scheduled posts whose publish time has passed become `published` in Firestore (CMS badge + consistency). */
+  async function promoteDueScheduledPosts(
+    docs: readonly admin.firestore.DocumentSnapshot[],
+    now: admin.firestore.Timestamp
+  ): Promise<Set<string>> {
+    const promoted = new Set<string>();
+    for (const d of docs) {
+      if (!d.exists) continue;
+      const data = d.data();
+      if (!data || data.status !== "scheduled") continue;
+      const ms = publishAtMillis(data.publishAt);
+      if (ms === null || ms > now.toMillis()) continue;
+      try {
+        await d.ref.update({ status: "published", updatedAt: now });
+        promoted.add(d.id);
+        const slug = data.slug;
+        if (slug) {
+          const r = await notifyGoogleIndexing(`https://blog.sooner.sh/${slug}`);
+          if (!r.success) console.warn("Google Indexing (auto-promote scheduled):", r.error);
+        }
+      } catch (e: any) {
+        console.warn("promoteDueScheduledPosts:", d.id, e?.message || e);
+      }
+    }
+    return promoted;
+  }
+
   function isBlogPostPublicVisible(data: any, now: admin.firestore.Timestamp): boolean {
     const st = data.status;
     if (st === "draft") return false;
@@ -1715,6 +1752,7 @@ async function startServer() {
         .orderBy("publishAt", "desc")
         .limit(250)
         .get();
+      await promoteDueScheduledPosts(snap.docs, now);
       const posts = snap.docs
         .filter((d) => isBlogPostPublicVisible(d.data(), now))
         .map((d) => {
@@ -1746,8 +1784,11 @@ async function startServer() {
       const visible = snap.docs.filter((d) => isBlogPostPublicVisible(d.data(), now));
       if (!visible.length) return res.status(404).json({ error: "Not found" });
       visible.sort((a, b) => (publishAtMillis(b.data().publishAt) ?? 0) - (publishAtMillis(a.data().publishAt) ?? 0));
+      const promoted = await promoteDueScheduledPosts(visible, now);
       const doc = visible[0];
-      res.json({ id: doc.id, ...doc.data() });
+      const raw = doc.data();
+      const merged = promoted.has(doc.id) ? { ...raw, status: "published" } : raw;
+      res.json({ id: doc.id, ...merged });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1760,6 +1801,7 @@ async function startServer() {
         .orderBy("publishAt", "desc")
         .limit(250)
         .get();
+      await promoteDueScheduledPosts(snap.docs, now);
       let urls = `  <url>\n    <loc>https://blog.sooner.sh/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
       for (const d of snap.docs.filter((doc) => isBlogPostPublicVisible(doc.data(), now))) {
         const data = d.data();
@@ -1784,6 +1826,7 @@ async function startServer() {
       const visible = snap.docs.filter((d) => isBlogPostPublicVisible(d.data(), now));
       if (!visible.length) return res.status(404).json({ error: "Not found" });
       visible.sort((a, b) => (publishAtMillis(b.data().publishAt) ?? 0) - (publishAtMillis(a.data().publishAt) ?? 0));
+      await promoteDueScheduledPosts(visible, now);
       const docRef = visible[0].ref;
       await docRef.update({ viewCount: admin.firestore.FieldValue.increment(1) });
       const updated = await docRef.get();
@@ -1798,20 +1841,44 @@ async function startServer() {
     if (!data || !filename) return res.status(400).json({ error: "data and filename required" });
     try {
       const bucket = firebaseStorage.bucket();
-      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const safeName = String(filename).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180);
       const storagePath = `blog/images/${Date.now()}_${safeName}`;
       const file = bucket.file(storagePath);
 
-      const buffer = Buffer.from(data, "base64");
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(data, "base64");
+      } catch {
+        return res.status(400).json({ error: "Invalid base64 image data" });
+      }
+      if (buffer.length > 25 * 1024 * 1024) {
+        return res.status(413).json({ error: "Image too large (max 25MB)" });
+      }
+
       await file.save(buffer, {
         contentType: contentType || "image/png",
         metadata: { cacheControl: "public, max-age=31536000" },
-        public: true,
       });
 
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+      const pathEncoded = storagePath.split("/").map((p) => encodeURIComponent(p)).join("/");
+      let publicUrl = `https://storage.googleapis.com/${bucket.name}/${pathEncoded}`;
+      try {
+        await file.makePublic();
+      } catch (aclErr: any) {
+        console.warn("upload-image: makePublic failed, using signed URL:", aclErr?.message);
+        const [signed] = await file.getSignedUrl({
+          version: "v4",
+          action: "read",
+          expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000,
+        });
+        publicUrl = signed;
+      }
+
       res.json({ url: publicUrl, path: storagePath });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      console.error("upload-image:", e);
+      res.status(500).json({ error: e.message || "Upload failed" });
+    }
   });
 
   // --- Health check ---

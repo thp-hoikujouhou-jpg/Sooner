@@ -1,4 +1,5 @@
 import type { LegalSection } from "./legalContent";
+import snap20260416PreDate from "./legalSnapshot20260416PreDateRollback.json";
 import snap20260415 from "./legalSnapshot20260415PreLp.json";
 import snap20260415PreCookie from "./legalSnapshot20260415PreCookieConsent.json";
 
@@ -22,6 +23,18 @@ export type LegalSnapshotBundle = {
  * 3. Deploy. Old versions remain available at `/legal/{en|ja}/archive/{id}/{terms|privacy}`.
  */
 export const LEGAL_SNAPSHOTS: LegalSnapshotBundle[] = [
+  {
+    id: "2026-04-16",
+    labelEn:
+      "April 16, 2026 archive — frozen while LEGAL_DOCUMENT_VERSION_ID was 2026-04-16 and “Last updated” was April 16, 2026, before reverting the displayed date and version id to April 15, 2026 / 2026-04-15 (includes blog popular-lists privacy clarification).",
+    labelJa:
+      "2026年4月16日アーカイブ — LEGAL_DOCUMENT_VERSION_ID が 2026-04-16・最終更新が2026年4月16日だった時点の全文を固定（その後、表示上の日付と版IDを2026年4月15日 / 2026-04-15 に戻す前の文面。ブログ人気記事に関するプライバシー追記を含む）。",
+    archivedOn: "2026-04-16",
+    termsEn: snap20260416PreDate.termsEn as LegalSection[],
+    termsJa: snap20260416PreDate.termsJa as LegalSection[],
+    privacyEn: snap20260416PreDate.privacyEn as LegalSection[],
+    privacyJa: snap20260416PreDate.privacyJa as LegalSection[],
+  },
   {
     id: "2026-04-15-pre-cookie",
     labelEn:

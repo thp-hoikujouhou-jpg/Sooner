@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Zap, Loader2, FileCode, Trash2, ArrowRight, Eye } from "lucide-react";
 import { motion } from "motion/react";
 import axios from "axios";
@@ -44,7 +44,7 @@ export default function CmsPage() {
   const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(Date.now()), 15_000);
+    const id = window.setInterval(() => setNowTick(Date.now()), 5_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -73,6 +73,39 @@ export default function CmsPage() {
     try { const r = await axios.get(`${BACKEND_BASE}/api/cms/posts`, { headers }); setPosts(r.data); } catch {}
     setLoading(false);
   };
+
+  const fetchPostsSilent = useCallback(async () => {
+    if (!token) return;
+    try {
+      const r = await axios.get(`${BACKEND_BASE}/api/cms/posts`, { headers: { Authorization: `Bearer ${token}` } });
+      setPosts(r.data);
+    } catch {
+      /* keep list */
+    }
+  }, [token]);
+
+  const wasEditingRef = useRef(false);
+  useEffect(() => {
+    if (wasEditingRef.current && !editingPost && loggedIn && token) {
+      fetchPostsSilent();
+    }
+    wasEditingRef.current = Boolean(editingPost);
+  }, [editingPost, loggedIn, token, fetchPostsSilent]);
+
+  useEffect(() => {
+    if (!loggedIn || !token || editingPost) return;
+    const id = window.setInterval(() => fetchPostsSilent(), 20_000);
+    return () => window.clearInterval(id);
+  }, [loggedIn, token, editingPost, fetchPostsSilent]);
+
+  useEffect(() => {
+    if (!loggedIn || !token) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible" && !editingPost) fetchPostsSilent();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loggedIn, token, editingPost, fetchPostsSilent]);
 
   /** datetime-local is interpreted in the browser's local TZ; send UTC ISO so the API stores the intended instant. */
   const publishAtAsIso = (raw: unknown): string => {
@@ -233,6 +266,8 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
   updateField: (f: string, v: any) => void; onSave: () => void; onCancel: () => void; saving: boolean; token: string;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [manualImgUrl, setManualImgUrl] = useState("");
   const imgInputRef = useRef<HTMLInputElement>(null);
 
   const editorEn = useEditor({
@@ -250,27 +285,55 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
 
   const handleImageUpload = async (file: File) => {
     if (!activeEditor) return;
+    setUploadError(null);
+    const max = 12 * 1024 * 1024;
+    if (file.size > max) {
+      setUploadError(`${t.imageUploadFailed}: ${t.imageUploadTooLarge}`);
+      return;
+    }
     setUploading(true);
     try {
       const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve) => {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onerror = () => reject(new Error("read failed"));
         reader.onload = () => {
           const result = reader.result as string;
-          resolve(result.split(",")[1]);
+          const part = result.split(",")[1];
+          if (!part) reject(new Error("no data"));
+          else resolve(part);
         };
         reader.readAsDataURL(file);
       });
       const res = await axios.post(`${BACKEND_BASE}/api/cms/upload-image`, {
         data: base64,
         filename: file.name,
-        contentType: file.type,
+        contentType: file.type || "image/png",
       }, { headers: { Authorization: `Bearer ${token}` } });
-      activeEditor.chain().focus().setImage({ src: res.data.url }).run();
-    } catch (e) {
-      const url = prompt(lang === "ja" ? "アップロード失敗。画像URLを直接入力:" : "Upload failed. Enter image URL directly:");
-      if (url) activeEditor.chain().focus().setImage({ src: url }).run();
+      const url = res.data?.url;
+      if (!url) throw new Error("No URL in response");
+      activeEditor.chain().focus().setImage({ src: url }).run();
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { error?: string }; status?: number } };
+      const serverMsg = ax.response?.data?.error;
+      const detail = serverMsg || (e instanceof Error ? e.message : "unknown");
+      setUploadError(`${t.imageUploadFailed}: ${detail}`);
     }
     setUploading(false);
+  };
+
+  const insertImageFromManualUrl = () => {
+    const u = manualImgUrl.trim();
+    if (!activeEditor || !u) return;
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
+    } catch {
+      setUploadError(lang === "ja" ? "有効なURLを入力してください" : "Enter a valid URL");
+      return;
+    }
+    activeEditor.chain().focus().setImage({ src: u }).run();
+    setManualImgUrl("");
+    setUploadError(null);
   };
 
   const toolbarBtn = (label: string, action: () => void, isActive?: boolean) => (
@@ -372,10 +435,20 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
                   const url = prompt("URL:");
                   if (url) activeEditor.chain().focus().setLink({ href: url }).run();
                 })}
-                {toolbarBtn(uploading ? "..." : "Img", () => imgInputRef.current?.click())}
+                {toolbarBtn(uploading ? "..." : "Img", () => { setUploadError(null); imgInputRef.current?.click(); })}
                 <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ""; }} />
               </div>
             )}
+            {uploadError ? <p className="text-[10px] text-red-400 px-4 max-w-[90vw] break-words">{uploadError}</p> : null}
+            <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
+              <input
+                value={manualImgUrl}
+                onChange={(e) => setManualImgUrl(e.target.value)}
+                placeholder={t.imagePasteUrlLabel}
+                className="min-w-[12rem] flex-1 bg-[#1A1A1A] border border-[#252525] rounded-lg py-1 px-2 text-[10px] text-[#E4E4E7] focus:outline-none focus:border-[#38BDF8]"
+              />
+              <button type="button" onClick={insertImageFromManualUrl} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-white/[0.06] border border-white/[0.1] text-[#38BDF8] hover:bg-[#38BDF8]/10 shrink-0">{t.imageInsertUrl}</button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">

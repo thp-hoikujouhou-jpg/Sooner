@@ -261,7 +261,7 @@ export const privacyEn: LegalSection[] = [
       "Account data: email address, display identifiers, and authentication data when you sign in or create an account with email, Google, or GitHub at https://sooner.sh/signin or https://sooner.sh/signup.",
       "Project and usage data: files, code, chat messages, and settings you store or generate in the Service.",
       "Technical data: IP address, device/browser type, approximate location derived from IP, timestamps, and diagnostic logs needed to operate and secure the Service.",
-      "Blog: when you read public blog pages, we may record aggregated page-view counts associated with articles.",
+      "Blog: when you read public blog pages, we may record aggregated page-view counts associated with articles. We use those counts only in aggregate to rank or highlight popular articles on the blog (for example “most viewed” lists) and to understand readership at a high level; they are not used to identify individual visitors.",
     ],
   },
   {
@@ -368,7 +368,7 @@ export const privacyJa: LegalSection[] = [
       "アカウント情報：メールアドレス、表示名等の識別子、https://sooner.sh/signin および https://sooner.sh/signup において、メール・Google・GitHub等でサインイン・新規登録を行う際の認証に関する情報。",
       "利用・コンテンツ情報：本サービス上で保存または生成されるファイル、コード、チャット内容、設定等。",
       "技術情報：IPアドレス、端末・ブラウザの種類、IPアドレスから推定されるおおよその地域、タイムスタンプ、運用・セキュリティに必要なログ。",
-      "ブログ：公開記事を閲覧した際に、記事単位の閲覧回数等を集計する場合があります。",
+      "ブログ：公開記事を閲覧した際に、記事単位の閲覧回数等を集計する場合があります。当該集計は、ブログ上で人気記事を表示する等の目的で集計値として利用し、個々の閲覧者を識別するために用いるものではありません。",
     ],
   },
   {

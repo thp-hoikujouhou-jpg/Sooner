@@ -173,6 +173,7 @@ const landingI18n = {
       "Sooner's editor is developed on Monaco Editor — the same engine that powers VS Code. You get familiar shortcuts, syntax highlighting, and multi-file editing directly in the browser.",
     navBlog: "Blog",
     navBlogAria: "Blog",
+    navBrandReloadAria: "Reload page",
     secMetricsTitle: "Built for velocity",
     metric1: { value: "<60s", label: "idea → runnable preview" },
     metric2: { value: "1×", label: "one AI-native IDE, no repo sync drama" },
@@ -263,6 +264,7 @@ const landingI18n = {
       "コード編集体験は Monaco Editor（VS Code と同じエディタエンジン）を土台にしています。おなじみのショートカット、シンタックスハイライト、複数ファイル編集をブラウザで利用できます。",
     navBlog: "ブログ",
     navBlogAria: "ブログ",
+    navBrandReloadAria: "ページを再読み込み",
     secMetricsTitle: "スピードのための設計",
     metric1: { value: "<60秒", label: "アイデア→動くプレビュー" },
     metric2: { value: "1つ", label: "迷わない単一のAIネイティブIDE" },
@@ -906,13 +908,18 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         </AnimatePresence>
 
         <header className="relative z-30 flex items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-4 md:py-5 border-b border-white/[0.04] backdrop-blur-sm bg-[#09090B]/60">
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="flex items-center gap-2 sm:gap-2.5 min-w-0 text-left rounded-lg hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38BDF8]/40 -m-1 p-1 transition-colors"
+            aria-label={t.navBrandReloadAria}
+          >
             <div className="relative shrink-0">
               <Zap className="w-6 h-6 text-[#38BDF8]" />
               <div className="absolute inset-0 w-6 h-6 bg-[#38BDF8]/20 blur-md rounded-full" />
             </div>
             <span className="font-black text-base sm:text-lg tracking-tight truncate">Sooner</span>
-          </div>
+          </button>
 
           <div className="hidden md:flex items-center gap-2 lg:gap-3">
             <button type="button" onClick={() => navigateToBlog(lang)} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.06] rounded-lg transition-colors" aria-label={t.navBlogAria}>
@@ -1268,13 +1275,18 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       </div>
       <div className="relative z-10 flex-1 flex items-center justify-center w-full">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="relative z-10 w-full max-w-md p-8">
-        <div className="flex items-center justify-center gap-2.5 mb-8">
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="flex items-center justify-center gap-2.5 mb-8 mx-auto rounded-xl hover:bg-white/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38BDF8]/40 px-2 py-1 transition-colors"
+          aria-label={t.navBrandReloadAria}
+        >
           <div className="relative">
             <Zap className="w-7 h-7 text-[#38BDF8]" />
             <div className="absolute inset-0 w-7 h-7 bg-[#38BDF8]/20 blur-md rounded-full" />
           </div>
           <span className="font-black text-xl tracking-tight">Sooner</span>
-        </div>
+        </button>
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 backdrop-blur-sm">
           <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? t.welcomeBack : t.createAccount}</h2>
           <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? t.signInDesc : t.signUpDesc}</p>

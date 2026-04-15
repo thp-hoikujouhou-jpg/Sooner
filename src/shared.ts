@@ -78,6 +78,12 @@ export const blogI18n = {
     articleNotFound: "This article is not available or is not public yet.",
     articleLoadError: "Could not load the article. Check your connection and try again.",
     retryArticle: "Try again",
+    share: "Share",
+    copyLink: "Copy link",
+    linkCopied: "Copied",
+    mostViewed: "Most viewed",
+    relatedPosts: "More articles",
+    viewsLabel: "views",
   },
   ja: {
     title: "Sooner ブログ",
@@ -98,6 +104,12 @@ export const blogI18n = {
     articleNotFound: "この記事は表示できないか、まだ公開されていません。",
     articleLoadError: "記事を読み込めませんでした。接続を確認して再度お試しください。",
     retryArticle: "再試行",
+    share: "シェア",
+    copyLink: "リンクをコピー",
+    linkCopied: "コピーしました",
+    mostViewed: "閲覧が多い記事",
+    relatedPosts: "あわせて読みたい",
+    viewsLabel: "回表示",
   },
 };
 
@@ -146,6 +158,10 @@ export const cmsI18n = {
     blogScheduledHidden: "Public blog: hidden until publish time",
     refreshPosts: "Refresh",
     viewOnBlog: "Open on blog",
+    imageUploadFailed: "Image upload failed",
+    imageUploadTooLarge: "Image is too large (max about 8MB recommended).",
+    imagePasteUrlLabel: "Or paste image URL",
+    imageInsertUrl: "Insert",
   },
   ja: {
     title: "Sooner CMS",
@@ -191,6 +207,10 @@ export const cmsI18n = {
     blogScheduledHidden: "公開ブログ: 公開日時までは非表示",
     refreshPosts: "更新",
     viewOnBlog: "ブログで開く",
+    imageUploadFailed: "画像のアップロードに失敗しました",
+    imageUploadTooLarge: "画像が大きすぎます（目安 8MB 以下）。",
+    imagePasteUrlLabel: "画像URLを貼り付け",
+    imageInsertUrl: "挿入",
   },
 };
 
