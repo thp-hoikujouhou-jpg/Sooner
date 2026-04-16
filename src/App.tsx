@@ -1555,6 +1555,9 @@ export default function App() {
         </div>
       );
     }
+    if (authUser && (pathParts[0] === "signin" || pathParts[0] === "signup")) {
+      window.history.replaceState(null, "", "/");
+    }
     return <Sooner user={authUser} onSignOut={() => {
       if (auth) firebaseSignOut(auth);
       setSkipAuth(false);
@@ -1672,6 +1675,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [gitDiffStaged, setGitDiffStaged] = useState(false);
   const [gitCommitMessage, setGitCommitMessage] = useState("");
   const [gitLoading, setGitLoading] = useState(false);
+
+  const promptCacheRef = useRef<{ name: string; model: string; provider: string; expiresAt: number } | null>(null);
   const [gitError, setGitError] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -2237,8 +2242,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!activeProject || !uid) return;
     try {
       const content = await storageDownloadFile(uid, activeProject, filePath);
-      setActiveFile(filePath);
       setFileContent(content ?? "");
+      setActiveFile(filePath);
+      setActiveTab("editor");
     } catch (e) {
       console.error("Failed to open file", e);
     }
@@ -2640,6 +2646,41 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return new GoogleGenAI(baseUrl ? { apiKey: activeKey, httpOptions: { baseUrl } } : { apiKey: activeKey });
   };
 
+  const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
+Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
+
+  const getOrCreatePromptCache = async (ai: InstanceType<typeof GoogleGenAI>, model: string): Promise<string | undefined> => {
+    if (apiProvider === "vercel-ai-gateway") return undefined;
+    const baseUrl = getEffectiveBaseUrl();
+    if (baseUrl) return undefined;
+    try {
+      const cached = promptCacheRef.current;
+      if (cached && cached.model === model && cached.provider === apiProvider && cached.expiresAt > Date.now()) {
+        return cached.name;
+      }
+      const result = await ai.caches.create({
+        model,
+        config: {
+          contents: [{ role: "user", parts: [{ text: CODE_SYSTEM_INSTRUCTION }] }],
+          displayName: "sooner-code-system",
+          ttl: "300s",
+        },
+      });
+      if (result.name) {
+        promptCacheRef.current = {
+          name: result.name,
+          model,
+          provider: apiProvider,
+          expiresAt: Date.now() + 270_000,
+        };
+        return result.name;
+      }
+    } catch (e) {
+      console.warn("Prompt cache creation failed (using inline system instruction):", e);
+    }
+    return undefined;
+  };
+
   const fetchModels = async () => {
     const key = getActiveApiKey();
     if (!key) return;
@@ -2980,6 +3021,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           ? `1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').`
           : `1. Do not use 'run_command' for installs or builds. Use write_file only; list packages in package.json and use bare imports suitable for browser preview (esm.sh).`;
 
+        const collectCurrentCode = async (nodes: FileNode[], prefix = ""): Promise<{ path: string; content: string }[]> => {
+          const results: { path: string; content: string }[] = [];
+          for (const n of nodes) {
+            if (n.type === "file" && !n.path.startsWith(".sooner_") && !n.path.startsWith(".aether_") && n.path !== ".sooner_project") {
+              const c = uid && activeProject ? await storageDownloadFile(uid, activeProject, n.path) : null;
+              if (c !== null) results.push({ path: n.path, content: c });
+            } else if (n.children) {
+              results.push(...await collectCurrentCode(n.children));
+            }
+          }
+          return results;
+        };
+        const existingCode = await collectCurrentCode(files);
+        const existingFilesSummary = existingCode.length > 0
+          ? existingCode.map(f => `--- ${f.path} ---\n${f.content.slice(0, 6000)}${f.content.length > 6000 ? "\n... (truncated)" : ""}`).join("\n\n")
+          : "(empty project)";
+
         const planPrompt = `
         You are an expert developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
         You MUST follow the conversation history and the user's request to determine the correct language/framework.
@@ -2990,8 +3048,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         CURRENT REQUEST: ${currentInput}
  
         CURRENT PROJECT STATE:
-        Files: ${JSON.stringify(files)}
         Active Project: ${activeProject}
+        File tree: ${JSON.stringify(files)}
+
+        EXISTING FILE CONTENTS (read these carefully before generating):
+        ${existingFilesSummary}
+
+        CRITICAL — INCREMENTAL DEVELOPMENT RULES:
+        - If the project already has files, you MUST build on top of the existing code. DO NOT rewrite files from scratch.
+        - When modifying an existing file, include the FULL updated file content (not just a diff), but preserve all existing functionality, imports, styles, and structure that the user did not ask to change.
+        - Only create new files when they don't already exist.
+        - If the user asks to "improve" or "add a feature", merge it into the existing code.
         
         MODE: ${agentMode}
         
@@ -3034,22 +3101,26 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         
         Return ONLY the JSON array. No markdown, no extra text.`;
 
+        const geminiModel = modelIdForGeminiRequest(selectedModel);
+        let cacheName: string | undefined;
+        try { cacheName = await getOrCreatePromptCache(ai, geminiModel); } catch {}
+
         try {
           planResponse = await ai.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel),
+            model: geminiModel,
             contents: planPrompt,
             config: { 
               responseMimeType: "application/json",
-              systemInstruction: "You are a world-class software developer. Use the exact language and framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. For other frameworks, follow their best practices. NEVER force a specific framework unless the user asks for it."
+              ...(cacheName ? { cachedContent: cacheName } : { systemInstruction: CODE_SYSTEM_INSTRUCTION }),
             }
           });
         } catch (e: any) {
           planResponse = await ai.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel),
+            model: geminiModel,
             contents: planPrompt,
             config: { 
               responseMimeType: "application/json",
-              systemInstruction: "You are a world-class software developer. Use the exact language and framework the user requests. Follow professional project patterns for the chosen technology."
+              systemInstruction: CODE_SYSTEM_INSTRUCTION,
             }
           });
         }
@@ -3605,14 +3676,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         <div className="flex-1 flex flex-col min-h-0">
           <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 relative">
-              <Tabs.Content value="editor" className="absolute inset-0 outline-none">
+              <Tabs.Content value="editor" className="absolute inset-0 outline-none" forceMount style={{ display: activeTab === "editor" ? undefined : "none" }}>
                 <Editor
                   key={activeFile ?? "__none__"}
                   height="100%"
                   theme="vs-dark"
                   path={activeFile || "no-file-selected.txt"}
                   defaultLanguage="typescript"
-                  value={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner to build something!"}
+                  defaultValue={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner to build something!"}
                   onChange={(v) => setFileContent(v || "")}
                   options={{
                     minimap: { enabled: false },
