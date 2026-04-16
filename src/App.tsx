@@ -1567,7 +1567,7 @@ export default function App() {
   return <Sooner user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
 }
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
 
 function apiUrl(path: string): string {
   return `${BACKEND_URL}${path}`;
@@ -1744,6 +1744,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testing: "Testing...",
       missingKey: "Missing Key",
       download: "Download Project",
+      downloadFile: "Download file",
       delete: "Delete",
       stop: "Stop",
       confirmDelete: "Are you sure you want to delete this file?",
@@ -1874,6 +1875,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testing: "テスト中...",
       missingKey: "キーがありません",
       download: "プロジェクトをダウンロード",
+      downloadFile: "ファイルをダウンロード",
       delete: "削除",
       stop: "停止",
       confirmDelete: "このファイルを削除してもよろしいですか？",
@@ -1984,8 +1986,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setAccountDeleteBusy(true);
     try {
       const u = auth.currentUser!;
-      const pid = u.providerData[0]?.providerId;
-      if (pid === "password") {
+      const providerIds = u.providerData.map((p) => p.providerId);
+      // providerData[0] is not guaranteed to be the sign-in method; pick a valid reauth path.
+      if (providerIds.includes("password")) {
         const pwd = window.prompt(tk.reenterPassword);
         if (!pwd) {
           setAccountDeleteBusy(false);
@@ -1993,20 +1996,40 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         }
         if (!u.email) throw new Error("No email on account");
         await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, pwd));
-      } else if (pid === "google.com") {
+      } else if (providerIds.includes("google.com")) {
         await reauthenticateWithPopup(u, new GoogleAuthProvider());
-      } else if (pid === "github.com") {
-        await reauthenticateWithPopup(u, new GithubAuthProvider());
+      } else if (providerIds.includes("github.com")) {
+        const gh = new GithubAuthProvider();
+        gh.addScope("read:user");
+        await reauthenticateWithPopup(u, gh);
       } else {
-        await reauthenticateWithPopup(u, new GoogleAuthProvider());
+        const oauth = providerIds.find((id) => id.endsWith(".com") && id !== "password");
+        if (oauth === "google.com") await reauthenticateWithPopup(u, new GoogleAuthProvider());
+        else if (oauth === "github.com") {
+          const gh = new GithubAuthProvider();
+          gh.addScope("read:user");
+          await reauthenticateWithPopup(u, gh);
+        }
+        else await reauthenticateWithPopup(u, new GoogleAuthProvider());
       }
       const uid = u.uid;
-      const projects = await storageListProjects(uid);
-      for (const p of projects) await storageDeleteProject(uid, p);
+      try {
+        const projects = await storageListProjects(uid);
+        for (const p of projects) {
+          try {
+            await storageDeleteProject(uid, p);
+          } catch (se) {
+            console.warn("storageDeleteProject", p, se);
+          }
+        }
+      } catch (le) {
+        console.warn("storageListProjects before delete", le);
+      }
       await deleteUser(u);
       window.location.href = `${window.location.protocol}//lp.sooner.sh`;
     } catch (e: any) {
-      alert(e?.message || tk.deleteAccountFailed);
+      const code = e?.code ? `${e.code}: ` : "";
+      alert(`${code}${e?.message || tk.deleteAccountFailed}`);
     }
     setAccountDeleteBusy(false);
   };
@@ -2400,6 +2423,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     reader.readAsText(file);
   };
 
+  /** GitHub REST accepts `token` for classic PATs and `Bearer` for OAuth tokens. */
+  const githubRestAuthorization = (token: string) => {
+    const t = token.trim();
+    if (t.startsWith("ghp_") || t.startsWith("github_pat_")) return `token ${t}`;
+    return `Bearer ${t}`;
+  };
+
   const reconnectGitHub = async () => {
     if (!auth) return;
     try {
@@ -2425,14 +2455,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setIsLoadingRepos(true);
     try {
       const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
-        headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+        headers: { Authorization: githubRestAuthorization(token), Accept: "application/vnd.github.v3+json" },
       });
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       const data = await res.json();
       setGithubRepos(data);
       if (!githubUsername) {
         const userRes = await fetch("https://api.github.com/user", {
-          headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+          headers: { Authorization: githubRestAuthorization(token), Accept: "application/vnd.github.v3+json" },
         });
         if (userRes.ok) {
           const userData = await userRes.json();
@@ -2656,14 +2686,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     });
   };
 
-  const downloadProject = async () => {
-    if (!activeProject || !uid) return;
+  const downloadProject = async (projectName?: string) => {
+    const proj = projectName ?? activeProject;
+    if (!proj || !uid) return;
     const zip = new JSZip();
-    
+
+    let tree: FileNode[];
+    if (proj === activeProject) {
+      tree = files;
+    } else {
+      const paths = await storageListFiles(uid, proj);
+      tree = buildFileTree(paths);
+    }
+
     const addFilesToZip = async (nodes: FileNode[]) => {
       for (const node of nodes) {
         if (node.type === "file") {
-          const content = await storageDownloadFile(uid, activeProject, node.path);
+          const content = await storageDownloadFile(uid, proj, node.path);
           zip.file(node.path, content ?? "");
         } else if (node.children) {
           await addFilesToZip(node.children);
@@ -2671,9 +2710,22 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       }
     };
 
-    await addFilesToZip(files);
+    await addFilesToZip(tree);
     const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, `${activeProject}.zip`);
+    saveAs(content, `${proj}.zip`);
+  };
+
+  const downloadSingleFile = async (filePath: string) => {
+    if (!activeProject || !uid) return;
+    try {
+      const raw = await storageDownloadFile(uid, activeProject, filePath);
+      const blob = new Blob([raw ?? ""], { type: "text/plain;charset=utf-8" });
+      const name = filePath.split("/").pop() || "file.txt";
+      saveAs(blob, name);
+    } catch (e) {
+      console.error("downloadSingleFile", e);
+      alert(language === "ja" ? "ダウンロードに失敗しました" : "Download failed");
+    }
   };
 
   const deleteProject = async (projectName: string) => {
@@ -3262,7 +3314,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 </button>
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
-                    onClick={(e) => { e.stopPropagation(); downloadProject(); }}
+                    onClick={(e) => { e.stopPropagation(); void downloadProject(p); }}
                     className="p-1 hover:bg-[#252525] rounded text-[#8E9299]"
                     title={t.download}
                   >
@@ -3295,7 +3347,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   <Package className="w-3 h-3" />
                 </button>
                 <button 
-                  onClick={downloadProject}
+                  type="button"
+                  onClick={() => void downloadProject()}
                   className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
                   title={t.download}
                 >
@@ -3319,6 +3372,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   onSelect={openFile} 
                   activeFile={activeFile} 
                   onDelete={deleteFile}
+                  onDownload={downloadSingleFile}
+                  downloadLabel={t.downloadFile}
                   language={language}
                 />
               )) : (
@@ -3738,7 +3793,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           <Dialog.Root open={isPackagesOpen} onOpenChange={setIsPackagesOpen}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0A0A0A] border border-[#252525] rounded-2xl p-6 z-50 w-[480px] max-h-[80vh] overflow-y-auto">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0A0A0A] border border-[#252525] rounded-2xl p-4 sm:p-6 z-50 w-[min(480px,calc(100vw-2rem))] max-h-[min(80vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-lg font-bold flex items-center gap-2">
                     <Package className="w-5 h-5 text-[#38BDF8]" /> {t.packages}
@@ -3828,7 +3883,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           }}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(500px,calc(100vw-2rem))] max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 z-50 shadow-2xl">
                 <Dialog.Description className="sr-only">{language === "ja" ? "APIキーとGitHub連携の設定" : "Configure your API keys and GitHub integration settings."}</Dialog.Description>
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
@@ -3844,7 +3899,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   {/* 1. API Provider */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.apiProvider}</label>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2">
                       {(["gemini", "vercel-ai-gateway", "custom"] as const).map(p => (
                         <button
                           key={p}
@@ -3961,15 +4016,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       <p className="text-[11px] text-amber-400/90 leading-relaxed">{t.gitNoBackend}</p>
                     )}
                     {githubToken ? (
-                      <div className="flex items-center gap-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4">
-                        <GitHubIcon className="w-5 h-5 text-white" />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : t.connectedAs}</div>
-                          <div className="text-[10px] text-green-400">{t.scopeInfo}</div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2.5 px-4">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <GitHubIcon className="w-5 h-5 text-white shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : t.connectedAs}</div>
+                            <div className="text-[10px] text-green-400">{t.scopeInfo}</div>
+                          </div>
                         </div>
                         <button
                           onClick={() => { setGithubToken(""); setGithubUsername(""); setGithubRepos([]); localStorage.removeItem("github_token"); localStorage.removeItem("github_username"); }}
-                          className="text-[10px] text-red-400 hover:text-red-300 font-bold"
+                          className="text-[10px] text-red-400 hover:text-red-300 font-bold self-start sm:self-center shrink-0"
                         >
                           {t.disconnectGithub}
                         </button>
@@ -4061,7 +4118,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           <Dialog.Root open={isCloneOpen} onOpenChange={(open) => { setIsCloneOpen(open); if (open && githubToken && githubRepos.length === 0) fetchGitHubRepos(); }}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl flex flex-col">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(600px,calc(100vw-2rem))] max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 z-50 shadow-2xl flex flex-col">
                 <Dialog.Description className="sr-only">{language === "ja" ? "GitHubからリポジトリをクローン、またはURLを入力" : "Clone a repository from GitHub or enter a URL manually."}</Dialog.Description>
                 <div className="flex items-center justify-between mb-4">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
@@ -4235,7 +4292,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           <Dialog.Root open={isGitOpen} onOpenChange={setIsGitOpen}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(720px,94vw)] max-h-[85vh] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl flex flex-col gap-3">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(720px,calc(100vw-2rem))] max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 z-50 shadow-2xl flex flex-col gap-3">
                 <Dialog.Description className="sr-only">{t.gitStatusTitle}</Dialog.Description>
                 <div className="flex items-center justify-between shrink-0">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
@@ -4274,7 +4331,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       <p className="text-sm text-[#8E9299]">{gitStatusData.message || t.gitNoRepo}</p>
                     )}
                     {gitStatusData?.isRepo && (
-                      <div className="grid grid-cols-2 gap-2 text-xs text-[#8E9299] shrink-0">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-[#8E9299] shrink-0">
                         <div>
                           <span className="text-[#555]">{t.gitBranch}: </span>
                           <span className="text-white font-mono">{gitStatusData.branch}</span>
@@ -4320,7 +4377,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
                     <div className="flex-1 min-h-[200px] flex flex-col gap-2">
                       <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.gitDiff}</label>
-                      <pre className="flex-1 overflow-auto max-h-[280px] rounded-xl border border-[#252525] bg-[#0A0A0A] p-3 text-[11px] font-mono text-[#CFCFCF] whitespace-pre-wrap">
+                      <pre className="flex-1 overflow-auto max-h-[min(280px,45vh)] sm:max-h-[280px] rounded-xl border border-[#252525] bg-[#0A0A0A] p-3 text-[11px] font-mono text-[#CFCFCF] whitespace-pre-wrap">
                         {gitLoading ? "…" : gitDiffText || t.noDiff}
                       </pre>
                     </div>
@@ -4415,7 +4472,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           <Dialog.Root open={confirmDialog.isOpen} onOpenChange={(open) => !open && setConfirmDialog(null)}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#0D0D0D] border border-[#1A1A1A] rounded-2xl p-6 shadow-2xl z-[101] outline-none">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(28rem,calc(100vw-2rem))] max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0D0D0D] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 shadow-2xl z-[101] outline-none">
                 <Dialog.Title className="text-xl font-bold text-white mb-2">{confirmDialog.title}</Dialog.Title>
                 <Dialog.Description className="text-[#8E9299] mb-6">{confirmDialog.message}</Dialog.Description>
                 <div className="flex justify-end gap-3">
@@ -4445,9 +4502,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   );
 }
 
-function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, language }: any) {
+function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDownload, language, downloadLabel }: any) {
   const [isOpen, setIsOpen] = useState(false);
-  const deleteLabel = language === "ja" ? "削除" : "Delete File";
+  const dl = downloadLabel ?? (language === "ja" ? "ファイルをダウンロード" : "Download file");
 
   if (node.type === "directory") {
     return (
@@ -4462,7 +4519,7 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, languag
           <span className="truncate">{node.name}</span>
         </button>
         {isOpen && node.children?.map(child => (
-          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} language={language} />
+          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDownload={onDownload} language={language} downloadLabel={downloadLabel} />
         ))}
       </div>
     );
@@ -4473,7 +4530,7 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, languag
       <button 
         onClick={() => onSelect(node.path)}
         className={cn(
-          "w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-colors pr-8",
+          "w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-colors pr-16",
           activeFile === node.path ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
         )}
         style={{ paddingLeft: `${level * 12 + 20}px` }}
@@ -4481,13 +4538,26 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, languag
         <FileCode className="w-4 h-4" />
         <span className="truncate">{node.name}</span>
       </button>
-      <button 
-        onClick={(e) => { e.stopPropagation(); onDelete?.(node.path); }}
-        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-[#252525] rounded text-red-500 transition-opacity"
-        title={language === "ja" ? "ファイルを削除" : "Delete File"}
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {onDownload ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDownload(node.path); }}
+            className="p-1 hover:bg-[#252525] rounded text-[#38BDF8]"
+            title={dl}
+          >
+            <Download className="w-3 h-3" />
+          </button>
+        ) : null}
+        <button 
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete?.(node.path); }}
+          className="p-1 hover:bg-[#252525] rounded text-red-500"
+          title={language === "ja" ? "ファイルを削除" : "Delete File"}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
     </div>
   );
 }

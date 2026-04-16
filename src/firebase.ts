@@ -19,7 +19,7 @@ import {
   getStorage,
   ref,
   uploadString,
-  getDownloadURL,
+  getBytes,
   deleteObject,
   listAll,
   type FirebaseStorage,
@@ -122,9 +122,8 @@ export async function storageDownloadFile(uid: string, project: string, filePath
   if (!storage) return null;
   try {
     const fileRef = ref(storage, userStoragePath(uid, project, filePath));
-    const url = await getDownloadURL(fileRef);
-    const res = await fetch(url);
-    return await res.text();
+    const bytes = await getBytes(fileRef);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   } catch {
     return null;
   }

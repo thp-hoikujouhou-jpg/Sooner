@@ -25,6 +25,29 @@ function cmsPublicBlogHint(post: Pick<BlogPost, "status" | "publishAt">, nowMs: 
   return t.blogDraftHidden;
 }
 
+/** `datetime-local` value in the browser's local timezone (not `toISOString()`, which is UTC). */
+function formatDateForDatetimeLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+function publishAtToDatetimeLocal(raw: unknown): string {
+  if (raw == null || raw === "") return formatDateForDatetimeLocal(new Date());
+  if (typeof raw === "object" && raw !== null && "_seconds" in raw) {
+    const s = (raw as { _seconds: number })._seconds;
+    return formatDateForDatetimeLocal(new Date(s * 1000));
+  }
+  if (typeof raw === "string") {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) return formatDateForDatetimeLocal(d);
+  }
+  return formatDateForDatetimeLocal(new Date());
+}
+
 export default function CmsPage() {
   const [lang, setLang] = useState<"en" | "ja">(getInitialLang);
   const [token, setToken] = useState(() => localStorage.getItem("cms_token") || "");
@@ -107,7 +130,7 @@ export default function CmsPage() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loggedIn, token, editingPost, fetchPostsSilent]);
 
-  /** datetime-local is interpreted in the browser's local TZ; send UTC ISO so the API stores the intended instant. */
+  /** Input is from `datetime-local` (local wall time); `new Date(string)` parses it as local — API stores the correct instant. */
   const publishAtAsIso = (raw: unknown): string => {
     if (raw == null || raw === "") return new Date().toISOString();
     if (typeof raw === "string") {
@@ -160,16 +183,14 @@ export default function CmsPage() {
       slug: "", title_en: "", title_ja: "", content_en: "", content_ja: "",
       excerpt_en: "", excerpt_ja: "", author: "Sooner Team",
       readingTime_en: "3 min read", readingTime_ja: "3分で読める",
-      tags: [], status: "draft", publishAt: new Date().toISOString().slice(0, 16),
+      tags: [], status: "draft", publishAt: formatDateForDatetimeLocal(new Date()),
     });
     setContentTab("en");
     setViewMode("editor");
   };
 
   const editPost = (post: BlogPost) => {
-    const pubDate = post.publishAt?._seconds
-      ? new Date(post.publishAt._seconds * 1000).toISOString().slice(0, 16)
-      : typeof post.publishAt === "string" ? post.publishAt.slice(0, 16) : new Date().toISOString().slice(0, 16);
+    const pubDate = publishAtToDatetimeLocal(post.publishAt);
     setEditingPost({ ...post, publishAt: pubDate });
     setContentTab("en");
     setViewMode("editor");
@@ -479,7 +500,13 @@ function CmsEditor({ post, lang, t, nowTick, contentTab, setContentTab, viewMode
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1 block">{t.publishDate}</label>
-            <input type="datetime-local" value={typeof post.publishAt === "string" ? post.publishAt : ""} onChange={e => updateField("publishAt", e.target.value)} className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 px-3 text-xs focus:outline-none focus:border-[#38BDF8]" />
+            <input
+              type="datetime-local"
+              lang={lang === "ja" ? "ja" : "en"}
+              value={typeof post.publishAt === "string" ? post.publishAt : ""}
+              onChange={e => updateField("publishAt", e.target.value)}
+              className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 px-3 text-xs focus:outline-none focus:border-[#38BDF8]"
+            />
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1 block">{t.tags}</label>

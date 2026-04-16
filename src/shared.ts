@@ -6,7 +6,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const BACKEND_BASE = import.meta.env.VITE_BACKEND_URL || "";
+/** API base (CMS, workspace). Trimmed; no trailing slash. Set `VITE_BACKEND_URL` at build time for production. */
+export const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
 
 export type BlogPost = {
   id: string;
