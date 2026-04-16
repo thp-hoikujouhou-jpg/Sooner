@@ -549,7 +549,12 @@ async function startServer() {
         if (filePath) files.push({ path: filePath, status: status.trim() });
       }
     }
-    res.json({ isRepo: true, branch, tracking, ahead, behind, files, raw: porcelain.stdout });
+    let originUrl: string | undefined;
+    const remoteOut = await execGit(projectPath, ["remote", "get-url", "origin"]);
+    if (remoteOut.code === 0 && remoteOut.stdout.trim()) {
+      originUrl = remoteOut.stdout.trim();
+    }
+    res.json({ isRepo: true, branch, tracking, ahead, behind, files, raw: porcelain.stdout, originUrl });
   });
 
   // Git: diff (unstaged or staged)
