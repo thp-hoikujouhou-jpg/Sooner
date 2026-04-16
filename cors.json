@@ -1,0 +1,22 @@
+[
+  {
+    "origin": [
+      "https://sooner.sh",
+      "https://lp.sooner.sh",
+      "https://blog.sooner.sh",
+      "https://cms.sooner.sh",
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "http://localhost:3000"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Authorization",
+      "x-goog-resumable",
+      "x-goog-meta-firebaseStorageDownloadTokens"
+    ]
+  }
+]

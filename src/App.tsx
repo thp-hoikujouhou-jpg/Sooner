@@ -124,7 +124,7 @@ import {
   recordNewUserLegalProfile,
   type User,
 } from "./firebase";
-import { getAdditionalUserInfo } from "firebase/auth";
+import { getAdditionalUserInfo, updateProfile } from "firebase/auth";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -175,6 +175,8 @@ const landingI18n = {
       "Sooner's editor is developed on Monaco Editor — the same engine that powers VS Code. You get familiar shortcuts, syntax highlighting, and multi-file editing directly in the browser.",
     navBlog: "Blog",
     navBlogAria: "Blog",
+    navFeatures: "Features",
+    navSignUp: "Sign Up",
     navBrandReloadAria: "Reload page",
     secMetricsTitle: "Built for velocity",
     metric1: { value: "<60s", label: "idea → runnable preview" },
@@ -266,6 +268,8 @@ const landingI18n = {
       "コード編集体験は Monaco Editor（VS Code と同じエディタエンジン）を土台にしています。おなじみのショートカット、シンタックスハイライト、複数ファイル編集をブラウザで利用できます。",
     navBlog: "ブログ",
     navBlogAria: "ブログ",
+    navFeatures: "機能",
+    navSignUp: "新規登録",
     navBrandReloadAria: "ページを再読み込み",
     secMetricsTitle: "スピードのための設計",
     metric1: { value: "<60秒", label: "アイデア→動くプレビュー" },
@@ -603,7 +607,7 @@ function GroundImpact({ active }: { active: boolean }) {
   );
 }
 
-function PoemSection({ lines, ctaText, onCta, onSkipToApp }: { lines: string[]; ctaText: string; onCta: () => void; onSkipToApp: () => void }) {
+function PoemSection({ lines, ctaText, onCta, onSkipToApp, hideCta }: { lines: string[]; ctaText: string; onCta: () => void; onSkipToApp: () => void; hideCta?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-1 mt-16 px-4">
       {lines.map((line, i) => (
@@ -623,23 +627,25 @@ function PoemSection({ lines, ctaText, onCta, onSkipToApp }: { lines: string[]; 
           {line || "\u00A0"}
         </motion.p>
       ))}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: lines.length * 0.35 + 0.5 }}
-        className="mt-10 flex flex-col items-center gap-3"
-      >
-        <button
-          type="button"
-          onClick={onCta}
-          className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:scale-[1.02] inline-flex items-center gap-2"
+      {!hideCta && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: lines.length * 0.35 + 0.5 }}
+          className="mt-10 flex flex-col items-center gap-3"
         >
-          {ctaText} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-        <button type="button" onClick={onSkipToApp} className="text-xs text-[#52525B] hover:text-[#8E9299] transition-colors">
-          Launch app →
-        </button>
-      </motion.div>
+          <button
+            type="button"
+            onClick={onCta}
+            className="group px-10 py-3.5 text-base font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-all shadow-xl shadow-[#38BDF8]/25 hover:scale-[1.02] inline-flex items-center gap-2"
+          >
+            {ctaText} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+          <button type="button" onClick={onSkipToApp} className="text-xs text-[#52525B] hover:text-[#8E9299] transition-colors">
+            Launch app →
+          </button>
+        </motion.div>
+      )}
     </div>
   );
 }
@@ -789,20 +795,29 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       provider.addScope("repo");
       provider.addScope("read:user");
       const result = await signInWithPopup(auth, provider);
-      if (mode === "signup") {
-        const info = getAdditionalUserInfo(result);
-        if (info?.isNewUser && result.user) {
-          await recordNewUserLegalProfile(result.user.uid, {
-            signupMethod: "github",
-            locale: lang,
-            termsVersionId: LEGAL_DOCUMENT_VERSION_ID,
-            privacyVersionId: LEGAL_DOCUMENT_VERSION_ID,
-          });
-        }
+      const info = getAdditionalUserInfo(result);
+      if (mode === "signup" && info?.isNewUser && result.user) {
+        await recordNewUserLegalProfile(result.user.uid, {
+          signupMethod: "github",
+          locale: lang,
+          termsVersionId: LEGAL_DOCUMENT_VERSION_ID,
+          privacyVersionId: LEGAL_DOCUMENT_VERSION_ID,
+        });
       }
       const credential = GithubAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         localStorage.setItem("github_token", credential.accessToken);
+      }
+      if (result.user && !result.user.displayName && info?.profile) {
+        const ghName = (info.profile as Record<string, unknown>).name as string
+          || (info.profile as Record<string, unknown>).login as string
+          || "";
+        if (ghName) {
+          try { await updateProfile(result.user, { displayName: ghName }); } catch { /* best-effort */ }
+        }
+      }
+      if (info?.username) {
+        localStorage.setItem("github_username", info.username);
       }
       redirectToApp();
     } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
@@ -814,6 +829,11 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
   const [showScrollTop, setShowScrollTop] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const bottomRef = useRef<HTMLDivElement>(null);
+  const featuresRef = useRef<HTMLDivElement>(null);
+  const scrollToFeatures = () => {
+    if (journeyPhase !== "done") skipJourney();
+    setTimeout(() => featuresRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  };
   const audio = useAmbientAudio();
 
   const doFlash = () => {
@@ -924,6 +944,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           </button>
 
           <div className="hidden md:flex items-center gap-2 lg:gap-3">
+            <button type="button" onClick={scrollToFeatures} className="px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white transition-colors">
+              {t.navFeatures}
+            </button>
             <button type="button" onClick={() => navigateToBlog(lang)} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.06] rounded-lg transition-colors" aria-label={t.navBlogAria}>
               <BookOpen className="w-4 h-4 text-[#38BDF8]" />
               <span>{t.navBlog}</span>
@@ -950,6 +973,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           <>
             <button type="button" aria-hidden className="fixed inset-0 z-20 bg-black/70 md:hidden" onClick={() => setMobileNavOpen(false)} />
             <div className="fixed top-[57px] left-0 right-0 z-30 md:hidden border-b border-white/[0.06] bg-[#0c0c0e]/95 backdrop-blur-md shadow-xl px-4 py-4 flex flex-col gap-3">
+              <button type="button" onClick={() => { setMobileNavOpen(false); scrollToFeatures(); }} className="w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg">
+                {t.navFeatures}
+              </button>
               <button type="button" onClick={() => { setMobileNavOpen(false); navigateToBlog(lang); }} className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg">
                 <BookOpen className="w-4 h-4 text-[#38BDF8] shrink-0" />{t.navBlog}
               </button>
@@ -1089,6 +1115,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                     ctaText={t.getStartedFree}
                     onCta={goApp}
                     onSkipToApp={onSkip}
+                    hideCta={journeyPhase === "done"}
                   />
                 )}
               </motion.div>
@@ -1103,8 +1130,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               transition={{ duration: 0.6 }}
               className="w-full flex flex-col items-center px-4 sm:px-6 md:px-8 pb-16"
             >
+              <div className="w-24 h-px bg-gradient-to-r from-transparent via-[#38BDF8]/30 to-transparent mt-12 mb-4" />
+
               {/* Feature cards */}
-              <motion.div initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
+              <motion.div ref={featuresRef} initial={{ opacity: 0, y: 50 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-80px" }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl w-full">
                 {([
                   { feat: t.feat1, Icon: Zap },
                   { feat: t.feat2, Icon: Rocket },
@@ -1259,10 +1288,22 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           text={t.footer}
           copyright={t.copyright}
           footerLinks={
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#71717A]">
-              <a href={legalDocHref(lang, "terms")} className="hover:text-[#38BDF8] transition-colors">{t.terms}</a>
-              <span className="text-[#3F3F46]">·</span>
-              <a href={legalDocHref(lang, "privacy")} className="hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-[#8E9299]">
+                <button type="button" onClick={scrollToFeatures} className="hover:text-[#38BDF8] transition-colors">{t.navFeatures}</button>
+                <button type="button" onClick={() => navigateToBlog(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navBlog}</button>
+                {firebaseConfigured && (
+                  <>
+                    <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="hover:text-[#38BDF8] transition-colors">{t.signIn}</button>
+                    <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signup", lang) : setMode("signup"))} className="hover:text-[#38BDF8] transition-colors">{t.navSignUp}</button>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#71717A]">
+                <a href={legalDocHref(lang, "terms")} className="hover:text-[#38BDF8] transition-colors">{t.terms}</a>
+                <span className="text-[#3F3F46]">·</span>
+                <a href={legalDocHref(lang, "privacy")} className="hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
+              </div>
             </div>
           }
         />
@@ -2465,6 +2506,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       if (credential?.accessToken) {
         setGithubToken(credential.accessToken);
         localStorage.setItem("github_token", credential.accessToken);
+        const info = getAdditionalUserInfo(result);
+        if (info?.username) {
+          setGithubUsername(info.username);
+          localStorage.setItem("github_username", info.username);
+        }
         return credential.accessToken;
       }
     } catch (e) {
@@ -2478,9 +2524,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!token) return;
     setIsLoadingRepos(true);
     try {
-      const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
+      let res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
         headers: { Authorization: githubRestAuthorization(token), Accept: "application/vnd.github.v3+json" },
       });
+      if (res.status === 401 || res.status === 403) {
+        const freshToken = await reconnectGitHub();
+        if (freshToken) {
+          token = freshToken;
+          res = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
+            headers: { Authorization: githubRestAuthorization(token), Accept: "application/vnd.github.v3+json" },
+          });
+        }
+      }
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       const data = await res.json();
       setGithubRepos(data);
@@ -2823,6 +2878,26 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       console.error("downloadSingleFile", e);
       alert(language === "ja" ? "ダウンロードに失敗しました" : "Download failed");
     }
+  };
+
+  const downloadFolder = async (node: FileNode) => {
+    if (!activeProject || !uid) return;
+    const zip = new JSZip();
+    const addToZip = async (n: FileNode, base: string) => {
+      if (n.type === "file") {
+        const content = await storageDownloadFile(uid, activeProject, n.path);
+        zip.file(base, content ?? "");
+      } else if (n.children) {
+        for (const child of n.children) {
+          await addToZip(child, `${base}/${child.name}`);
+        }
+      }
+    };
+    for (const child of node.children ?? []) {
+      await addToZip(child, child.name);
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    saveAs(blob, `${node.name}.zip`);
   };
 
   const deleteProject = async (projectName: string) => {
@@ -3552,6 +3627,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   activeFile={activeFile} 
                   onDelete={deleteFile}
                   onDownload={downloadSingleFile}
+                  onDownloadFolder={downloadFolder}
                   downloadLabel={t.downloadFile}
                   language={language}
                 />
@@ -3591,7 +3667,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               <div className="w-6 h-6 rounded-full bg-[#38BDF8]/20 flex items-center justify-center text-[10px] font-bold text-[#38BDF8]">
                 {(user.displayName || user.email || "U")[0].toUpperCase()}
               </div>
-              <span className="text-xs text-[#8E9299] truncate flex-1">{user.email}</span>
+              <div className="flex flex-col min-w-0 flex-1">
+                {user.displayName && <span className="text-xs text-white truncate">{user.displayName}</span>}
+                <span className="text-[10px] text-[#8E9299] truncate">{user.email}</span>
+              </div>
               <button onClick={onSignOut} className="text-[10px] text-red-400 hover:underline">
                 {t.signOut}
               </button>
@@ -4687,24 +4766,38 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
   );
 }
 
-function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDownload, language, downloadLabel }: any) {
+function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDownload, onDownloadFolder, language, downloadLabel }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const dl = downloadLabel ?? (language === "ja" ? "ファイルをダウンロード" : "Download file");
 
   if (node.type === "directory") {
     return (
       <div>
-        <button 
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2"
-          style={{ paddingLeft: `${level * 12 + 8}px` }}
-        >
-          {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <Folder className="w-4 h-4 text-[#38BDF8]" />
-          <span className="truncate">{node.name}</span>
-        </button>
+        <div className="group relative">
+          <button 
+            onClick={() => setIsOpen(!isOpen)}
+            className="w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2 pr-10"
+            style={{ paddingLeft: `${level * 12 + 8}px` }}
+          >
+            {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            <Folder className="w-4 h-4 text-[#38BDF8]" />
+            <span className="truncate">{node.name}</span>
+          </button>
+          {onDownloadFolder && (
+            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDownloadFolder(node); }}
+                className="p-1 hover:bg-[#252525] rounded text-[#38BDF8]"
+                title={language === "ja" ? "フォルダをダウンロード" : "Download folder"}
+              >
+                <Download className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
         {isOpen && node.children?.map(child => (
-          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDownload={onDownload} language={language} downloadLabel={downloadLabel} />
+          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDownload={onDownload} onDownloadFolder={onDownloadFolder} language={language} downloadLabel={downloadLabel} />
         ))}
       </div>
     );

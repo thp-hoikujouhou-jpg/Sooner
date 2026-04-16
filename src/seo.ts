@@ -219,29 +219,39 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
     "@type": "WebSite",
     name: "Sooner",
     url: "https://sooner.sh/",
-    description: en.site.description,
+    description: (lang === "ja" ? ja : en).site.description,
     inLanguage: ["en", "ja"],
     publisher: { "@type": "Organization", name: "Sooner", url: "https://sooner.sh/" },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: "https://sooner.sh/?q={search_term_string}",
+      "query-input": "required name=search_term_string",
+    },
   };
 
   if (key === "site" || key === "app" || key === "signin" || key === "signup") {
-    /** English labels for sitelink-oriented hints (same for all locales). */
-    const navItems = [
-      { name: "Sooner", url: "https://sooner.sh/" },
-      { name: "Sign up", url: "https://sooner.sh/signup" },
-      { name: "Sign in", url: "https://sooner.sh/signin" },
+    const navItems = lang === "ja" ? [
+      { name: "Sooner — AIネイティブIDE", url: "https://sooner.sh/" },
+      { name: "新規登録", url: "https://sooner.sh/signup" },
+      { name: "ログイン", url: "https://sooner.sh/signin" },
+      { name: "ブログ", url: "https://blog.sooner.sh/" },
+      { name: "ランディングページ", url: "https://lp.sooner.sh/" },
+    ] : [
+      { name: "Sooner — AI-native IDE", url: "https://sooner.sh/" },
+      { name: "Sign Up", url: "https://sooner.sh/signup" },
+      { name: "Sign In", url: "https://sooner.sh/signin" },
       { name: "Blog", url: "https://blog.sooner.sh/" },
-      { name: "Landing page", url: "https://lp.sooner.sh/" },
+      { name: "About Sooner", url: "https://lp.sooner.sh/" },
     ];
     const siteNav = {
       "@context": "https://schema.org",
       "@type": "ItemList",
       name: "Sooner primary navigation",
       itemListElement: navItems.map((item, i) => ({
-        "@type": "ListItem",
+        "@type": "SiteNavigationElement",
         position: i + 1,
         name: item.name,
-        item: item.url,
+        url: item.url,
       })),
     };
 
