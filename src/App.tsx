@@ -42,6 +42,8 @@ import {
   ArrowRight,
   Volume2,
   VolumeX,
+  Archive,
+  FolderUp,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -1744,12 +1746,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testing: "Testing...",
       missingKey: "Missing Key",
       download: "Download Project",
+      downloadProjectZip: "Download all files as ZIP",
+      downloadCodeZip: "Download code as ZIP (excludes chat history)",
       downloadFile: "Download file",
       delete: "Delete",
       stop: "Stop",
       confirmDelete: "Are you sure you want to delete this file?",
       confirmDeleteProject: "Are you sure you want to delete this project and all its files?",
-      uploadProject: "Upload Project (ZIP)",
+      uploadProject: "Upload project (ZIP)",
+      uploadProjectFolder: "Upload project folder",
       editMode: "Edit Mode",
       suggestions: "Suggestions",
       executionComplete: "Execution complete.",
@@ -1758,8 +1763,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "Settings Key",
       usingEnvKey: "Env Key",
       apiProvider: "API Provider",
-      apiBaseUrl: "API Base URL",
-      apiBaseUrlPlaceholder: "e.g. https://your-gateway-url.vercel.app/api/...",
+      apiBaseUrl: "API Base URL (optional)",
+      apiBaseUrlPlaceholderVercel:
+        "Optional — only if you use a Gemini-compatible proxy; model list uses Vercel AI Gateway when empty",
+      apiBaseUrlPlaceholderCustom:
+        "Optional — leave empty to use Google Gemini API (generativelanguage.googleapis.com)",
+      vercelGatewayGenHint:
+        "Model list uses the gateway with your key. Chat/preview calls use the Gemini API unless you set a Gemini-compatible Base URL below (or use the Gemini provider with a Google AI key).",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -1875,12 +1885,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testing: "テスト中...",
       missingKey: "キーがありません",
       download: "プロジェクトをダウンロード",
+      downloadProjectZip: "すべてのファイルをZIPでダウンロード",
+      downloadCodeZip: "コードのみZIP（チャット履歴などを除く）",
       downloadFile: "ファイルをダウンロード",
       delete: "削除",
       stop: "停止",
       confirmDelete: "このファイルを削除してもよろしいですか？",
       confirmDeleteProject: "このプロジェクトとすべてのファイルを削除してもよろしいですか？",
       uploadProject: "プロジェクトをアップロード (ZIP)",
+      uploadProjectFolder: "フォルダーをプロジェクトとしてアップロード",
       editMode: "編集モード",
       suggestions: "提案",
       executionComplete: "実行が完了しました。",
@@ -1889,8 +1902,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "設定キー使用中",
       usingEnvKey: "環境変数キー使用中",
       apiProvider: "APIプロバイダー",
-      apiBaseUrl: "APIベースURL",
-      apiBaseUrlPlaceholder: "例: https://your-gateway-url.vercel.app/api/...",
+      apiBaseUrl: "APIベースURL（任意）",
+      apiBaseUrlPlaceholderVercel:
+        "任意 — Gemini互換プロキシを使う場合のみ。空ならモデル一覧は Vercel AI Gateway を利用",
+      apiBaseUrlPlaceholderCustom:
+        "任意 — 空欄なら Google Gemini API（generativelanguage.googleapis.com）を使用",
+      vercelGatewayGenHint:
+        "モデル一覧はゲートウェイで取得します。チャット／プレビューは通常 Gemini API へ送ります。AI Gateway キーのみで生成したい場合は下の Gemini 互換 Base URL を設定するか、Gemini プロバイダーで Google AI キーを使ってください。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -2592,9 +2610,22 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const getEffectiveBaseUrl = (): string | undefined => {
-    if (apiProvider === "vercel-ai-gateway" && apiBaseUrl) return apiBaseUrl;
-    if (apiProvider === "custom" && apiBaseUrl) return apiBaseUrl;
+    const trimmed = apiBaseUrl.trim();
+    if (apiProvider === "vercel-ai-gateway" && trimmed) return trimmed;
+    if (apiProvider === "custom" && trimmed) return trimmed;
     return undefined;
+  };
+
+  const VERCEL_AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
+
+  /** Map gateway-style ids (e.g. google/gemini-2.5-pro) to Gemini API model names. */
+  const modelIdForGeminiRequest = (m: string): string => {
+    if (!m) return "gemini-2.5-flash";
+    if (m.includes("/")) {
+      const seg = m.split("/").pop();
+      return seg && seg.length > 0 ? seg : m;
+    }
+    return m;
   };
 
   const getActiveApiKey = (): string => {
@@ -2613,22 +2644,31 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     const key = getActiveApiKey();
     if (!key) return;
     setIsFetchingModels(true);
+    const fallback = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
     try {
-      const ai = createAiClient();
-      const result = await ai.models.list();
-      const modelNames: string[] = [];
-      for await (const model of result) {
-        const name = model.name?.replace("models/", "") || "";
-        if (name) modelNames.push(name);
-      }
-      modelNames.sort();
-      if (modelNames.length === 0) {
-        setAvailableModels(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]);
+      if (apiProvider === "vercel-ai-gateway") {
+        const res = await axios.get<{ data?: { id?: string }[] }>(VERCEL_AI_GATEWAY_MODELS_URL, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        const raw = res.data?.data;
+        const modelNames: string[] = Array.isArray(raw)
+          ? raw.map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0)
+          : [];
+        modelNames.sort();
+        setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
       } else {
-        setAvailableModels(modelNames);
+        const ai = createAiClient();
+        const result = await ai.models.list();
+        const modelNames: string[] = [];
+        for await (const model of result) {
+          const name = model.name?.replace("models/", "") || "";
+          if (name) modelNames.push(name);
+        }
+        modelNames.sort();
+        setAvailableModels(modelNames.length === 0 ? fallback : modelNames);
       }
     } catch {
-      setAvailableModels(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]);
+      setAvailableModels(fallback);
     }
     setIsFetchingModels(false);
   };
@@ -2638,15 +2678,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!key) return;
     setIsTestingKey(true);
     try {
-      const testAi = createAiClient();
-      await testAi.models.generateContent({
-        model: selectedModel || "gemini-2.5-flash",
-        contents: "Hi",
-      });
-      alert("API Key is valid!");
-      fetchModels();
+      if (apiProvider === "vercel-ai-gateway") {
+        await axios.get(VERCEL_AI_GATEWAY_MODELS_URL, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
+        fetchModels();
+      } else {
+        const testAi = createAiClient();
+        await testAi.models.generateContent({
+          model: modelIdForGeminiRequest(selectedModel || "gemini-2.5-flash"),
+          contents: "Hi",
+        });
+        alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
+        fetchModels();
+      }
     } catch (e: any) {
-      alert(`API Key test failed: ${e.message}`);
+      alert(language === "ja" ? `接続テストに失敗しました: ${e.message}` : `API Key test failed: ${e.message}`);
     } finally {
       setIsTestingKey(false);
     }
@@ -2686,10 +2734,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     });
   };
 
-  const downloadProject = async (projectName?: string) => {
+  const shouldSkipPathInCodeZip = (path: string): boolean => {
+    const base = path.split("/").pop() ?? path;
+    return base === ".sooner_chat.json" || base === ".aether_chat.json" || base === ".sooner_project";
+  };
+
+  const downloadProject = async (projectName?: string, opts?: { codeOnly?: boolean }) => {
     const proj = projectName ?? activeProject;
     if (!proj || !uid) return;
     const zip = new JSZip();
+    const skip = opts?.codeOnly ? shouldSkipPathInCodeZip : (_p: string) => false;
 
     let tree: FileNode[];
     if (proj === activeProject) {
@@ -2702,6 +2756,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     const addFilesToZip = async (nodes: FileNode[]) => {
       for (const node of nodes) {
         if (node.type === "file") {
+          if (skip(node.path)) continue;
           const content = await storageDownloadFile(uid, proj, node.path);
           zip.file(node.path, content ?? "");
         } else if (node.children) {
@@ -2712,7 +2767,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
     await addFilesToZip(tree);
     const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, `${proj}.zip`);
+    const suffix = opts?.codeOnly ? "-code" : "";
+    saveAs(content, `${proj}${suffix}.zip`);
   };
 
   const downloadSingleFile = async (filePath: string) => {
@@ -2752,11 +2808,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const uploadProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !uid) return;
 
     const zip = new JSZip();
     const contents = await zip.loadAsync(file);
-    const projectName = file.name.replace(".zip", "");
+    const projectName = file.name.replace(/\.zip$/i, "").trim() || "imported-project";
 
     try {
       await storageCreateProject(uid, projectName);
@@ -2768,8 +2825,40 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       }
       await fetchProjects();
       setActiveProject(projectName);
-    } catch (e) {
-      console.error("Failed to upload project", e);
+    } catch (err) {
+      console.error("Failed to upload project", err);
+    }
+  };
+
+  /** Upload a local directory as a project (root folder name becomes project name). */
+  const uploadProjectFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    e.target.value = "";
+    if (!list?.length || !uid) return;
+
+    const first = list[0];
+    const rel = (first as File & { webkitRelativePath?: string }).webkitRelativePath;
+    if (!rel) return;
+    const projectName = rel.split("/")[0];
+    if (!projectName) return;
+
+    try {
+      await storageCreateProject(uid, projectName);
+      for (let i = 0; i < list.length; i++) {
+        const f = list[i];
+        const p = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
+        if (!p) continue;
+        const segments = p.split("/").filter(Boolean);
+        if (segments.length < 2) continue;
+        const pathInProject = segments.slice(1).join("/");
+        const buf = await f.arrayBuffer();
+        const content = new TextDecoder("utf-8", { fatal: false }).decode(buf);
+        await storageUploadFile(uid, projectName, pathInProject, content);
+      }
+      await fetchProjects();
+      setActiveProject(projectName);
+    } catch (err) {
+      console.error("Failed to upload project folder", err);
     }
   };
 
@@ -2794,7 +2883,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setAgentSteps([]);
     abortControllerRef.current = new AbortController();
 
-    // Context Selection (Prompt Caching simulation)
+    // Context selection (not Gemini Prompt Caching API — uses last messages + keyword heuristics only)
     // We pick the last 10 messages + any messages containing keywords from the current input
     // To prevent token limit errors, we strictly limit the total content length
     const keywords = currentInput.toLowerCase().split(/\s+/).filter(k => k.length > 3);
@@ -2837,7 +2926,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         let chatResponse;
         try {
           chatResponse = await ai.models.generateContent({
-            model: selectedModel,
+            model: modelIdForGeminiRequest(selectedModel),
             contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
             config: { 
               systemInstruction: `You are Sooner. You are helpful, technical, and concise. 
@@ -2851,7 +2940,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         } catch (e: any) {
           if (e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED")) {
             chatResponse = await ai.models.generateContent({
-              model: selectedModel,
+              model: modelIdForGeminiRequest(selectedModel),
               contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
               config: { 
                 systemInstruction: "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context."
@@ -2947,7 +3036,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
         try {
           planResponse = await ai.models.generateContent({
-            model: selectedModel,
+            model: modelIdForGeminiRequest(selectedModel),
             contents: planPrompt,
             config: { 
               responseMimeType: "application/json",
@@ -2956,7 +3045,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           });
         } catch (e: any) {
           planResponse = await ai.models.generateContent({
-            model: selectedModel,
+            model: modelIdForGeminiRequest(selectedModel),
             contents: planPrompt,
             config: { 
               responseMimeType: "application/json",
@@ -3114,7 +3203,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 }
 
                 const visualRes = await ai.models.generateContent({
-                  model: selectedModel,
+                  model: modelIdForGeminiRequest(selectedModel),
                   contents: [{ role: "user", parts }],
                   config: { responseMimeType: "application/json" }
                 });
@@ -3289,16 +3378,35 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
           {/* Project Selector */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between px-2">
+            <div className="flex items-center justify-between px-2 gap-2">
               <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.projects}</label>
-              <button 
-                onClick={() => document.getElementById("project-upload")?.click()}
-                className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
-                title={t.uploadProject}
-              >
-                <Upload className="w-3 h-3" />
-              </button>
-              <input type="file" id="project-upload" onChange={uploadProject} className="hidden" accept=".zip" />
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => document.getElementById("project-upload")?.click()}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.uploadProject}
+                >
+                  <Upload className="w-3 h-3" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => document.getElementById("project-upload-folder")?.click()}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.uploadProjectFolder}
+                >
+                  <FolderUp className="w-3 h-3" />
+                </button>
+              </div>
+              <input type="file" id="project-upload" onChange={uploadProject} className="hidden" accept=".zip,application/zip" />
+              <input
+                type="file"
+                id="project-upload-folder"
+                onChange={uploadProjectFolder}
+                className="hidden"
+                multiple
+                {...({ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+              />
             </div>
             {projects.length > 0 ? projects.map(p => (
               <div key={p} className="group relative">
@@ -3316,7 +3424,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   <button 
                     onClick={(e) => { e.stopPropagation(); void downloadProject(p); }}
                     className="p-1 hover:bg-[#252525] rounded text-[#8E9299]"
-                    title={t.download}
+                    title={t.downloadProjectZip}
                   >
                     <Download className="w-3 h-3" />
                   </button>
@@ -3336,9 +3444,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
           {/* File Explorer */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between px-2">
-              <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.files}</label>
-              <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 px-2 flex-wrap">
+              <label className="text-[10px] uppercase tracking-widest text-[#8E9299] shrink-0">{t.files}</label>
+              <div className="flex items-center gap-1 flex-wrap ml-auto justify-end min-w-0">
                 <button 
                   onClick={() => { setIsPackagesOpen(true); fetchPackages(); }}
                   className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
@@ -3348,11 +3456,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 </button>
                 <button 
                   type="button"
-                  onClick={() => void downloadProject()}
+                  onClick={() => void downloadProject(undefined, { codeOnly: true })}
                   className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
-                  title={t.download}
+                  title={t.downloadCodeZip}
                 >
-                  <Download className="w-3 h-3" />
+                  <Archive className="w-3 h-3" />
                 </button>
                 <button 
                   onClick={() => fileInputRef.current?.click()}
@@ -3499,6 +3607,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             <div className="flex-1 relative">
               <Tabs.Content value="editor" className="absolute inset-0 outline-none">
                 <Editor
+                  key={activeFile ?? "__none__"}
                   height="100%"
                   theme="vs-dark"
                   path={activeFile || "no-file-selected.txt"}
@@ -3509,7 +3618,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     minimap: { enabled: false },
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', monospace",
-                    backgroundColor: "#0A0A0A",
                     lineNumbers: activeFile ? "on" : "off",
                     roundedSelection: false,
                     scrollBeyondLastLine: false,
@@ -3662,7 +3770,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                   msg.role === "user" ? "bg-[#1A1A1A] ml-4" : "bg-[#151515] mr-4 border border-[#1A1A1A]"
                 )}>
                   <div className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1">
-                    {msg.role === "user" ? "You" : "Sooner"}
+                    {msg.role === "user" ? (language === "ja" ? "あなた" : "You") : "Sooner"}
                   </div>
                   <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                 </div>
@@ -3941,13 +4049,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                         />
                       )}
                       {apiProvider === "vercel-ai-gateway" && (
-                        <input 
-                          type="password"
-                          value={vercelKey}
-                          onChange={(e) => setVercelKey(e.target.value)}
-                          placeholder="Enter Vercel AI Gateway API Key"
-                          className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                        />
+                        <>
+                          <input 
+                            type="password"
+                            value={vercelKey}
+                            onChange={(e) => setVercelKey(e.target.value)}
+                            placeholder="Enter Vercel AI Gateway API Key"
+                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                          />
+                          <p className="text-[10px] text-[#555] leading-snug">{t.vercelGatewayGenHint}</p>
+                        </>
                       )}
                       {apiProvider === "custom" && (
                         <input 
@@ -3960,15 +4071,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       )}
                     </div>
                     {apiProvider !== "gemini" && (
-                      <div className="relative mt-2">
-                        <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-                        <input 
-                          type="text"
-                          value={apiBaseUrl}
-                          onChange={(e) => setApiBaseUrl(e.target.value)}
-                          placeholder={t.apiBaseUrlPlaceholder}
-                          className="w-full bg-[#1A1A1A] border border-[#1A1A1A] rounded-xl py-1.5 pl-10 pr-4 text-xs text-[#555] focus:outline-none focus:border-[#38BDF8]"
-                        />
+                      <div className="space-y-1 mt-2">
+                        <label className="text-[10px] uppercase tracking-widest text-[#555]">{t.apiBaseUrl}</label>
+                        <div className="relative">
+                          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                          <input 
+                            type="text"
+                            value={apiBaseUrl}
+                            onChange={(e) => setApiBaseUrl(e.target.value)}
+                            placeholder={apiProvider === "vercel-ai-gateway" ? t.apiBaseUrlPlaceholderVercel : t.apiBaseUrlPlaceholderCustom}
+                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-1.5 pl-10 pr-4 text-xs text-[#E4E3E0] placeholder:text-[#555] focus:outline-none focus:border-[#38BDF8]"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -4428,14 +4542,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           <Dialog.Root open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-6 z-50 shadow-2xl">
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(500px,calc(100vw-2rem))] max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 z-50 shadow-2xl">
                 <Dialog.Description className="sr-only">{t.newProject}</Dialog.Description>
-                <div className="flex items-center justify-between mb-6">
-                  <Dialog.Title className="text-lg font-bold flex items-center gap-2">
-                    <Plus className="w-5 h-5 text-[#38BDF8]" />
-                    {t.newProject}
+                <div className="flex items-center justify-between mb-6 gap-2">
+                  <Dialog.Title className="text-base sm:text-lg font-bold flex items-center gap-2 min-w-0">
+                    <Plus className="w-5 h-5 text-[#38BDF8] shrink-0" />
+                    <span className="truncate">{t.newProject}</span>
                   </Dialog.Title>
-                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded">
+                  <Dialog.Close className="p-1 hover:bg-[#1A1A1A] rounded shrink-0">
                     <X className="w-5 h-5" />
                   </Dialog.Close>
                 </div>
@@ -4448,17 +4562,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                       value={newProjectName}
                       onChange={(e) => setNewProjectName(e.target.value)}
                       placeholder="my-new-app"
-                      className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                      className="w-full min-w-0 bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
                       onKeyDown={(e) => e.key === "Enter" && createProject()}
                     />
                   </div>
                 </div>
 
-                <div className="mt-8 flex justify-end">
+                <div className="mt-8 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                   <button 
                     onClick={createProject}
                     disabled={!newProjectName}
-                    className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
+                    className="w-full sm:w-auto px-6 py-2.5 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
                   >
                     {t.createProject}
                   </button>
