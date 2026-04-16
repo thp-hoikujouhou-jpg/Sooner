@@ -1,0 +1,3 @@
+# Ensure `git` is available for /api/projects/clone and git push/pull (Railway / Nixpacks).
+[phases.setup]
+aptPkgs = ["git"]

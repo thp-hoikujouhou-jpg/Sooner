@@ -1691,7 +1691,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [githubRepoListError, setGithubRepoListError] = useState("");
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [githubRepoSearch, setGithubRepoSearch] = useState("");
-  const [cloneTab, setCloneTab] = useState<"github" | "url">("github");
   const [githubUsername, setGithubUsername] = useState(localStorage.getItem("github_username") || "");
   const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">(() => {
     return (localStorage.getItem("aether_api_provider") as any) || "gemini";
@@ -1736,8 +1735,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [gitError, setGitError] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [cloneName, setCloneName] = useState("");
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
   const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix" | "auto-preview">("chat");
@@ -2625,30 +2622,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       await axios.post(apiUrl("/api/projects/clone"), { repoUrl: repo.clone_url, name: projectName, token: githubToken });
       await fetchProjects();
       setActiveProject(projectName);
-      setRepoUrl("");
-      setCloneName("");
     } catch (e: any) {
-      alert(`Clone failed: ${e.response?.data?.error || e.message}`);
-    }
-  };
-
-  const handleClone = async () => {
-    if (!repoUrl || !cloneName) return;
-    if (!BACKEND_URL) {
-      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneにはバックエンドが必要です。ZIPアップロードをご利用ください。" : "Git clone requires a backend. Please use ZIP upload instead."]);
-      setIsCloneOpen(false);
-      return;
-    }
-    try {
-      setTerminalOutput(prev => [...prev, `Cloning ${repoUrl}...`]);
-      await axios.post(apiUrl("/api/projects/clone"), { repoUrl, name: cloneName, token: githubToken });
-      fetchProjects();
-      setActiveProject(cloneName);
-      setIsCloneOpen(false);
-      setRepoUrl("");
-      setCloneName("");
-    } catch (e: any) {
-      alert(`Clone failed: ${e.response?.data?.error || e.message}`);
+      const d = e.response?.data?.details;
+      alert(
+        `Clone failed: ${e.response?.data?.error || e.message}${typeof d === "string" && d ? `\n\n${d}` : ""}`
+      );
     }
   };
 
@@ -4591,7 +4569,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" />
               <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(600px,calc(100vw-2rem))] max-h-[min(85vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 z-50 shadow-2xl flex flex-col">
-                <Dialog.Description className="sr-only">{language === "ja" ? "GitHubからリポジトリをクローン、またはURLを入力" : "Clone a repository from GitHub or enter a URL manually."}</Dialog.Description>
+                <Dialog.Description className="sr-only">{language === "ja" ? "GitHubからリポジトリをクローン" : "Clone a repository from GitHub."}</Dialog.Description>
                 <div className="flex items-center justify-between mb-4">
                   <Dialog.Title className="text-lg font-bold flex items-center gap-2">
                     <GitBranch className="w-5 h-5 text-[#38BDF8]" />
@@ -4602,35 +4580,11 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   </Dialog.Close>
                 </div>
 
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => { setCloneTab("github"); if (githubToken) void fetchGitHubRepos(); }}
-                    className={cn(
-                      "flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2",
-                      cloneTab === "github" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
-                    )}
-                  >
-                    <GitHubIcon className="w-4 h-4" />
-                    {t.importFromGithub}
-                  </button>
-                  <button
-                    onClick={() => setCloneTab("url")}
-                    className={cn(
-                      "flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-2",
-                      cloneTab === "url" ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
-                    )}
-                  >
-                    <Globe className="w-4 h-4" />
-                    {t.manualUrl}
-                  </button>
-                </div>
-
                 {!BACKEND_URL && (
                   <p className="text-sm text-amber-400/90 mb-4 leading-relaxed">{t.gitNoBackend}</p>
                 )}
 
-                {cloneTab === "github" ? (
-                  <div className="flex-1 min-h-0 flex flex-col">
+                <div className="flex-1 min-h-0 flex flex-col">
                     {!githubToken ? (
                       <div className="flex-1 flex flex-col items-center justify-center py-12 gap-4">
                         <GitHubIcon className="w-12 h-12 text-[#8E9299]" />
@@ -4734,41 +4688,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         </div>
                       </>
                     )}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">Repository URL</label>
-                      <input
-                        type="text"
-                        value={repoUrl}
-                        onChange={(e) => setRepoUrl(e.target.value)}
-                        placeholder="https://github.com/user/repo"
-                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">{t.projectName}</label>
-                      <input
-                        type="text"
-                        value={cloneName}
-                        onChange={(e) => setCloneName(e.target.value)}
-                        placeholder="my-awesome-project"
-                        className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleClone}
-                        disabled={!BACKEND_URL || !repoUrl || !cloneName}
-                        className="px-6 py-2 bg-[#38BDF8] text-white rounded-xl font-bold text-sm hover:bg-[#0EA5E9] transition-colors disabled:opacity-50"
-                      >
-                        {t.cloneRepo}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>

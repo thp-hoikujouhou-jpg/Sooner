@@ -183,16 +183,18 @@ async function startServer() {
     limits: { fileSize: 25 * 1024 * 1024 },
   });
 
+  const prodOrigins = [
+    "https://sooner.sh",
+    "https://www.sooner.sh",
+    "https://lp.sooner.sh",
+    "https://blog.sooner.sh",
+    "https://cms.sooner.sh",
+  ];
+  const railwayHost = process.env.RAILWAY_PUBLIC_DOMAIN;
+  if (railwayHost) prodOrigins.push(`https://${railwayHost}`);
+
   app.use(cors({
-    origin: process.env.NODE_ENV === "production"
-      ? [
-          "https://sooner.sh",
-          "https://www.sooner.sh",
-          "https://lp.sooner.sh",
-          "https://blog.sooner.sh",
-          "https://cms.sooner.sh",
-        ]
-      : true,
+    origin: process.env.NODE_ENV === "production" ? prodOrigins : true,
     credentials: true,
   }));
   app.use(bodyParser.json({ limit: "32mb" }));
@@ -204,6 +206,21 @@ async function startServer() {
   } catch (e) {
     console.error("Failed to create projects directory:", e);
     process.exit(1);
+  }
+
+  /** Same URL shape as push/pull: embed token for HTTPS GitHub clone (OAuth + PAT). */
+  function toGithubHttpsUrlWithToken(repoUrl: string, token: string): string | null {
+    const u = repoUrl.trim();
+    if (u.startsWith("https://github.com/")) {
+      return u.replace("https://", `https://x-access-token:${token}@`);
+    }
+    if (u.startsWith("git@github.com:")) {
+      const m = u.match(/^git@github\.com:([^/]+)\/(.+?)(\.git)?$/);
+      if (m) {
+        return `https://x-access-token:${token}@github.com/${m[1]}/${m[2].replace(/\.git$/, "")}.git`;
+      }
+    }
+    return null;
   }
 
   async function ensureProjectPath(uid: string | null, id: string): Promise<string | null> {
@@ -227,7 +244,7 @@ async function startServer() {
 
   // --- API Routes ---
 
-  // GitHub Clone
+  // GitHub Clone (HTTPS URL with embedded token — same as git push/pull; Basic extraheader breaks OAuth tokens on many hosts)
   app.post("/api/projects/clone", async (req, res) => {
     const { repoUrl, name, token } = req.body;
     if (!repoUrl || !name) return res.status(400).json({ error: "Repo URL and name required" });
@@ -243,15 +260,33 @@ async function startServer() {
 
     const uid = await extractUid(req);
 
-    const args = ["clone"];
-    if (token) {
-      args.push("-c", `http.extraheader=AUTHORIZATION: basic ${Buffer.from(`token:${token}`).toString("base64")}`);
+    let cloneUrl = String(repoUrl).trim();
+    const tok = typeof token === "string" ? token.trim() : "";
+    if (tok) {
+      const authed = toGithubHttpsUrlWithToken(cloneUrl, tok);
+      if (authed) cloneUrl = authed;
     }
-    args.push("--", repoUrl, projectPath);
 
-    execFile("git", args, { timeout: 120000 }, async (error, stdout, stderr) => {
+    try {
+      await fs.access(projectPath);
+      await fs.rm(projectPath, { recursive: true, force: true });
+    } catch {
+      /* path did not exist */
+    }
+
+    const args = ["clone", "--", cloneUrl, projectPath];
+
+    execFile("git", args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }, async (error, stdout, stderr) => {
       if (error) {
-        return res.status(500).json({ error: "Failed to clone repo", details: stderr });
+        const err = error as NodeJS.ErrnoException;
+        if (err.code === "ENOENT") {
+          return res.status(500).json({
+            error: "Failed to clone repo",
+            details: "git executable not found. Install git on the server (e.g. nixpacks aptPkgs: git).",
+          });
+        }
+        const details = [stderr, stdout].filter(Boolean).join("\n").trim() || err.message || String(error);
+        return res.status(500).json({ error: "Failed to clone repo", details });
       }
       // Sync cloned files to Storage
       if (uid) {
@@ -1948,6 +1983,10 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT} (${process.env.NODE_ENV || "development"})`);
+    execFile("git", ["--version"], { timeout: 5000 }, (e, out) => {
+      if (e) console.error("[Sooner] git not found in PATH — clone/push/pull will fail:", (e as Error).message);
+      else console.log("[Sooner]", out?.trim());
+    });
   });
 }
 
