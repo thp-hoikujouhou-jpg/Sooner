@@ -1651,6 +1651,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const [projects, setProjects] = useState<string[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
+  const activeProjectRef = useRef<string | null>(activeProject);
+  /** Only the latest `storageListFiles` result may call `setFiles` (avoids empty/stale list overwriting after clone). */
+  const fetchFilesRequestId = useRef(0);
+  useEffect(() => {
+    activeProjectRef.current = activeProject;
+  }, [activeProject]);
   const [files, setFiles] = useState<FileNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
@@ -2232,7 +2238,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setFiles([]);
       setActiveFile(null);
       setFileContent("");
-      fetchFiles();
+      const pid = activeProject;
+      void fetchFiles(pid);
       storageLoadChatHistory(uid, activeProject)
         .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
         .catch(() => setMessages([]));
@@ -2307,7 +2314,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!activeProject || !uid) return;
     const refetch = () => {
       if (document.visibilityState === "visible") {
-        fetchFiles();
+        const p = activeProjectRef.current;
+        if (p) void fetchFiles(p);
       }
     };
     document.addEventListener("visibilitychange", refetch);
@@ -2351,13 +2359,20 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
   };
 
-  const fetchFiles = async () => {
-    if (!activeProject || !uid) return;
+  /** List files for `explicitProject`, or the current `activeProject` if omitted. Drops stale results if the user switched projects while listing. */
+  const fetchFiles = async (explicitProject?: string): Promise<number> => {
+    const project = explicitProject ?? activeProject;
+    if (!project || !uid) return 0;
+    const reqId = ++fetchFilesRequestId.current;
     try {
-      const paths = await storageListFiles(uid, activeProject);
+      const paths = await storageListFiles(uid, project);
+      if (activeProjectRef.current !== project) return paths.length;
+      if (reqId !== fetchFilesRequestId.current) return paths.length;
       setFiles(buildFileTree(paths));
+      return paths.length;
     } catch (e) {
       console.error("Failed to fetch files", e);
+      return 0;
     }
   };
 
@@ -2691,8 +2706,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       await axios.post(apiUrl("/api/projects/clone"), { repoUrl: repo.clone_url, name: projectName, token: githubToken });
       await fetchProjects();
       appendToProjectTerminal(projectName, [t.cloneTerminalDone.replace("{name}", projectName)]);
-      // Explicitly refresh files after clone finishes so they show up immediately in the newly-active project.
-      fetchFiles();
+      // Clone handler's `fetchFiles` must use `projectName` explicitly (async closure can still see a stale `activeProject`).
+      // Storage sync from the server may lag slightly — retry with backoff until we see files or cap attempts.
+      let listed = await fetchFiles(projectName);
+      const delaysMs = [400, 1000, 2000, 3500];
+      for (let i = 0; i < delaysMs.length && listed === 0 && activeProjectRef.current === projectName; i++) {
+        await new Promise(r => setTimeout(r, delaysMs[i]));
+        listed = await fetchFiles(projectName);
+      }
     } catch (e: any) {
       const d = e.response?.data?.details;
       const errLine = `${t.cloneTerminalFailed} ${e.response?.data?.error || e.message}${typeof d === "string" && d ? ` — ${d}` : ""}`;
