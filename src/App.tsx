@@ -1640,6 +1640,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return () => { axios.interceptors.request.eject(interceptor); };
   }, [user]);
 
+  const uid = user?.uid || null;
+
   const [projects, setProjects] = useState<string[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [files, setFiles] = useState<FileNode[]>([]);
@@ -2291,8 +2293,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       window.removeEventListener("focus", refetch);
     };
   }, [activeProject, uid]);
-
-  const uid = user?.uid || null;
 
   function buildFileTree(paths: string[]): FileNode[] {
     const root: FileNode[] = [];
