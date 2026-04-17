@@ -1,3 +1,5 @@
-# Ensure `git` is available for /api/projects/clone and git push/pull (Railway / Nixpacks).
+# Fallback when building with Nixpacks (no Dockerfile): install git via Nix + apt.
+# Prefer deploying with Dockerfile on Railway so `git` is always present.
 [phases.setup]
+nixPkgs = ["git"]
 aptPkgs = ["git"]
