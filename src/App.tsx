@@ -3140,7 +3140,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       message: t.confirmDelete,
       onConfirm: async () => {
         try {
-          if (uid && activeProject) await storageDeleteFile(uid, activeProject, filePath);
+          if (uid && activeProject) {
+            if (BACKEND_URL) {
+              await axios.delete(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
+                data: { filePath },
+              });
+            } else {
+              await storageDeleteFile(uid, activeProject, filePath);
+            }
+          }
           fetchFiles();
           if (activeFile === filePath) {
             setActiveFile(null);
@@ -3240,7 +3248,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       message: t.confirmDeleteFolder.replace("{name}", node.name),
       onConfirm: async () => {
         try {
-          await Promise.all(paths.map(p => storageDeleteFile(uid, activeProject, p)));
+          if (BACKEND_URL && activeProject) {
+            await axios.post(
+              apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/storage-delete-prefix`),
+              { prefix: node.path },
+            );
+          } else {
+            await Promise.all(paths.map(p => storageDeleteFile(uid, activeProject, p)));
+          }
           if (activeFile && paths.includes(activeFile)) {
             setActiveFile(null);
             setFileContent("");
@@ -3260,7 +3275,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       message: t.confirmDeleteProject,
       onConfirm: async () => {
         try {
-          if (uid) await storageDeleteProject(uid, projectName);
+          if (uid) {
+            if (BACKEND_URL) {
+              await axios.delete(apiUrl(`/api/projects/${encodeURIComponent(projectName)}`));
+            } else {
+              await storageDeleteProject(uid, projectName);
+            }
+          }
           await fetchProjects();
           if (activeProject === projectName) {
             setActiveProject(null);

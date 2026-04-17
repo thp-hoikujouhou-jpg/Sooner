@@ -174,6 +174,33 @@ function isValidName(name: string): boolean {
   return true;
 }
 
+/** Relative path under a project bucket (no leading slash, no `..`). */
+function safeStorageRelPath(rel: string): boolean {
+  if (typeof rel !== "string" || rel.length === 0 || rel.length > 2048) return false;
+  const n = rel.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (n.includes("\0") || n.split("/").some((p) => p === "..")) return false;
+  return true;
+}
+
+/** Delete all Storage objects under `relPrefix/` (folder). Returns count deleted (best effort). */
+async function storageDeletePrefix(uid: string, project: string, relPrefix: string): Promise<number> {
+  if (!firebaseStorage) return 0;
+  const normalized = relPrefix.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized || !safeStorageRelPath(normalized)) return 0;
+  const bucket = firebaseStorage.bucket();
+  const objectPrefix = `${storagePath(uid, project, normalized)}/`;
+  const [files] = await bucket.getFiles({ prefix: objectPrefix });
+  if (files.length === 0) return 0;
+  const chunkSize = 80;
+  let deleted = 0;
+  for (let i = 0; i < files.length; i += chunkSize) {
+    const chunk = files.slice(i, i + chunkSize);
+    await Promise.all(chunk.map((f) => f.delete().catch(() => {})));
+    deleted += chunk.length;
+  }
+  return deleted;
+}
+
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -405,6 +432,9 @@ async function startServer() {
     const { id } = req.params;
     const { filePath } = req.body;
     if (!filePath) return res.status(400).json({ error: "File path required" });
+    if (!safeStorageRelPath(String(filePath))) {
+      return res.status(400).json({ error: "Invalid file path" });
+    }
 
     const fullPath = safePath(PROJECTS_ROOT, id, filePath);
     if (!fullPath) {
@@ -413,11 +443,40 @@ async function startServer() {
 
     const uid = await extractUid(req);
     try {
-      await fs.unlink(fullPath);
+      try {
+        await fs.unlink(fullPath);
+      } catch {
+        /* file may exist only in Storage */
+      }
       if (uid) await storageDelete(uid, id, filePath);
       res.json({ message: "File deleted" });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete file" });
+    }
+  });
+
+  /** Delete every object under a folder prefix in Storage (Admin). Faster than many client `deleteObject` calls. */
+  app.post("/api/projects/:id/storage-delete-prefix", async (req, res) => {
+    const { id } = req.params;
+    const prefix = req.body?.prefix;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    if (typeof prefix !== "string" || !safeStorageRelPath(prefix)) {
+      return res.status(400).json({ error: "Invalid prefix" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!firebaseStorage) {
+      return res.status(503).json({ error: "Storage not configured" });
+    }
+    try {
+      const n = await storageDeletePrefix(uid, id, prefix);
+      res.json({ deleted: n });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message || e) });
     }
   });
 
