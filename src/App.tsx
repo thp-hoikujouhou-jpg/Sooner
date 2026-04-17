@@ -1811,6 +1811,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       stop: "Stop",
       confirmDelete: "Are you sure you want to delete this file?",
       confirmDeleteProject: "Are you sure you want to delete this project and all its files?",
+      confirmDeleteFolder: "Delete folder \"{name}\" and all its contents?",
+      deleteFolder: "Delete Folder",
+      refreshFiles: "Refresh file list",
       uploadProject: "Upload project (ZIP)",
       uploadProjectFolder: "Upload project folder",
       editMode: "Edit Mode",
@@ -1906,6 +1909,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       closeSidebar: "Close sidebar",
       cloneFromGithub: "Clone from GitHub",
       cloneRepository: "Clone Repository",
+      cloneTerminalRunning: "Cloning {url}… (server-side; live git progress is not streamed)",
+      cloneTerminalDone: "✓ Clone complete — project \"{name}\" is ready.",
+      cloneTerminalFailed: "✗ Clone failed:",
       connectedAs: "Connected",
       scopeInfo: "Scopes: repo, read:user, read:org (repos, PRs, Issues API)",
       githubAutoConnect: "Sign in with GitHub to auto-connect, or enter a token manually.",
@@ -1963,6 +1969,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       stop: "停止",
       confirmDelete: "このファイルを削除してもよろしいですか？",
       confirmDeleteProject: "このプロジェクトとすべてのファイルを削除してもよろしいですか？",
+      confirmDeleteFolder: "フォルダ「{name}」と、その中のすべてのファイルを削除してもよろしいですか？",
+      deleteFolder: "フォルダを削除",
+      refreshFiles: "ファイル一覧を再読み込み",
       uploadProject: "プロジェクトをアップロード (ZIP)",
       uploadProjectFolder: "フォルダーをプロジェクトとしてアップロード",
       editMode: "編集モード",
@@ -2058,6 +2067,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       closeSidebar: "サイドバーを閉じる",
       cloneFromGithub: "GitHubからクローン",
       cloneRepository: "リポジトリをクローン",
+      cloneTerminalRunning: "クローン中: {url}…（サーバー上で実行中。git の詳細ログはターミナルには流れません）",
+      cloneTerminalDone: "✓ クローン完了 — プロジェクト「{name}」を開きました。",
+      cloneTerminalFailed: "✗ クローン失敗:",
       connectedAs: "接続済み",
       scopeInfo: "repo, read:user, read:org（リポ一覧・PR・Issues API）",
       githubAutoConnect: "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。",
@@ -2190,6 +2202,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   useEffect(() => {
     if (activeProject && uid) {
+      // Clear stale tree from the previous project so the user doesn't see old files while the new list loads.
+      setFiles([]);
+      setActiveFile(null);
+      setFileContent("");
       fetchFiles();
       storageLoadChatHistory(uid, activeProject)
         .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
@@ -2257,6 +2273,24 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [terminalOutput]);
+
+  // Re-fetch the file list when the tab becomes visible again.
+  // This handles cases like: a clone finishing while the tab was backgrounded, or a flaky
+  // Firebase Storage `listAll` call leaving an empty tree for a large project (e.g. a messenger app clone).
+  useEffect(() => {
+    if (!activeProject || !uid) return;
+    const refetch = () => {
+      if (document.visibilityState === "visible") {
+        fetchFiles();
+      }
+    };
+    document.addEventListener("visibilitychange", refetch);
+    window.addEventListener("focus", refetch);
+    return () => {
+      document.removeEventListener("visibilitychange", refetch);
+      window.removeEventListener("focus", refetch);
+    };
+  }, [activeProject, uid]);
 
   const uid = user?.uid || null;
 
@@ -2609,6 +2643,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setIsLoadingRepos(false);
   };
 
+  const appendToProjectTerminal = (project: string, lines: string[]) => {
+    setTerminalMap(prev => ({ ...prev, [project]: [...(prev[project] || []), ...lines] }));
+  };
+
   const handleCloneFromGitHub = async (repo: { clone_url: string; name: string }) => {
     const projectName = repo.name;
     if (!BACKEND_URL) {
@@ -2616,14 +2654,20 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setIsCloneOpen(false);
       return;
     }
+    // Seed the new project's terminal and switch to it so the user sees live status no matter where they navigate.
+    appendToProjectTerminal(projectName, [t.cloneTerminalRunning.replace("{url}", repo.clone_url)]);
+    setActiveProject(projectName);
+    setIsCloneOpen(false);
     try {
-      setTerminalOutput(prev => [...prev, `Cloning ${repo.clone_url}...`]);
-      setIsCloneOpen(false);
       await axios.post(apiUrl("/api/projects/clone"), { repoUrl: repo.clone_url, name: projectName, token: githubToken });
       await fetchProjects();
-      setActiveProject(projectName);
+      appendToProjectTerminal(projectName, [t.cloneTerminalDone.replace("{name}", projectName)]);
+      // Explicitly refresh files after clone finishes so they show up immediately in the newly-active project.
+      fetchFiles();
     } catch (e: any) {
       const d = e.response?.data?.details;
+      const errLine = `${t.cloneTerminalFailed} ${e.response?.data?.error || e.message}${typeof d === "string" && d ? ` — ${d}` : ""}`;
+      appendToProjectTerminal(projectName, [errLine]);
       alert(
         `Clone failed: ${e.response?.data?.error || e.message}${typeof d === "string" && d ? `\n\n${d}` : ""}`
       );
@@ -3084,6 +3128,35 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     }
     const blob = await zip.generateAsync({ type: "blob" });
     saveAs(blob, `${node.name}.zip`);
+  };
+
+  const deleteFolder = (node: FileNode) => {
+    if (!activeProject || !uid) return;
+    const paths: string[] = [];
+    const collect = (n: FileNode) => {
+      if (n.type === "file") paths.push(n.path);
+      else n.children?.forEach(collect);
+    };
+    collect(node);
+    setConfirmDialog({
+      isOpen: true,
+      title: t.deleteFolder,
+      message: t.confirmDeleteFolder.replace("{name}", node.name),
+      onConfirm: async () => {
+        try {
+          await Promise.all(paths.map(p => storageDeleteFile(uid, activeProject, p)));
+          if (activeFile && paths.includes(activeFile)) {
+            setActiveFile(null);
+            setFileContent("");
+          }
+          fetchFiles();
+          setConfirmDialog(null);
+        } catch (e) {
+          console.error("Failed to delete folder", e);
+          setConfirmDialog(null);
+        }
+      },
+    });
   };
 
   const deleteProject = async (projectName: string) => {
@@ -3786,6 +3859,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 >
                   <Package className="w-3 h-3" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void fetchFiles()}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.refreshFiles}
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
                 <button 
                   type="button"
                   onClick={() => void downloadProject(undefined, { codeOnly: true })}
@@ -3812,6 +3893,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   onSelect={openFile} 
                   activeFile={activeFile} 
                   onDelete={deleteFile}
+                  onDeleteFolder={deleteFolder}
                   onDownload={downloadSingleFile}
                   onDownloadFolder={downloadFolder}
                   downloadLabel={t.downloadFile}
@@ -5007,38 +5089,54 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
   );
 }
 
-function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDownload, onDownloadFolder, language, downloadLabel }: any) {
+function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDeleteFolder, onDownload, onDownloadFolder, language, downloadLabel }: any) {
   const [isOpen, setIsOpen] = useState(false);
   const dl = downloadLabel ?? (language === "ja" ? "ファイルをダウンロード" : "Download file");
 
   if (node.type === "directory") {
+    const hasActions = !!onDownloadFolder || !!onDeleteFolder;
     return (
       <div>
         <div className="group relative">
           <button 
             onClick={() => setIsOpen(!isOpen)}
-            className="w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2 pr-10"
+            className={cn(
+              "w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2",
+              hasActions ? "pr-16" : "pr-2"
+            )}
             style={{ paddingLeft: `${level * 12 + 8}px` }}
           >
             {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             <Folder className="w-4 h-4 text-[#38BDF8]" />
             <span className="truncate">{node.name}</span>
           </button>
-          {onDownloadFolder && (
+          {hasActions && (
             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onDownloadFolder(node); }}
-                className="p-1 hover:bg-[#252525] rounded text-[#38BDF8]"
-                title={language === "ja" ? "フォルダをダウンロード" : "Download folder"}
-              >
-                <Download className="w-3 h-3" />
-              </button>
+              {onDownloadFolder && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDownloadFolder(node); }}
+                  className="p-1 hover:bg-[#252525] rounded text-[#38BDF8]"
+                  title={language === "ja" ? "フォルダをダウンロード" : "Download folder"}
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              )}
+              {onDeleteFolder && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDeleteFolder(node); }}
+                  className="p-1 hover:bg-[#252525] rounded text-red-500"
+                  title={language === "ja" ? "フォルダを削除" : "Delete folder"}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
             </div>
           )}
         </div>
         {isOpen && node.children?.map(child => (
-          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDownload={onDownload} onDownloadFolder={onDownloadFolder} language={language} downloadLabel={downloadLabel} />
+          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDeleteFolder={onDeleteFolder} onDownload={onDownload} onDownloadFolder={onDownloadFolder} language={language} downloadLabel={downloadLabel} />
         ))}
       </div>
     );
