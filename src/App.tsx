@@ -97,6 +97,8 @@ import BlogPage from "./BlogPage";
 import CmsPage from "./CmsPage";
 import LegalPage from "./LegalPage";
 import LegalArchiveIndex from "./LegalArchiveIndex";
+import SsoHelpPage from "./SsoHelpPage";
+import { formatGithubAccessError } from "./githubSso";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
@@ -1473,6 +1475,11 @@ export default function App() {
 
   const pathParts = window.location.pathname.replace(/\/$/, "").split("/").filter(Boolean);
 
+  if (pathParts[0] === "docs" && pathParts[1] === "github-sso") {
+    const locale = new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en";
+    return <SsoHelpPage pathLang={locale} />;
+  }
+
   if (pathParts.length === 1 && (pathParts[0] === "terms" || pathParts[0] === "privacy")) {
     const locale = new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en";
     const doc = pathParts[0];
@@ -1691,6 +1698,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [githubToken, setGithubToken] = useState(localStorage.getItem("github_token") || "");
   const [githubRepos, setGithubRepos] = useState<{ name: string; full_name: string; clone_url: string; html_url: string; description: string | null; private: boolean; updated_at: string; stargazers_count: number; language: string | null }[]>([]);
   const [githubRepoListError, setGithubRepoListError] = useState("");
+  const [githubRepoListSsoUrl, setGithubRepoListSsoUrl] = useState<string | null>(null);
+  const [githubRepoListShowSsoHelp, setGithubRepoListShowSsoHelp] = useState(false);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [githubRepoSearch, setGithubRepoSearch] = useState("");
   const [githubUsername, setGithubUsername] = useState(localStorage.getItem("github_username") || "");
@@ -1725,6 +1734,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   >([]);
   const [githubPrLoading, setGithubPrLoading] = useState(false);
   const [githubPrError, setGithubPrError] = useState("");
+  const [githubPrSsoUrl, setGithubPrSsoUrl] = useState<string | null>(null);
+  const [githubPrShowSsoHelp, setGithubPrShowSsoHelp] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
   const [prBaseBranch, setPrBaseBranch] = useState("main");
@@ -1754,7 +1765,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }, [language]);
 
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
-  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
   const [isPackagesOpen, setIsPackagesOpen] = useState(false);
   const [packages, setPackages] = useState<{ dependencies: Record<string, string>; devDependencies: Record<string, string> }>({ dependencies: {}, devDependencies: {} });
   const [accountDeleteBusy, setAccountDeleteBusy] = useState(false);
@@ -1916,6 +1932,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cloneTerminalFailed: "✗ Clone failed:",
       connectedAs: "Connected",
       scopeInfo: "Scopes: repo, read:user, read:org (repos, PRs, Issues API)",
+      githubSsoAuthorizeBtn: "Authorize on GitHub",
+      githubSsoHelpPageLink: "SSO help (organizations)",
+      githubSsoSettingsHint:
+        "SAML SSO org? You may need to authorize this connection on GitHub. Open the SSO help page for steps.",
       githubAutoConnect: "Sign in with GitHub to auto-connect, or enter a token manually.",
       noDiff: "No diff",
       gitPrSection: "Pull requests (GitHub API)",
@@ -2074,6 +2094,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cloneTerminalFailed: "✗ クローン失敗:",
       connectedAs: "接続済み",
       scopeInfo: "repo, read:user, read:org（リポ一覧・PR・Issues API）",
+      githubSsoAuthorizeBtn: "GitHub で承認",
+      githubSsoHelpPageLink: "SSO のヘルプ（組織向け）",
+      githubSsoSettingsHint:
+        "SAML SSO の組織では、GitHub 上でこの接続の承認が必要なことがあります。手順は「SSO のヘルプ」を参照してください。",
       githubAutoConnect: "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。",
       noDiff: "差分なし",
       gitPrSection: "プルリクエスト（GitHub API）",
@@ -2597,6 +2621,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!token) return;
     setIsLoadingRepos(true);
     setGithubRepoListError("");
+    setGithubRepoListSsoUrl(null);
+    setGithubRepoListShowSsoHelp(false);
     try {
       const listUrl =
         "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
@@ -2614,17 +2640,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       }
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        let msg = (errJson as { message?: string }).message || `HTTP ${res.status}`;
-        if (res.status === 403 && typeof msg === "string" && /sso/i.test(msg)) {
-          msg +=
-            language === "ja"
-              ? " — 組織の SAML SSO で「Authorize」を実行してください。"
-              : " — For SAML SSO organizations, click Authorize on GitHub for this app.";
-        }
-        throw new Error(msg);
+        const apiMsg = (errJson as { message?: string }).message || `HTTP ${res.status}`;
+        const fm = formatGithubAccessError(res, apiMsg, language);
+        setGithubRepoListError(fm.message);
+        setGithubRepoListSsoUrl(fm.ssoAuthorizeUrl);
+        setGithubRepoListShowSsoHelp(fm.showSsoHelp);
+        setGithubRepos([]);
+        return;
       }
       const data = await res.json();
       setGithubRepos(Array.isArray(data) ? data : []);
+      setGithubRepoListSsoUrl(null);
+      setGithubRepoListShowSsoHelp(false);
       if (!githubUsername) {
         const userRes = await fetch("https://api.github.com/user", {
           headers: { Authorization: githubRestAuthorization(token), Accept: "application/vnd.github.v3+json" },
@@ -2639,6 +2666,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       console.error("Failed to fetch GitHub repos", e);
       setGithubRepos([]);
       setGithubRepoListError(e?.message || "GitHub API error");
+      setGithubRepoListSsoUrl(null);
+      setGithubRepoListShowSsoHelp(false);
     }
     setIsLoadingRepos(false);
   };
@@ -2706,6 +2735,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
     setGithubPrLoading(true);
     setGithubPrError("");
+    setGithubPrSsoUrl(null);
+    setGithubPrShowSsoHelp(false);
     try {
       const listUrl = `https://api.github.com/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/pulls?state=open&per_page=20&sort=updated`;
       let res = await fetch(listUrl, {
@@ -2720,7 +2751,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           });
         }
       }
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const apiMsg = (errJson as { message?: string }).message || `GitHub API ${res.status}`;
+        const fm = formatGithubAccessError(res, apiMsg, language);
+        setGithubPrError(fm.message);
+        setGithubPrSsoUrl(fm.ssoAuthorizeUrl);
+        setGithubPrShowSsoHelp(fm.showSsoHelp);
+        setGithubPullRequests([]);
+        setGithubIssues([]);
+        return;
+      }
       const data = await res.json();
       setGithubPullRequests(Array.isArray(data) ? data : []);
 
@@ -2743,7 +2784,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           ? idata.filter((item: { pull_request?: unknown }) => !item.pull_request)
           : [];
         setGithubIssues(onlyIssues);
+        setGithubPrError("");
+        setGithubPrSsoUrl(null);
+        setGithubPrShowSsoHelp(false);
       } else {
+        const ierr = await ires.json().catch(() => ({}));
+        const apiMsg = (ierr as { message?: string }).message || `GitHub API ${ires.status}`;
+        const fm = formatGithubAccessError(ires, apiMsg, language);
+        if (fm.showSsoHelp) {
+          setGithubPrError(fm.message);
+          setGithubPrSsoUrl(fm.ssoAuthorizeUrl);
+          setGithubPrShowSsoHelp(true);
+        }
         setGithubIssues([]);
       }
 
@@ -2759,8 +2811,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setGithubPrError(e.message || "PR list failed");
       setGithubPullRequests([]);
       setGithubIssues([]);
+      setGithubPrSsoUrl(null);
+      setGithubPrShowSsoHelp(false);
+    } finally {
+      setGithubPrLoading(false);
     }
-    setGithubPrLoading(false);
   };
 
   const createGithubPullRequest = async () => {
@@ -2771,6 +2826,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!title) return;
     setGithubPrLoading(true);
     setGithubPrError("");
+    setGithubPrSsoUrl(null);
+    setGithubPrShowSsoHelp(false);
     try {
       let token = githubToken;
       const body = {
@@ -2805,10 +2862,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as { message?: string }).message || `HTTP ${res.status}`);
+        const apiMsg = (err as { message?: string }).message || `HTTP ${res.status}`;
+        const fm = formatGithubAccessError(res, apiMsg, language);
+        setGithubPrSsoUrl(fm.ssoAuthorizeUrl);
+        setGithubPrShowSsoHelp(fm.showSsoHelp);
+        throw new Error(fm.message);
       }
       setPrTitle("");
       setPrBody("");
+      setGithubPrSsoUrl(null);
+      setGithubPrShowSsoHelp(false);
       await loadGithubPullRequests(gitStatusData.originUrl);
     } catch (e: any) {
       setGithubPrError(e.message || "PR create failed");
@@ -3051,10 +3114,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           if (filePath === ".sooner_chat.json" || filePath === ".aether_chat.json") {
             setMessages([]);
           }
-          setConfirmDialog(null);
         } catch (error) {
           console.error("Failed to delete file:", error);
-          setConfirmDialog(null);
         }
       }
     });
@@ -3150,10 +3211,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             setFileContent("");
           }
           fetchFiles();
-          setConfirmDialog(null);
         } catch (e) {
           console.error("Failed to delete folder", e);
-          setConfirmDialog(null);
         }
       },
     });
@@ -3172,10 +3231,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             setActiveProject(null);
             setFiles([]);
           }
-          setConfirmDialog(null);
         } catch (e) {
           console.error("Failed to delete project", e);
-          setConfirmDialog(null);
         }
       }
     });
@@ -4554,6 +4611,16 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           <div className="flex-1 min-w-0">
                             <div className="text-sm text-white font-medium">{githubUsername ? `@${githubUsername}` : t.connectedAs}</div>
                             <div className="text-[10px] text-green-400">{t.scopeInfo}</div>
+                            <p className="text-[10px] text-[#555] leading-snug mt-1">
+                              <a
+                                href={`/docs/github-sso${language === "ja" ? "?lang=ja" : ""}`}
+                                className="text-[#38BDF8] hover:underline"
+                              >
+                                {t.githubSsoHelpPageLink}
+                              </a>
+                              {" — "}
+                              {t.githubSsoSettingsHint}
+                            </p>
                           </div>
                         </div>
                         <button
@@ -4694,7 +4761,30 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           </div>
                         )}
                         {githubRepoListError && (
-                          <p className="text-xs text-red-400 mb-2 whitespace-pre-wrap px-1">{githubRepoListError}</p>
+                          <div className="mb-2 px-1 space-y-2">
+                            <p className="text-xs text-red-400 whitespace-pre-wrap">{githubRepoListError}</p>
+                            {(githubRepoListSsoUrl || githubRepoListShowSsoHelp) && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {githubRepoListSsoUrl && (
+                                  <a
+                                    href={githubRepoListSsoUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#252525] text-xs font-bold text-[#38BDF8] hover:bg-[#2A2A2A]"
+                                  >
+                                    {t.githubSsoAuthorizeBtn}
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                                <a
+                                  href={`/docs/github-sso${language === "ja" ? "?lang=ja" : ""}`}
+                                  className="text-xs text-[#8E9299] hover:text-[#38BDF8] underline"
+                                >
+                                  {t.githubSsoHelpPageLink}
+                                </a>
+                              </div>
+                            )}
+                          </div>
                         )}
                         <div className="flex gap-2 mb-3">
                           <div className="relative flex-1 min-w-0">
@@ -4854,7 +4944,30 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           <p className="text-xs text-amber-400/90">{t.gitPrNeedToken}</p>
                         )}
                         {githubToken && githubPrError && (
-                          <p className="text-xs text-red-400 whitespace-pre-wrap">{githubPrError}</p>
+                          <div className="space-y-2">
+                            <p className="text-xs text-red-400 whitespace-pre-wrap">{githubPrError}</p>
+                            {(githubPrSsoUrl || githubPrShowSsoHelp) && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {githubPrSsoUrl && (
+                                  <a
+                                    href={githubPrSsoUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#252525] text-[11px] font-bold text-[#38BDF8] hover:bg-[#2A2A2A]"
+                                  >
+                                    {t.githubSsoAuthorizeBtn}
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                                <a
+                                  href={`/docs/github-sso${language === "ja" ? "?lang=ja" : ""}`}
+                                  className="text-[11px] text-[#8E9299] hover:text-[#38BDF8] underline"
+                                >
+                                  {t.githubSsoHelpPageLink}
+                                </a>
+                              </div>
+                            )}
+                          </div>
                         )}
                         {githubToken && (
                           <>
@@ -5070,7 +5183,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     {t.cancel}
                   </button>
                   <button 
-                    onClick={confirmDialog.onConfirm}
+                    type="button"
+                    onClick={() => {
+                      const run = confirmDialog.onConfirm;
+                      setConfirmDialog(null);
+                      void Promise.resolve(run()).catch((err) => {
+                        console.error("Confirm dialog action failed:", err);
+                      });
+                    }}
                     className="px-4 py-2 bg-red-500 text-white rounded-lg font-bold text-sm hover:bg-red-600 transition-colors"
                   >
                     {t.delete}
