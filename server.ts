@@ -421,6 +421,28 @@ async function startServer() {
     }
   });
 
+  /** Fast flat file path list from Cloud Storage (Admin SDK). Avoids browser-side recursive `listAll`. */
+  app.get("/api/projects/:id/storage-file-index", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!firebaseStorage) {
+      return res.status(503).json({ error: "Storage not configured" });
+    }
+    try {
+      let paths = await storageListFiles(uid, id);
+      paths = paths.filter((p) => p && p !== ".sooner_project");
+      res.json({ paths });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
   // List files in project — sync from cloud if local dir doesn't exist
   app.get("/api/projects/:id/files", async (req, res) => {
     const { id } = req.params;

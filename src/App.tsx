@@ -2365,7 +2365,21 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!project || !uid) return 0;
     const reqId = ++fetchFilesRequestId.current;
     try {
-      const paths = await storageListFiles(uid, project);
+      let paths: string[];
+      if (BACKEND_URL) {
+        try {
+          const res = await axios.get<{ paths?: string[] }>(
+            apiUrl(`/api/projects/${encodeURIComponent(project)}/storage-file-index`)
+          );
+          const rawPaths = res.data?.paths;
+          paths = Array.isArray(rawPaths) ? rawPaths : [];
+        } catch (e) {
+          console.warn("storage-file-index failed, falling back to client Storage listAll:", e);
+          paths = await storageListFiles(uid, project);
+        }
+      } else {
+        paths = await storageListFiles(uid, project);
+      }
       if (activeProjectRef.current !== project) return paths.length;
       if (reqId !== fetchFilesRequestId.current) return paths.length;
       setFiles(buildFileTree(paths));
@@ -2709,7 +2723,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       // Clone handler's `fetchFiles` must use `projectName` explicitly (async closure can still see a stale `activeProject`).
       // Storage sync from the server may lag slightly — retry with backoff until we see files or cap attempts.
       let listed = await fetchFiles(projectName);
-      const delaysMs = [400, 1000, 2000, 3500];
+      const delaysMs = [300, 800, 1600, 2800];
       for (let i = 0; i < delaysMs.length && listed === 0 && activeProjectRef.current === projectName; i++) {
         await new Promise(r => setTimeout(r, delaysMs[i]));
         listed = await fetchFiles(projectName);
