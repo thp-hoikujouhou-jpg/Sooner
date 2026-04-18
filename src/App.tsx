@@ -45,6 +45,8 @@ import {
   Archive,
   FolderUp,
   ExternalLink,
+  Pencil,
+  CloudDownload,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -1790,6 +1792,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [projectRunning, setProjectRunning] = useState(false);
   const [projectType, setProjectType] = useState<string>("static");
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [renameDialog, setRenameDialog] = useState<
+    null | { mode: "project"; name: string } | { mode: "path"; path: string; isDir: boolean }
+  >(null);
+  const [renameInput, setRenameInput] = useState("");
+  const [previewLiveAssist, setPreviewLiveAssist] = useState(false);
+  const previewAssistBusyRef = useRef(false);
+  const skipNextAutosaveRef = useRef(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toggleFolder = (path: string) => {
     setOpenFolders(prev => {
@@ -1916,6 +1928,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       createProject: "Create Project",
       uploadFile: "Upload File",
       refreshPreview: "Refresh Preview",
+      syncCloudWorkspace: "Sync workspace from cloud",
+      autosaved: "Autosaved",
+      saving: "Saving…",
+      editorLoadFailed: "Could not load this file from cloud storage. Check your connection or try Refresh files — then Sync workspace if you use preview.",
+      rename: "Rename",
+      renameProjectTitle: "Rename project",
+      renamePathTitle: "Rename file or folder",
+      newName: "New name",
+      previewLiveAssist: "AI preview assist (1s)",
+      previewLiveAssistHint: "Captures the preview and asks the model to suggest fixes. Same-origin preview only; uses your API quota.",
       projectPreview: "Project Preview",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -2082,6 +2104,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       createProject: "プロジェクト作成",
       uploadFile: "ファイルをアップロード",
       refreshPreview: "プレビューを更新",
+      syncCloudWorkspace: "クラウドからワークスペースを同期",
+      autosaved: "自動保存しました",
+      saving: "保存中…",
+      editorLoadFailed:
+        "クラウドからファイルを読み込めませんでした。接続を確認するか「ファイル一覧を再読み込み」を試し、プレビュー利用時は「クラウド同期」を実行してください。",
+      rename: "名前を変更",
+      renameProjectTitle: "プロジェクト名を変更",
+      renamePathTitle: "ファイルまたはフォルダ名を変更",
+      newName: "新しい名前",
+      previewLiveAssist: "AIプレビュー補助（1秒）",
+      previewLiveAssistHint:
+        "プレビューをキャプチャしてモデルに修正提案させます。同一オリジンのプレビューのみ有効。API利用枠を消費します。",
       projectPreview: "プロジェクトプレビュー",
       cancel: "キャンセル",
       confirm: "確認",
@@ -2242,8 +2276,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }, [language]);
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    if (uid) void fetchProjects();
+  }, [uid]);
 
   useEffect(() => {
     if (activeProject && uid) {
@@ -2251,6 +2285,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setFiles([]);
       setActiveFile(null);
       setFileContent("");
+      setEditorLoadError(null);
       const pid = activeProject;
       void fetchFiles(pid);
       storageLoadChatHistory(uid, activeProject)
@@ -2282,21 +2317,41 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!activeProject || activeTab !== "preview" || !BACKEND_URL) return;
     let cancelled = false;
     const autoSetup = async () => {
-      await buildAndPreview();
+      await syncWorkspaceFromCloud(activeProject);
       if (cancelled) return;
       try {
-        const res = await axios.get(apiUrl(`/api/projects/${activeProject}/detect-type`));
+        const res = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/detect-type`));
         if (cancelled) return;
-        if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
+        setProjectType(res.data.detected || "static");
+        setProjectRunning(!!res.data.running);
+        if (res.data.port) setRunningPort(res.data.port);
+        else setRunningPort(null);
+
+        if (res.data.detected === "flutter-web" && !res.data.running) {
+          setTerminalOutput(prev => [...prev, language === "ja"
+            ? "> Flutter ライブプレビューを起動しています…"
+            : "> Starting Flutter live preview…"]);
+          await startProject();
+        } else if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
           setTerminalOutput(prev => [...prev, language === "ja"
             ? "> 依存関係のインストール・サーバー起動中..."
             : "> Installing dependencies & starting server..."]);
           await startProject();
         }
       } catch {}
+      if (cancelled) return;
+      await buildAndPreview();
+      if (!cancelled) {
+        window.setTimeout(() => {
+          const iframe = document.getElementById("preview-frame") as HTMLIFrameElement | null;
+          if (iframe) iframe.src = iframe.src;
+        }, 1200);
+      }
     };
-    autoSetup();
-    return () => { cancelled = true; };
+    void autoSetup();
+    return () => {
+      cancelled = true;
+    };
   }, [activeProject, activeTab]);
 
   useEffect(() => {
@@ -2362,13 +2417,76 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const fetchProjects = async () => {
     if (!uid) return;
     try {
-      const data = await storageListProjects(uid);
+      let data = await storageListProjects(uid);
+      if (BACKEND_URL) {
+        try {
+          const res = await axios.get<string[]>(apiUrl("/api/projects"));
+          const remote = Array.isArray(res.data) ? res.data : [];
+          data = Array.from(new Set([...data, ...remote]));
+        } catch (e) {
+          console.warn("merge /api/projects failed:", e);
+        }
+      }
+      data.sort((a, b) => a.localeCompare(b));
       setProjects(data);
       if (data.length > 0 && !activeProject) {
         setActiveProject(data[0]);
       }
     } catch (e) {
       console.error("Failed to fetch projects", e);
+    }
+  };
+
+  const syncWorkspaceFromCloud = async (projectId?: string | null) => {
+    const pid = projectId ?? activeProject;
+    if (!BACKEND_URL || !pid) return;
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(pid)}/sync-from-storage`));
+    } catch (e) {
+      console.warn("sync-from-storage", e);
+    }
+  };
+
+  const applyRenameDialog = async () => {
+    const name = renameInput.trim();
+    if (!renameDialog || !name || !uid) return;
+    if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+      alert(language === "ja" ? "名前に / や .. は使えません" : "Name cannot contain /, \\, or ..");
+      return;
+    }
+    try {
+      if (renameDialog.mode === "project") {
+        if (!BACKEND_URL) {
+          alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
+          return;
+        }
+        const oldName = renameDialog.name;
+        if (oldName === name) {
+          setRenameDialog(null);
+          return;
+        }
+        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(oldName)}/rename-project`), { newName: name });
+        await fetchProjects();
+        if (activeProject === oldName) setActiveProject(name);
+        setRenameDialog(null);
+      } else {
+        if (!BACKEND_URL || !activeProject) {
+          alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
+          return;
+        }
+        const oldPath = renameDialog.path;
+        const parent = oldPath.includes("/") ? oldPath.slice(0, oldPath.lastIndexOf("/")) : "";
+        const newPath = parent ? `${parent}/${name}` : name;
+        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/rename-path`), {
+          oldPath,
+          newPath,
+        });
+        if (activeFile === oldPath) setActiveFile(newPath);
+        setRenameDialog(null);
+        await fetchFiles();
+      }
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || "Rename failed");
     }
   };
 
@@ -2419,24 +2537,69 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const openFile = async (filePath: string) => {
     if (!activeProject || !uid) return;
+    setEditorLoadError(null);
     try {
       const content = await storageDownloadFile(uid, activeProject, filePath);
-      setFileContent(content ?? "");
+      if (content === null) {
+        setEditorLoadError(t.editorLoadFailed);
+        setFileContent("");
+        setActiveFile(filePath);
+        setActiveTab("editor");
+        return;
+      }
+      skipNextAutosaveRef.current = true;
+      setFileContent(content);
       setActiveFile(filePath);
       setActiveTab("editor");
     } catch (e) {
       console.error("Failed to open file", e);
+      setEditorLoadError(t.editorLoadFailed);
+    }
+  };
+
+  const persistFileToCloud = async (content: string, opts?: { silent?: boolean }) => {
+    if (!activeProject || !activeFile || !uid) return;
+    if (!opts?.silent) setSaveState("saving");
+    try {
+      await storageUploadFile(uid, activeProject, activeFile, content);
+      if (BACKEND_URL) {
+        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
+          filePath: activeFile,
+          content,
+        });
+      }
+      if (!opts?.silent) {
+        setSaveState("saved");
+        window.setTimeout(() => setSaveState("idle"), 2200);
+      }
+    } catch (e) {
+      console.error("Failed to save file", e);
+      setSaveState("idle");
+      alert(language === "ja" ? "保存に失敗しました" : "Failed to save file");
     }
   };
 
   const saveFile = async () => {
-    if (!activeProject || !activeFile || !uid) return;
-    try {
-      await storageUploadFile(uid, activeProject, activeFile, fileContent);
-    } catch (e) {
-      alert("Failed to save file");
-    }
+    await persistFileToCloud(fileContent);
   };
+
+  useEffect(() => {
+    if (!activeFile || !activeProject || !uid) return;
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void persistFileToCloud(fileContent, { silent: true }).then(() => {
+        setSaveState("saved");
+        window.setTimeout(() => setSaveState("idle"), 1600);
+      });
+    }, 900);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [fileContent, activeFile, activeProject, uid]);
 
   const runCommand = async (command: string) => {
     if (!activeProject) return;
@@ -2589,11 +2752,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const buildAndPreview = async () => {
     if (!activeProject || !BACKEND_URL) return true;
+    try {
+      const det = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/detect-type`));
+      if (det.data?.detected === "flutter-web") return true;
+    } catch {}
     if (!isFlutterProject()) return true;
 
-    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking build..."]);
+    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking static web build..."]);
     try {
-      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/build-preview`));
+      const res = await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/build-preview`));
       const { status } = res.data;
       if (status === "already-built") {
         setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
@@ -3041,6 +3208,71 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     const baseUrl = getEffectiveBaseUrl();
     return new GoogleGenAI(baseUrl ? { apiKey: activeKey, httpOptions: { baseUrl } } : { apiKey: activeKey });
   };
+
+  useEffect(() => {
+    if (!previewLiveAssist || activeTab !== "preview" || !BACKEND_URL || !activeProject || !uid) return;
+    if (!getActiveApiKey()) return;
+    const tick = async () => {
+      if (previewAssistBusyRef.current) return;
+      previewAssistBusyRef.current = true;
+      try {
+        const iframe = document.getElementById("preview-frame") as HTMLIFrameElement | null;
+        let screenshotBase64 = "";
+        if (iframe?.contentDocument?.body) {
+          try {
+            const canvas = await html2canvas(iframe.contentDocument.body);
+            screenshotBase64 = canvas.toDataURL("image/png").split(",")[1];
+          } catch {
+            /* cross-origin iframe — capture not available */
+          }
+        }
+        if (!screenshotBase64) return;
+        const ai = createAiClient();
+        const prompt =
+          language === "ja"
+            ? `返答は JSON 配列のみ（マークダウン禁止）。型: { "action":"write_file","path":string,"content":string,"description":string }[]
+スクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
+            : `Reply with a JSON array only (no markdown). Shape: { "action":"write_file","path":string,"content":string,"description":string }[]
+Fix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
+        const visualRes = await ai.models.generateContent({
+          model: modelIdForGeminiRequest(selectedModel),
+          contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: screenshotBase64 } }] }],
+          config: { responseMimeType: "application/json" },
+        });
+        let text = visualRes.text || "[]";
+        if (text.includes("```json")) {
+          text = text.split("```json")[1].split("```")[0].trim();
+        } else if (text.includes("```")) {
+          text = text.split("```")[1].split("```")[0].trim();
+        }
+        const fixes = JSON.parse(text);
+        if (!Array.isArray(fixes) || fixes.length === 0) return;
+        for (const fix of fixes.slice(0, 2)) {
+          if (fix?.action !== "write_file" || typeof fix.path !== "string" || typeof fix.content !== "string") continue;
+          await storageUploadFile(uid, activeProject, fix.path, fix.content);
+          if (BACKEND_URL) {
+            await axios
+              .post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
+                filePath: fix.path,
+                content: fix.content,
+              })
+              .catch(() => {});
+          }
+        }
+        await fetchFiles();
+        const fr = document.getElementById("preview-frame") as HTMLIFrameElement | null;
+        if (fr) fr.src = fr.src;
+      } catch (e) {
+        console.warn("preview live assist", e);
+      } finally {
+        previewAssistBusyRef.current = false;
+      }
+    };
+    const id = window.setInterval(() => {
+      void tick();
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel]);
 
   const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
 Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
@@ -3972,7 +4204,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             {projects.length > 0 ? projects.map(p => (
               <div key={p} className="group relative">
                 <button 
+                  type="button"
                   onClick={() => setActiveProject(p)}
+                  onContextMenu={(e) => {
+                    if (isMobileLayout || !BACKEND_URL) return;
+                    e.preventDefault();
+                    setRenameDialog({ mode: "project", name: p });
+                    setRenameInput(p);
+                  }}
                   className={cn(
                     "w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-center gap-2 pr-16",
                     activeProject === p ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
@@ -4023,6 +4262,18 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 >
                   <RefreshCw className="w-3 h-3" />
                 </button>
+                <button
+                  type="button"
+                  disabled={!BACKEND_URL || !activeProject}
+                  onClick={() => void syncWorkspaceFromCloud()}
+                  className={cn(
+                    "p-1 rounded text-[#8E9299]",
+                    BACKEND_URL && activeProject ? "hover:bg-[#1A1A1A]" : "opacity-40 cursor-not-allowed"
+                  )}
+                  title={t.syncCloudWorkspace}
+                >
+                  <CloudDownload className="w-3 h-3" />
+                </button>
                 <button 
                   type="button"
                   onClick={() => void downloadProject(undefined, { codeOnly: true })}
@@ -4054,6 +4305,16 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   onDownloadFolder={downloadFolder}
                   downloadLabel={t.downloadFile}
                   language={language}
+                  isMobileLayout={isMobileLayout}
+                  backendUrl={!!BACKEND_URL}
+                  onRenamePath={
+                    !isMobileLayout && BACKEND_URL
+                      ? (path, isDir) => {
+                          setRenameDialog({ mode: "path", path, isDir });
+                          setRenameInput(path.split("/").pop() || path);
+                        }
+                      : undefined
+                  }
                 />
               )) : (
                 <div className="px-2 py-4 text-[10px] text-[#8E9299] text-center border border-dashed border-[#1A1A1A] rounded">
@@ -4128,9 +4389,16 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {saveState === "saving" && (
+              <span className="text-[10px] text-[#8E9299]">{t.saving}</span>
+            )}
+            {saveState === "saved" && (
+              <span className="text-[10px] text-emerald-400/90">{t.autosaved}</span>
+            )}
             <button 
-              onClick={saveFile}
+              type="button"
+              onClick={() => void saveFile()}
               className="flex items-center gap-2 px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] rounded text-xs transition-colors"
             >
               <Save className="w-3.5 h-3.5" />
@@ -4180,6 +4448,11 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           <Tabs.Root value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 relative">
               <Tabs.Content value="editor" className="absolute inset-0 outline-none" forceMount style={{ display: activeTab === "editor" ? undefined : "none" }}>
+                {editorLoadError && (
+                  <div className="absolute top-0 left-0 right-0 z-10 px-4 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-100 text-xs">
+                    {editorLoadError}
+                  </div>
+                )}
                 <Editor
                   key={activeFile ?? "__none__"}
                   height="100%"
@@ -4188,6 +4461,16 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   defaultLanguage="typescript"
                   defaultValue={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner to build something!"}
                   onChange={(v) => setFileContent(v || "")}
+                  beforeMount={(monaco) => {
+                    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                      noSemanticValidation: true,
+                      noSuggestionDiagnostics: true,
+                    });
+                    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                      noSemanticValidation: true,
+                      noSuggestionDiagnostics: true,
+                    });
+                  }}
                   options={{
                     minimap: { enabled: false },
                     fontSize: 13,
@@ -4196,7 +4479,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     roundedSelection: false,
                     scrollBeyondLastLine: false,
                     readOnly: !activeFile,
-                    padding: { top: 20 }
+                    padding: { top: editorLoadError ? 44 : 20 },
                   }}
                 />
               </Tabs.Content>
@@ -4209,18 +4492,38 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     </div>
                   ) : (
                     <>
-                      <div className="absolute top-2 right-2 z-10 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
-                            if (iframe) iframe.src = iframe.src;
-                          }}
-                          className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
-                          title={t.refreshPreview}
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
+                      <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2 max-w-[min(100%,220px)]">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void syncWorkspaceFromCloud()}
+                            className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
+                            title={t.syncCloudWorkspace}
+                          >
+                            <CloudDownload className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
+                              if (iframe) iframe.src = iframe.src;
+                            }}
+                            className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
+                            title={t.refreshPreview}
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <label className="flex items-center gap-2 px-2 py-1 rounded-lg bg-black/50 text-white text-[10px] cursor-pointer backdrop-blur-sm">
+                          <input
+                            type="checkbox"
+                            className="accent-[#38BDF8]"
+                            checked={previewLiveAssist}
+                            onChange={(e) => setPreviewLiveAssist(e.target.checked)}
+                          />
+                          <span className="leading-tight">{t.previewLiveAssist}</span>
+                        </label>
+                        <p className="text-[9px] text-white/70 text-right leading-snug px-1">{t.previewLiveAssistHint}</p>
                       </div>
                       <iframe
                         id="preview-frame"
@@ -5280,6 +5583,52 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           </Dialog.Root>
         )}
 
+        {renameDialog && (
+          <Dialog.Root
+            open={!!renameDialog}
+            onOpenChange={(open) => {
+              if (!open) {
+                setRenameDialog(null);
+                setRenameInput("");
+              }
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100]" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(420px,calc(100vw-2rem))] bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-5 z-[101] shadow-2xl outline-none">
+                <Dialog.Title className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-[#38BDF8]" />
+                  {renameDialog.mode === "project" ? t.renameProjectTitle : t.renamePathTitle}
+                </Dialog.Title>
+                <Dialog.Description className="text-xs text-[#8E9299] mb-4">
+                  {renameDialog.mode === "path" ? renameDialog.path : renameDialog.name}
+                </Dialog.Description>
+                <label className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">{t.newName}</label>
+                <input
+                  type="text"
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  className="mt-1 w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void applyRenameDialog();
+                  }}
+                  autoFocus
+                />
+                <div className="mt-6 flex justify-end gap-2">
+                  <Dialog.Close className="px-4 py-2 text-sm text-[#8E9299] hover:text-white">{t.cancel}</Dialog.Close>
+                  <button
+                    type="button"
+                    onClick={() => void applyRenameDialog()}
+                    className="px-4 py-2 bg-[#38BDF8] text-black rounded-lg text-sm font-bold hover:bg-[#0EA5E9]"
+                  >
+                    {t.confirm}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+        )}
+
         {confirmDialog && (
           <Dialog.Root open={confirmDialog.isOpen} onOpenChange={(open) => !open && setConfirmDialog(null)}>
             <Dialog.Portal>
@@ -5321,9 +5670,24 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
   );
 }
 
-function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDeleteFolder, onDownload, onDownloadFolder, language, downloadLabel }: any) {
+function FileTreeNode({
+  node,
+  onSelect,
+  activeFile,
+  level = 0,
+  onDelete,
+  onDeleteFolder,
+  onDownload,
+  onDownloadFolder,
+  language,
+  downloadLabel,
+  isMobileLayout,
+  backendUrl,
+  onRenamePath,
+}: any) {
   const [isOpen, setIsOpen] = useState(false);
   const dl = downloadLabel ?? (language === "ja" ? "ファイルをダウンロード" : "Download file");
+  const allowRename = !!onRenamePath && !isMobileLayout && backendUrl;
 
   if (node.type === "directory") {
     const hasActions = !!onDownloadFolder || !!onDeleteFolder;
@@ -5331,7 +5695,13 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDelet
       <div>
         <div className="group relative">
           <button 
+            type="button"
             onClick={() => setIsOpen(!isOpen)}
+            onContextMenu={(e) => {
+              if (!allowRename) return;
+              e.preventDefault();
+              onRenamePath(node.path, true);
+            }}
             className={cn(
               "w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2",
               hasActions ? "pr-16" : "pr-2"
@@ -5368,7 +5738,22 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDelet
           )}
         </div>
         {isOpen && node.children?.map(child => (
-          <FileTreeNode key={child.path} node={child} onSelect={onSelect} activeFile={activeFile} level={level + 1} onDelete={onDelete} onDeleteFolder={onDeleteFolder} onDownload={onDownload} onDownloadFolder={onDownloadFolder} language={language} downloadLabel={downloadLabel} />
+          <FileTreeNode
+            key={child.path}
+            node={child}
+            onSelect={onSelect}
+            activeFile={activeFile}
+            level={level + 1}
+            onDelete={onDelete}
+            onDeleteFolder={onDeleteFolder}
+            onDownload={onDownload}
+            onDownloadFolder={onDownloadFolder}
+            language={language}
+            downloadLabel={downloadLabel}
+            isMobileLayout={isMobileLayout}
+            backendUrl={backendUrl}
+            onRenamePath={onRenamePath}
+          />
         ))}
       </div>
     );
@@ -5377,7 +5762,13 @@ function FileTreeNode({ node, onSelect, activeFile, level = 0, onDelete, onDelet
   return (
     <div className="group relative">
       <button 
+        type="button"
         onClick={() => onSelect(node.path)}
+        onContextMenu={(e) => {
+          if (!allowRename) return;
+          e.preventDefault();
+          onRenamePath(node.path, false);
+        }}
         className={cn(
           "w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-colors pr-16",
           activeFile === node.path ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"

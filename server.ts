@@ -201,6 +201,38 @@ async function storageDeletePrefix(uid: string, project: string, relPrefix: stri
   return deleted;
 }
 
+async function refreshLocalProjectFromCloud(uid: string, project: string, projectsRoot: string): Promise<void> {
+  if (!firebaseStorage) return;
+  const projectPath = safePath(projectsRoot, project);
+  if (!projectPath) return;
+  await fs.rm(projectPath, { recursive: true, force: true });
+  await fs.mkdir(projectPath, { recursive: true });
+  await syncProjectToLocal(uid, project, projectPath);
+}
+
+async function renameStorageEntry(uid: string, project: string, oldRel: string, newRel: string): Promise<void> {
+  if (!firebaseStorage) throw new Error("Storage not configured");
+  const o = oldRel.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  const n = newRel.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!o || !n || !safeStorageRelPath(o) || !safeStorageRelPath(n)) throw new Error("Invalid path");
+  if (o === ".sooner_project" || n === ".sooner_project") throw new Error("Reserved path");
+  if (n === o) return;
+  if (n.startsWith(`${o}/`) || o.startsWith(`${n}/`)) throw new Error("Invalid rename");
+  const paths = await storageListFiles(uid, project);
+  const affected = paths.filter((p) => p === o || p.startsWith(`${o}/`));
+  if (affected.length === 0) throw new Error("Nothing to rename");
+  affected.sort((a, b) => a.length - b.length);
+  for (const p of affected) {
+    const dest = n + (p.length === o.length ? "" : p.slice(o.length));
+    const content = await storageDownload(uid, project, p);
+    if (content !== null) await storageUpload(uid, project, dest, content);
+  }
+  affected.sort((a, b) => b.length - a.length);
+  for (const p of affected) {
+    await storageDelete(uid, project, p);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -605,6 +637,56 @@ async function startServer() {
     }
   });
 
+  /** Pull latest files from Firebase Storage into the server workspace (cross-device sync). */
+  app.post("/api/projects/:id/sync-from-storage", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!firebaseStorage) {
+      return res.status(503).json({ error: "Storage not configured" });
+    }
+    const projectPath = safePath(PROJECTS_ROOT, id);
+    if (!projectPath) {
+      return res.status(400).json({ error: "Invalid path" });
+    }
+    try {
+      await fs.mkdir(projectPath, { recursive: true });
+      await syncProjectToLocal(uid, id, projectPath);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
+  /** Rename a file or folder (Storage + local workspace). */
+  app.post("/api/projects/:id/rename-path", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const oldPath = req.body?.oldPath;
+    const newPath = req.body?.newPath;
+    if (typeof oldPath !== "string" || typeof newPath !== "string") {
+      return res.status(400).json({ error: "oldPath and newPath required" });
+    }
+    try {
+      await renameStorageEntry(uid, id, oldPath, newPath);
+      await refreshLocalProjectFromCloud(uid, id, PROJECTS_ROOT);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: String(e?.message || e) });
+    }
+  });
+
   /** GitHub HTTPS URL with x-access-token for pull/push over HTTPS. */
   function toGithubTokenUrl(remoteUrl: string, token: string): string | null {
     const u = remoteUrl.trim();
@@ -961,10 +1043,11 @@ async function startServer() {
         return res.json({ type: "flutter", status: "building" });
       }
 
-      const state = { running: true, lines: ["$ flutter build web"], done: false, success: false };
+      const flutterBin = process.env.FLUTTER_BIN || "flutter";
+      const state = { running: true, lines: [`$ ${flutterBin} build web`], done: false, success: false };
       buildState.set(id, state);
 
-      const child = exec("flutter build web", { cwd: projectPath, timeout: 180000 });
+      const child = exec(`${flutterBin} build web`, { cwd: projectPath, timeout: 180000, env: process.env, shell: true });
       child.stdout?.on("data", (data: string) => {
         data.split("\n").filter(Boolean).forEach(line => state.lines.push(line));
       });
@@ -977,6 +1060,12 @@ async function startServer() {
         let built = false;
         try { await fs.access(flutterJsPath); built = true; } catch {}
         state.success = built;
+        const combined = state.lines.join("\n");
+        if (!built && (code === 127 || /not found|ENOENT|flutter.*not recognized/i.test(combined))) {
+          state.lines.push(
+            "Flutter CLI not found on the server. Install the Flutter SDK or set FLUTTER_BIN to the flutter executable, then retry."
+          );
+        }
         state.lines.push(built ? "Build completed successfully." : `Build finished with exit code ${code}.`);
       });
 
@@ -1000,7 +1089,7 @@ async function startServer() {
 
   // === Backend project runner ===
   interface RunningProject {
-    process: ChildProcess;
+    process: ChildProcess | null;
     port: number;
     lines: string[];
     type: string;
@@ -1052,6 +1141,18 @@ async function startServer() {
     try {
       await fs.access(path.join(projectPath, "Cargo.toml"));
       return { type: "rust", command: "cargo", args: ["run"], portEnvVar: "PORT" };
+    } catch {}
+
+    // Flutter — `flutter run -d web-server` for hot reload / live preview (SDK required on host)
+    try {
+      await fs.access(path.join(projectPath, "pubspec.yaml"));
+      await fs.access(path.join(projectPath, "lib", "main.dart"));
+      const flutterCmd = process.env.FLUTTER_BIN || "flutter";
+      return {
+        type: "flutter-web",
+        command: flutterCmd,
+        args: ["run", "-d", "web-server", "--web-port", "PORT", "--web-hostname", "0.0.0.0"],
+      };
     } catch {}
 
     // Node.js — check package.json but EXCLUDE frontend-only projects
@@ -1142,6 +1243,53 @@ async function startServer() {
     const port = nextPort++;
     const env = { ...process.env, PORT: String(port) };
     const lines: string[] = [];
+    const flutterCmd = process.env.FLUTTER_BIN || "flutter";
+
+    if (ptype.type === "flutter-web") {
+      const args = ptype.args.map((a) => a.replace("PORT", String(port)));
+      const startFlutterServer = () => {
+        lines.push(`$ ${flutterCmd} ${args.join(" ")}  (port ${port})`);
+        const child = spawn(flutterCmd, args, {
+          cwd: projectPath,
+          env,
+          shell: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        child.stdout?.on("data", (data: Buffer) => {
+          data.toString().split("\n").filter(Boolean).forEach((l) => lines.push(l));
+        });
+        child.stderr?.on("data", (data: Buffer) => {
+          data.toString().split("\n").filter(Boolean).forEach((l) => lines.push(l));
+        });
+        child.on("close", (code) => {
+          lines.push(`Flutter process exited with code ${code}`);
+          runningProjects.delete(id);
+        });
+        runningProjects.set(id, { process: child, port, lines, type: "flutter-web" });
+      };
+
+      lines.push(`$ ${flutterCmd} pub get`);
+      runningProjects.set(id, { process: null, port, lines, type: "flutter-web" });
+      res.json({ status: "installing", port, type: "flutter-web" });
+
+      const pub = spawn(flutterCmd, ["pub", "get"], { cwd: projectPath, env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+      pub.stdout?.on("data", (data: Buffer) => {
+        data.toString().split("\n").filter(Boolean).forEach((l) => lines.push(l));
+      });
+      pub.stderr?.on("data", (data: Buffer) => {
+        data.toString().split("\n").filter(Boolean).forEach((l) => lines.push(l));
+      });
+      pub.on("close", (code) => {
+        if (code !== 0) {
+          lines.push(`flutter pub get failed with code ${code}. Is Flutter installed? Set FLUTTER_BIN or install the SDK on the server.`);
+          runningProjects.delete(id);
+          return;
+        }
+        lines.push("flutter pub get completed.");
+        startFlutterServer();
+      });
+      return;
+    }
 
     // Ensure essential dev tooling is in package.json for devserver projects
     const pkgJsonPath = path.join(projectPath, "package.json");
@@ -1216,7 +1364,7 @@ async function startServer() {
 
     if (needsInstall) {
       lines.push("$ npm install  (this may take a minute...)");
-      runningProjects.set(id, { process: null as any, port, lines, type: ptype.type });
+      runningProjects.set(id, { process: null, port, lines, type: ptype.type });
       res.json({ status: "installing", port, type: ptype.type });
 
       const installChild = spawn("npm", ["install"], { cwd: projectPath, env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -1247,12 +1395,78 @@ async function startServer() {
     const running = runningProjects.get(id);
     if (!running) return res.json({ status: "not-running" });
 
-    running.process.kill("SIGTERM");
-    setTimeout(() => {
-      try { running.process.kill("SIGKILL"); } catch {}
-    }, 3000);
+    if (running.process) {
+      running.process.kill("SIGTERM");
+      setTimeout(() => {
+        try {
+          running.process?.kill("SIGKILL");
+        } catch {}
+      }, 3000);
+    }
     runningProjects.delete(id);
     res.json({ status: "stopped" });
+  });
+
+  /** Rename project (Storage + local folder id). Declared after `runningProjects` so handlers can stop dev servers. */
+  app.post("/api/projects/:id/rename-project", async (req, res) => {
+    const oldId = req.params.id;
+    const newName = typeof req.body?.newName === "string" ? req.body.newName.trim() : "";
+    if (!isValidName(oldId) || !isValidName(newName)) {
+      return res.status(400).json({ error: "Invalid project name" });
+    }
+    if (oldId === newName) {
+      return res.json({ ok: true, name: newName });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!firebaseStorage) {
+      return res.status(503).json({ error: "Storage not configured" });
+    }
+    const running = runningProjects.get(oldId);
+    if (running?.process) {
+      try {
+        running.process.kill("SIGTERM");
+      } catch {}
+      setTimeout(() => {
+        try {
+          running.process?.kill("SIGKILL");
+        } catch {}
+      }, 3000);
+    }
+    runningProjects.delete(oldId);
+    try {
+      const existingNew = await storageListFiles(uid, newName);
+      if (existingNew.length > 0) {
+        return res.status(400).json({ error: "Target project name already exists" });
+      }
+      const paths = await storageListFiles(uid, oldId);
+      for (const p of paths) {
+        const content = await storageDownload(uid, oldId, p);
+        if (content !== null) await storageUpload(uid, newName, p, content);
+      }
+      await storageDelete(uid, oldId);
+
+      const oldPath = safePath(PROJECTS_ROOT, oldId);
+      const newPath = safePath(PROJECTS_ROOT, newName);
+      if (!oldPath || !newPath) {
+        return res.status(400).json({ error: "Invalid path" });
+      }
+      try {
+        await fs.rm(newPath, { recursive: true, force: true });
+      } catch {}
+      try {
+        await fs.access(oldPath);
+        await fs.rename(oldPath, newPath);
+      } catch {
+        await fs.mkdir(newPath, { recursive: true });
+        await syncProjectToLocal(uid, newName, newPath);
+      }
+      res.json({ ok: true, name: newName });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
   });
 
   // Get logs from running project
