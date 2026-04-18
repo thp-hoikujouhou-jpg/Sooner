@@ -132,6 +132,12 @@ function hostKey(hostname: string, pathname: string): string {
 function canonicalUrl(): string {
   const { protocol, hostname, pathname, search } = window.location;
   const path = pathname === "" ? "/" : pathname;
+  const h = hostname.toLowerCase();
+  // Blog / LP: one canonical per pathname; language variants use hreflang (?lang=…). Avoids
+  // Search Console treating https://blog.sooner.sh/?lang=en as the "canonical" tagged URL for duplicates.
+  if (h.startsWith("blog.") || h.startsWith("lp.")) {
+    return `${protocol}//${hostname}${path}`;
+  }
   return `${protocol}//${hostname}${path}${search}`;
 }
 

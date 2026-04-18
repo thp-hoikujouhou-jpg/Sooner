@@ -98,7 +98,10 @@ import CmsPage from "./CmsPage";
 import LegalPage from "./LegalPage";
 import LegalArchiveIndex from "./LegalArchiveIndex";
 import SsoHelpPage from "./SsoHelpPage";
+import DocsHubPage from "./DocsHubPage";
+import DocsAiModelsPage from "./DocsAiModelsPage";
 import { formatGithubAccessError } from "./githubSso";
+import { openAiCompatibleModelsListUrl, parseOpenAiCompatibleModelsResponse } from "./openAiModels";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
@@ -1475,9 +1478,11 @@ export default function App() {
 
   const pathParts = window.location.pathname.replace(/\/$/, "").split("/").filter(Boolean);
 
-  if (pathParts[0] === "docs" && pathParts[1] === "github-sso") {
+  if (pathParts[0] === "docs") {
     const locale = new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en";
-    return <SsoHelpPage pathLang={locale} />;
+    if (pathParts[1] === "github-sso") return <SsoHelpPage pathLang={locale} />;
+    if (pathParts[1] === "ai-models") return <DocsAiModelsPage pathLang={locale} />;
+    return <DocsHubPage pathLang={locale} />;
   }
 
   if (pathParts.length === 1 && (pathParts[0] === "terms" || pathParts[0] === "privacy")) {
@@ -1942,6 +1947,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       githubSsoHelpPageLink: "SSO help (organizations)",
       githubSsoSettingsHint:
         "SAML SSO org? You may need to authorize this connection on GitHub. Open the SSO help page for steps.",
+      docsSectionTitle: "Documentation",
+      docsSectionBody: "Model listing (/v1/models), preview & backend, GitHub SSO, and more.",
+      docsHubLink: "All topics",
+      docsModelsLink: "AI models & providers",
       githubAutoConnect: "Sign in with GitHub to auto-connect, or enter a token manually.",
       noDiff: "No diff",
       gitPrSection: "Pull requests (GitHub API)",
@@ -2104,6 +2113,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       githubSsoHelpPageLink: "SSO のヘルプ（組織向け）",
       githubSsoSettingsHint:
         "SAML SSO の組織では、GitHub 上でこの接続の承認が必要なことがあります。手順は「SSO のヘルプ」を参照してください。",
+      docsSectionTitle: "ドキュメント",
+      docsSectionBody: "モデル一覧（/v1/models）、プレビューとバックエンド、GitHub SSO など。",
+      docsHubLink: "索引",
+      docsModelsLink: "モデルとプロバイダー",
       githubAutoConnect: "GitHubでサインインすると自動接続されます。手動でトークンを入力することもできます。",
       noDiff: "差分なし",
       gitPrSection: "プルリクエスト（GitHub API）",
@@ -3069,6 +3082,17 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     if (!key) return;
     setIsFetchingModels(true);
     const fallback = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
+    const listGeminiModels = async (): Promise<string[]> => {
+      const ai = createAiClient();
+      const modelNames: string[] = [];
+      const result = await ai.models.list();
+      for await (const model of result) {
+        const name = model.name?.replace("models/", "") || "";
+        if (name) modelNames.push(name);
+      }
+      modelNames.sort();
+      return modelNames;
+    };
     try {
       if (apiProvider === "vercel-ai-gateway") {
         const res = await axios.get<{ data?: { id?: string }[] }>(VERCEL_AI_GATEWAY_MODELS_URL, {
@@ -3080,15 +3104,21 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           : [];
         modelNames.sort();
         setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
-      } else {
-        const ai = createAiClient();
-        const result = await ai.models.list();
-        const modelNames: string[] = [];
-        for await (const model of result) {
-          const name = model.name?.replace("models/", "") || "";
-          if (name) modelNames.push(name);
+      } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
+        const base = getEffectiveBaseUrl()!;
+        const modelsUrl = openAiCompatibleModelsListUrl(base);
+        try {
+          const res = await axios.get(modelsUrl, {
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          const modelNames = parseOpenAiCompatibleModelsResponse(res.data);
+          setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
+        } catch {
+          const modelNames = await listGeminiModels();
+          setAvailableModels(modelNames.length === 0 ? fallback : modelNames);
         }
-        modelNames.sort();
+      } else {
+        const modelNames = await listGeminiModels();
         setAvailableModels(modelNames.length === 0 ? fallback : modelNames);
       }
     } catch {
@@ -3106,6 +3136,19 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         await axios.get(VERCEL_AI_GATEWAY_MODELS_URL, {
           headers: { Authorization: `Bearer ${key}` },
         });
+        alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
+        fetchModels();
+      } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
+        const modelsUrl = openAiCompatibleModelsListUrl(getEffectiveBaseUrl()!);
+        try {
+          await axios.get(modelsUrl, { headers: { Authorization: `Bearer ${key}` } });
+        } catch {
+          const testAi = createAiClient();
+          await testAi.models.generateContent({
+            model: modelIdForGeminiRequest(selectedModel || "gemini-2.5-flash"),
+            contents: "Hi",
+          });
+        }
         alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
         fetchModels();
       } else {
@@ -4616,6 +4659,19 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  <div className="rounded-xl border border-[#252525] bg-[#111] px-3 py-2.5 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#8E9299]">{t.docsSectionTitle}</p>
+                    <p className="text-[10px] text-[#555] leading-snug">{t.docsSectionBody}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+                      <a href={`/docs${language === "ja" ? "?lang=ja" : ""}`} className="text-[#38BDF8] hover:underline">
+                        {t.docsHubLink}
+                      </a>
+                      <a href={`/docs/ai-models${language === "ja" ? "?lang=ja" : ""}`} className="text-[#38BDF8] hover:underline">
+                        {t.docsModelsLink}
+                      </a>
+                    </div>
                   </div>
 
                   {/* 3. Model */}

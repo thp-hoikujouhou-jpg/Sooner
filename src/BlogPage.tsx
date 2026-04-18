@@ -182,6 +182,11 @@ export default function BlogPage() {
   };
 
   const goMarketing = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//lp.sooner.sh${lang !== "en" ? `?lang=${lang}` : ""}`; } else { window.location.href = "/"; } };
+  const goDocs = () => {
+    setMobileNavOpen(false);
+    const q = lang !== "en" ? "?lang=ja" : "";
+    window.location.href = isProduction ? `https://sooner.sh/docs${q}` : `${window.location.origin}/docs${q}`;
+  };
   const goApp = () => { setMobileNavOpen(false); if (isProduction) { window.location.href = `${window.location.protocol}//sooner.sh`; } else { window.location.href = "/"; } };
   const toggleLang = () => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); };
 
@@ -209,6 +214,7 @@ export default function BlogPage() {
     <>
       <button type="button" onClick={() => { toggleLang(); setMobileNavOpen(false); }} className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center">{t.langToggle}</button>
       <button type="button" onClick={goMarketing} className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center">{t.navMarketing}</button>
+      <button type="button" onClick={goDocs} className="w-full md:w-auto px-3 py-1.5 text-xs font-semibold text-[#8E9299] hover:text-white border border-white/[0.08] rounded-lg transition-colors text-left md:text-center">{t.navDocs}</button>
       <button type="button" onClick={goApp} className="w-full md:w-auto px-4 py-2 text-sm font-bold bg-[#38BDF8] text-white rounded-xl hover:bg-[#0EA5E9] transition-colors text-center">{t.navApp}</button>
     </>
   );
