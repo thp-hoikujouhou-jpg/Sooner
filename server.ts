@@ -262,7 +262,7 @@ function cookieValue(req: Request, name: string): string | null {
   return null;
 }
 
-/** When set (16+ chars), `/preview/:id` requires a signed `?pt=` token or `spv` cookie. */
+/** When set (16+ chars), `/preview/u/:uid/:id` requires a signed `?pt=` token or `spv` cookie. */
 function previewUrlSecret(): string | null {
   const s = process.env.PREVIEW_URL_SECRET?.trim();
   return s && s.length >= 16 ? s : null;
@@ -276,7 +276,11 @@ function mintPreviewToken(uid: string, projectId: string, ttlSec: number): strin
   return `${payload}.${sig}`;
 }
 
-function verifyPreviewToken(token: string | null | undefined, projectId: string): { uid: string } | null {
+function verifyPreviewToken(
+  token: string | null | undefined,
+  projectId: string,
+  urlUid?: string
+): { uid: string } | null {
   const secret = previewUrlSecret();
   if (!secret || !token) return null;
   const last = token.lastIndexOf(".");
@@ -299,16 +303,17 @@ function verifyPreviewToken(token: string | null | undefined, projectId: string)
     };
     if (data.pid !== projectId || typeof data.uid !== "string" || typeof data.exp !== "number") return null;
     if (data.exp < Math.floor(Date.now() / 1000)) return null;
+    if (urlUid && data.uid !== urlUid) return null;
     return { uid: data.uid };
   } catch {
     return null;
   }
 }
 
-function setSpvCookie(res: Response, projectId: string, token: string) {
+function setSpvCookie(res: Response, ownerUid: string, projectId: string, token: string) {
   const ttlRaw = parseInt(process.env.PREVIEW_URL_TTL_SEC || "3600", 10);
   const maxAge = Number.isFinite(ttlRaw) ? Math.min(Math.max(ttlRaw, 60), 86400) : 3600;
-  const p = `/preview/${encodeURIComponent(projectId)}`;
+  const p = `/preview/u/${encodeURIComponent(ownerUid)}/${encodeURIComponent(projectId)}`;
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.append("Set-Cookie", `spv=${encodeURIComponent(token)}; Path=${p}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
 }
@@ -347,6 +352,43 @@ async function startServer() {
     process.exit(1);
   }
 
+  /** Firebase Auth uid — restrict to safe path segment (no traversal). */
+  function sanitizeUidForFs(uid: string): string | null {
+    if (!uid || uid.length > 128) return null;
+    if (!/^[a-zA-Z0-9]+$/.test(uid)) return null;
+    return uid;
+  }
+
+  /** Per-user workspace root: `projects/u/<uid>/`. */
+  function userDirFromUid(uid: string): string | null {
+    const s = sanitizeUidForFs(uid);
+    if (!s) return null;
+    const full = path.join(PROJECTS_ROOT, "u", s);
+    const resolved = path.resolve(full);
+    const rootResolved = path.resolve(PROJECTS_ROOT);
+    if (!resolved.startsWith(rootResolved + path.sep)) return null;
+    return resolved;
+  }
+
+  function projectFsPath(uid: string | null, projectId: string): string | null {
+    if (!uid) return null;
+    const base = userDirFromUid(uid);
+    if (!base) return null;
+    return safePath(base, projectId);
+  }
+
+  async function ensureUserSandbox(uid: string): Promise<boolean> {
+    const base = userDirFromUid(uid);
+    if (!base) return false;
+    await fs.mkdir(base, { recursive: true });
+    return true;
+  }
+
+  /** Dev servers keyed per Firebase user + project (avoids cross-account collisions). */
+  function workspaceRunKey(uid: string, projectId: string): string {
+    return `${uid}::${projectId}`;
+  }
+
   /** Same URL shape as push/pull: embed token for HTTPS GitHub clone (OAuth + PAT). */
   function toGithubHttpsUrlWithToken(repoUrl: string, token: string): string | null {
     const u = repoUrl.trim();
@@ -363,21 +405,18 @@ async function startServer() {
   }
 
   async function ensureProjectPath(uid: string | null, id: string): Promise<string | null> {
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    if (!uid) return null;
+    await ensureUserSandbox(uid);
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) return null;
     let existed = true;
     try {
       await fs.access(projectPath);
     } catch {
       existed = false;
-      if (!uid) return null;
       await fs.mkdir(projectPath, { recursive: true });
     }
-    if (uid) {
-      await syncProjectToLocal(uid, id, projectPath);
-    } else if (!existed) {
-      return null;
-    }
+    await syncProjectToLocal(uid, id, projectPath);
     return projectPath;
   }
 
@@ -392,12 +431,15 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project name" });
     }
 
-    const projectPath = safePath(PROJECTS_ROOT, name);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    await ensureUserSandbox(uid);
+    const projectPath = projectFsPath(uid, name);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project name" });
     }
-
-    const uid = await extractUid(req);
 
     let cloneUrl = String(repoUrl).trim();
     const tok = typeof token === "string" ? token.trim() : "";
@@ -464,12 +506,15 @@ async function startServer() {
     const { fileName, content } = req.body;
     if (!fileName) return res.status(400).json({ error: "File name required" });
 
-    const fullPath = safePath(PROJECTS_ROOT, id, fileName);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projRoot = projectFsPath(uid, id);
+    const fullPath = projRoot ? safePath(projRoot, fileName) : null;
     if (!fullPath) {
       return res.status(400).json({ error: "Invalid file path" });
     }
-
-    const uid = await extractUid(req);
     try {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
@@ -480,17 +525,25 @@ async function startServer() {
     }
   });
 
-  // List projects — merges local + cloud
+  // List projects — per-user local sandbox + cloud (never list other users' workspace dirs)
   app.get("/api/projects", async (req, res) => {
     try {
       const uid = await extractUid(req);
-      const localProjects = await fs.readdir(PROJECTS_ROOT).catch(() => [] as string[]);
-      if (uid) {
-        const cloudProjects = await storageListProjects(uid);
-        const merged = new Set([...localProjects, ...cloudProjects]);
-        return res.json(Array.from(merged));
+      if (!uid) {
+        return res.json([]);
       }
-      res.json(localProjects);
+      const cloudProjects = await storageListProjects(uid);
+      let localProjects: string[] = [];
+      const udir = userDirFromUid(uid);
+      if (udir) {
+        try {
+          localProjects = await fs.readdir(udir);
+        } catch {
+          localProjects = [];
+        }
+      }
+      const merged = new Set([...localProjects, ...cloudProjects]);
+      return res.json(Array.from(merged));
     } catch (error) {
       res.status(500).json({ error: "Failed to list projects" });
     }
@@ -505,12 +558,16 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid project name" });
     }
 
-    const projectPath = safePath(PROJECTS_ROOT, name);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    await ensureUserSandbox(uid);
+    const projectPath = projectFsPath(uid, name);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project name" });
     }
 
-    const uid = await extractUid(req);
     try {
       await fs.mkdir(projectPath, { recursive: true });
       // Create a marker file in Storage so the project appears in listings
@@ -524,12 +581,15 @@ async function startServer() {
   // Delete project
   app.delete("/api/projects/:id", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
-    const uid = await extractUid(req);
     try {
       await fs.rm(projectPath, { recursive: true, force: true });
       if (uid) await storageDelete(uid, id);
@@ -548,19 +608,23 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
-    const fullPath = safePath(PROJECTS_ROOT, id, filePath);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projRoot = projectFsPath(uid, id);
+    const fullPath = projRoot ? safePath(projRoot, filePath) : null;
     if (!fullPath) {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
-    const uid = await extractUid(req);
     try {
       try {
         await fs.unlink(fullPath);
       } catch {
         /* file may exist only in Storage */
       }
-      if (uid) await storageDelete(uid, id, filePath);
+      await storageDelete(uid, id, filePath);
       res.json({ message: "File deleted" });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete file" });
@@ -617,19 +681,19 @@ async function startServer() {
   // List files in project — sync from cloud if local dir doesn't exist
   app.get("/api/projects/:id/files", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
-    const uid = await extractUid(req);
-
     // If project doesn't exist locally but is in cloud, sync down
     try { await fs.access(projectPath); } catch {
-      if (uid) {
-        await fs.mkdir(projectPath, { recursive: true });
-        await syncProjectToLocal(uid, id, projectPath);
-      }
+      await fs.mkdir(projectPath, { recursive: true });
+      await syncProjectToLocal(uid, id, projectPath);
     }
 
     async function getFiles(dir: string, base: string = ""): Promise<any[]> {
@@ -670,12 +734,16 @@ async function startServer() {
     const { filePath } = req.query;
     if (typeof filePath !== "string") return res.status(400).json({ error: "File path required" });
 
-    const fullPath = safePath(PROJECTS_ROOT, id, filePath);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projRoot = projectFsPath(uid, id);
+    const fullPath = projRoot ? safePath(projRoot, filePath) : null;
     if (!fullPath) {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
-    const uid = await extractUid(req);
     try {
       const content = await fs.readFile(fullPath, "utf-8");
       res.json({ content });
@@ -700,12 +768,16 @@ async function startServer() {
     const { filePath, content } = req.body;
     if (!filePath) return res.status(400).json({ error: "File path required" });
 
-    const fullPath = safePath(PROJECTS_ROOT, id, filePath);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projRoot = projectFsPath(uid, id);
+    const fullPath = projRoot ? safePath(projRoot, filePath) : null;
     if (!fullPath) {
       return res.status(400).json({ error: "Invalid file path" });
     }
 
-    const uid = await extractUid(req);
     try {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
@@ -730,7 +802,7 @@ async function startServer() {
     if (!firebaseStorage) {
       return res.status(503).json({ error: "Storage not configured" });
     }
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid path" });
     }
@@ -760,7 +832,7 @@ async function startServer() {
       const files = await storageListFiles(uid, id);
       allowed = hasMarker || files.length > 0;
     } else {
-      const projectPath = safePath(PROJECTS_ROOT, id);
+      const projectPath = projectFsPath(uid, id);
       if (projectPath) {
         try {
           await fs.access(projectPath);
@@ -775,7 +847,7 @@ async function startServer() {
     }
 
     const origin = publicServerOrigin(req);
-    const base = `${origin}/preview/${encodeURIComponent(id)}/`;
+    const base = `${origin}/preview/u/${encodeURIComponent(uid)}/${encodeURIComponent(id)}/`;
     const secret = previewUrlSecret();
     const ttlRaw = parseInt(process.env.PREVIEW_URL_TTL_SEC || "3600", 10);
     const ttl = Number.isFinite(ttlRaw) ? Math.min(Math.max(ttlRaw, 60), 86400) : 3600;
@@ -799,14 +871,16 @@ async function startServer() {
     if (!uid) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const oldPath = req.body?.oldPath;
-    const newPath = req.body?.newPath;
-    if (typeof oldPath !== "string" || typeof newPath !== "string") {
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+    const oldPath = typeof req.body?.oldPath === "string" ? norm(req.body.oldPath) : "";
+    const newPath = typeof req.body?.newPath === "string" ? norm(req.body.newPath) : "";
+    if (!oldPath || !newPath) {
       return res.status(400).json({ error: "oldPath and newPath required" });
     }
     try {
       await renameStorageEntry(uid, id, oldPath, newPath);
-      await refreshLocalProjectFromCloud(uid, id, PROJECTS_ROOT);
+      const udir = userDirFromUid(uid);
+      if (udir) await refreshLocalProjectFromCloud(uid, id, udir);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(400).json({ error: String(e?.message || e) });
@@ -1025,12 +1099,27 @@ async function startServer() {
       return res.status(400).json({ error: "Command is required" });
     }
 
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
-    exec(command, { cwd: projectPath, timeout: 30000 }, (error, stdout, stderr) => {
+    const cmdTrim = command.trim();
+    const bodyTimeout = req.body?.timeoutMs;
+    const defaultTimeout =
+      /^flutter\s+build\s+web(\s|$)/i.test(cmdTrim) || /^flutter\s+run(\s|$)/i.test(cmdTrim)
+        ? 480000
+        : 30000;
+    const timeoutMs =
+      typeof bodyTimeout === "number" && bodyTimeout >= 5000 && bodyTimeout <= 900000
+        ? bodyTimeout
+        : defaultTimeout;
+
+    exec(command, { cwd: projectPath, timeout: timeoutMs }, (error, stdout, stderr) => {
       res.json({
         stdout,
         stderr,
@@ -1039,15 +1128,124 @@ async function startServer() {
     });
   });
 
+  // --- Square (sandbox / production via env; secrets never accepted from client) ---
+  function squareBaseUrl(): string {
+    return process.env.SQUARE_ENVIRONMENT === "production"
+      ? "https://connect.squareup.com"
+      : "https://connect.squareupsandbox.com";
+  }
+
+  async function squareApi<T = unknown>(path: string, method: string, body?: unknown): Promise<T> {
+    const token = process.env.SQUARE_ACCESS_TOKEN?.trim();
+    if (!token) {
+      throw new Error("SQUARE_ACCESS_TOKEN is not set");
+    }
+    const res = await fetch(`${squareBaseUrl()}/v2${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "Square-Version": "2024-11-20",
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const json = (await res.json()) as any;
+    if (!res.ok) {
+      const msg = Array.isArray(json?.errors)
+        ? json.errors.map((e: any) => e?.detail || e?.code).join("; ")
+        : json?.message || res.statusText;
+      throw new Error(msg || `Square HTTP ${res.status}`);
+    }
+    return json as T;
+  }
+
+  app.get("/api/square/config", (_req, res) => {
+    const applicationId = process.env.SQUARE_APPLICATION_ID?.trim();
+    const locationId = process.env.SQUARE_LOCATION_ID?.trim();
+    if (!applicationId || !locationId) {
+      return res.status(503).json({
+        error: "Square is not configured",
+        needs: ["SQUARE_APPLICATION_ID", "SQUARE_LOCATION_ID", "SQUARE_ACCESS_TOKEN", "SQUARE_PLAN_VARIATION_ID"],
+      });
+    }
+    res.json({
+      applicationId,
+      locationId,
+      environment: process.env.SQUARE_ENVIRONMENT === "production" ? "production" : "sandbox",
+    });
+  });
+
+  app.post("/api/square/subscribe", async (req, res) => {
+    try {
+      const locationId = process.env.SQUARE_LOCATION_ID?.trim();
+      const planVariationId = process.env.SQUARE_PLAN_VARIATION_ID?.trim();
+      if (!locationId || !planVariationId) {
+        return res.status(503).json({ error: "SQUARE_LOCATION_ID and SQUARE_PLAN_VARIATION_ID are required" });
+      }
+
+      const sourceId = typeof req.body?.sourceId === "string" ? req.body.sourceId.trim() : "";
+      const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
+      const givenName = typeof req.body?.givenName === "string" ? req.body.givenName.trim() : "Sooner";
+      const familyName = typeof req.body?.familyName === "string" ? req.body.familyName.trim() : "Customer";
+      if (!sourceId || !email) {
+        return res.status(400).json({ error: "sourceId and email are required" });
+      }
+
+      const idem = () => crypto.randomUUID();
+
+      const customerRes = await squareApi<{ customer?: { id?: string } }>("/customers", "POST", {
+        idempotency_key: idem(),
+        given_name: givenName,
+        family_name: familyName,
+        email_address: email,
+      });
+      const customerId = customerRes.customer?.id;
+      if (!customerId) {
+        return res.status(500).json({ error: "Square did not return customer id" });
+      }
+
+      const cardRes = await squareApi<{ card?: { id?: string } }>("/cards", "POST", {
+        idempotency_key: idem(),
+        source_id: sourceId,
+        card: { customer_id: customerId },
+      });
+      const cardId = cardRes.card?.id;
+      if (!cardId) {
+        return res.status(500).json({ error: "Square did not return card id" });
+      }
+
+      const subRes = await squareApi<{ subscription?: { id?: string; status?: string } }>("/subscriptions", "POST", {
+        idempotency_key: idem(),
+        location_id: locationId,
+        plan_variation_id: planVariationId,
+        customer_id: customerId,
+        card_id: cardId,
+      });
+
+      res.json({
+        ok: true,
+        subscriptionId: subRes.subscription?.id,
+        status: subRes.subscription?.status,
+        customerId,
+        cardId,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
   // Chat History Persistence (local + cloud)
   app.get("/api/projects/:id/chat", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
     const chatPath = path.join(projectPath, ".sooner_chat.json");
-    const uid = await extractUid(req);
 
     try {
       const content = await fs.readFile(chatPath, "utf-8");
@@ -1066,12 +1264,15 @@ async function startServer() {
   app.post("/api/projects/:id/chat", async (req, res) => {
     const { id } = req.params;
     const { messages } = req.body;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
     const chatPath = path.join(projectPath, ".sooner_chat.json");
-    const uid = await extractUid(req);
     const data = JSON.stringify(messages, null, 2);
 
     try {
@@ -1086,7 +1287,9 @@ async function startServer() {
   // Package management API
   app.get("/api/projects/:id/packages", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
     try {
       const pkgPath = path.join(projectPath, "package.json");
@@ -1100,11 +1303,11 @@ async function startServer() {
   app.post("/api/projects/:id/packages", async (req, res) => {
     const { id } = req.params;
     const { name, version, dev } = req.body;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
     if (!name || typeof name !== "string") return res.status(400).json({ error: "Package name required" });
-
-    const uid = await extractUid(req);
     try {
       const pkgPath = path.join(projectPath, "package.json");
       let pkg: any = { name: id, version: "1.0.0", dependencies: {}, devDependencies: {} };
@@ -1126,10 +1329,10 @@ async function startServer() {
   app.delete("/api/projects/:id/packages", async (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
-    const projectPath = safePath(PROJECTS_ROOT, id);
-    if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
-
     const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const projectPath = projectFsPath(uid, id);
+    if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
     try {
       const pkgPath = path.join(projectPath, "package.json");
       const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
@@ -1144,16 +1347,21 @@ async function startServer() {
     }
   });
 
-  // Flutter build state per project
+  // Flutter build state per signed-in user + project
   const buildState = new Map<string, { running: boolean; lines: string[]; done: boolean; success: boolean }>();
 
   // Start a Flutter build
   app.post("/api/projects/:id/build-preview", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
+    const buildKey = workspaceRunKey(uid, id);
 
     try {
       const pubspecPath = path.join(projectPath, "pubspec.yaml");
@@ -1164,14 +1372,14 @@ async function startServer() {
       const flutterJsPath = path.join(projectPath, "build", "web", "flutter.js");
       try { await fs.access(flutterJsPath); return res.json({ type: "flutter", status: "already-built" }); } catch {}
 
-      const existing = buildState.get(id);
+      const existing = buildState.get(buildKey);
       if (existing?.running) {
         return res.json({ type: "flutter", status: "building" });
       }
 
       const flutterBin = process.env.FLUTTER_BIN || "flutter";
       const state = { running: true, lines: [`$ ${flutterBin} build web`], done: false, success: false };
-      buildState.set(id, state);
+      buildState.set(buildKey, state);
 
       const child = exec(`${flutterBin} build web`, { cwd: projectPath, timeout: 180000, env: process.env, shell: true });
       child.stdout?.on("data", (data: string) => {
@@ -1202,9 +1410,13 @@ async function startServer() {
   });
 
   // Poll build progress
-  app.get("/api/projects/:id/build-status", (req, res) => {
+  app.get("/api/projects/:id/build-status", async (req, res) => {
     const { id } = req.params;
-    const state = buildState.get(id);
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const state = buildState.get(workspaceRunKey(uid, id));
     if (!state) {
       return res.json({ status: "no-build" });
     }
@@ -1340,11 +1552,13 @@ async function startServer() {
   // Detect project type
   app.get("/api/projects/:id/detect-type", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
 
     const ptype = await detectProjectType(projectPath);
-    const running = runningProjects.get(id);
+    const running = runningProjects.get(workspaceRunKey(uid, id));
     res.json({
       detected: ptype ? ptype.type : "static",
       running: !!running,
@@ -1355,11 +1569,14 @@ async function startServer() {
   // Start a backend project
   app.post("/api/projects/:id/run", async (req, res) => {
     const { id } = req.params;
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const projectPath = projectFsPath(uid, id);
     if (!projectPath) return res.status(400).json({ error: "Invalid project id" });
+    const runKey = workspaceRunKey(uid, id);
 
-    if (runningProjects.has(id)) {
-      const existing = runningProjects.get(id)!;
+    if (runningProjects.has(runKey)) {
+      const existing = runningProjects.get(runKey)!;
       return res.json({ status: "already-running", port: existing.port, type: existing.type });
     }
 
@@ -1389,13 +1606,13 @@ async function startServer() {
         });
         child.on("close", (code) => {
           lines.push(`Flutter process exited with code ${code}`);
-          runningProjects.delete(id);
+          runningProjects.delete(runKey);
         });
-        runningProjects.set(id, { process: child, port, lines, type: "flutter-web" });
+        runningProjects.set(runKey, { process: child, port, lines, type: "flutter-web" });
       };
 
       lines.push(`$ ${flutterCmd} pub get`);
-      runningProjects.set(id, { process: null, port, lines, type: "flutter-web" });
+      runningProjects.set(runKey, { process: null, port, lines, type: "flutter-web" });
       res.json({ status: "installing", port, type: "flutter-web" });
 
       const pub = spawn(flutterCmd, ["pub", "get"], { cwd: projectPath, env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -1408,7 +1625,7 @@ async function startServer() {
       pub.on("close", (code) => {
         if (code !== 0) {
           lines.push(`flutter pub get failed with code ${code}. Is Flutter installed? Set FLUTTER_BIN or install the SDK on the server.`);
-          runningProjects.delete(id);
+          runningProjects.delete(runKey);
           return;
         }
         lines.push("flutter pub get completed.");
@@ -1483,14 +1700,14 @@ async function startServer() {
       });
       child.on("close", (code) => {
         lines.push(`Process exited with code ${code}`);
-        runningProjects.delete(id);
+        runningProjects.delete(runKey);
       });
-      runningProjects.set(id, { process: child, port, lines, type: ptype.type });
+      runningProjects.set(runKey, { process: child, port, lines, type: ptype.type });
     };
 
     if (needsInstall) {
       lines.push("$ npm install  (this may take a minute...)");
-      runningProjects.set(id, { process: null, port, lines, type: ptype.type });
+      runningProjects.set(runKey, { process: null, port, lines, type: ptype.type });
       res.json({ status: "installing", port, type: ptype.type });
 
       const installChild = spawn("npm", ["install"], { cwd: projectPath, env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -1506,7 +1723,7 @@ async function startServer() {
           startServer();
         } else {
           lines.push(`npm install failed with code ${code}`);
-          runningProjects.delete(id);
+          runningProjects.delete(runKey);
         }
       });
     } else {
@@ -1516,9 +1733,12 @@ async function startServer() {
   });
 
   // Stop a running project
-  app.post("/api/projects/:id/stop", (req, res) => {
+  app.post("/api/projects/:id/stop", async (req, res) => {
     const { id } = req.params;
-    const running = runningProjects.get(id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const runKey = workspaceRunKey(uid, id);
+    const running = runningProjects.get(runKey);
     if (!running) return res.json({ status: "not-running" });
 
     if (running.process) {
@@ -1529,7 +1749,7 @@ async function startServer() {
         } catch {}
       }, 3000);
     }
-    runningProjects.delete(id);
+    runningProjects.delete(runKey);
     res.json({ status: "stopped" });
   });
 
@@ -1550,7 +1770,8 @@ async function startServer() {
     if (!firebaseStorage) {
       return res.status(503).json({ error: "Storage not configured" });
     }
-    const running = runningProjects.get(oldId);
+    const oldRunKey = workspaceRunKey(uid, oldId);
+    const running = runningProjects.get(oldRunKey);
     if (running?.process) {
       try {
         running.process.kill("SIGTERM");
@@ -1561,7 +1782,7 @@ async function startServer() {
         } catch {}
       }, 3000);
     }
-    runningProjects.delete(oldId);
+    runningProjects.delete(oldRunKey);
     try {
       const existingNew = await storageListFiles(uid, newName);
       if (existingNew.length > 0) {
@@ -1574,8 +1795,8 @@ async function startServer() {
       }
       await storageDelete(uid, oldId);
 
-      const oldPath = safePath(PROJECTS_ROOT, oldId);
-      const newPath = safePath(PROJECTS_ROOT, newName);
+      const oldPath = projectFsPath(uid, oldId);
+      const newPath = projectFsPath(uid, newName);
       if (!oldPath || !newPath) {
         return res.status(400).json({ error: "Invalid path" });
       }
@@ -1596,9 +1817,11 @@ async function startServer() {
   });
 
   // Get logs from running project
-  app.get("/api/projects/:id/run-logs", (req, res) => {
+  app.get("/api/projects/:id/run-logs", async (req, res) => {
     const { id } = req.params;
-    const running = runningProjects.get(id);
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const running = runningProjects.get(workspaceRunKey(uid, id));
     if (!running) return res.json({ status: "not-running", lines: [] });
     const since = parseInt(req.query.since as string) || 0;
     res.json({ status: "running", lines: running.lines.slice(since), total: running.lines.length, port: running.port });
@@ -1625,6 +1848,68 @@ async function startServer() {
       } catch {}
     }
     return null;
+  }
+
+  /** When no index.html: show README / common entry sources so preview is still useful for non-web stacks. */
+  async function buildNoIndexPreviewPage(projectPath: string, projectId: string): Promise<string> {
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const chunks: { title: string; rel: string; body: string }[] = [];
+    const tryPush = async (rel: string, title: string) => {
+      const full = path.join(projectPath, rel);
+      try {
+        const st = await fs.stat(full);
+        if (!st.isFile()) return;
+        const body = (await fs.readFile(full, "utf-8")).slice(0, 48_000);
+        chunks.push({ title, rel, body });
+      } catch {}
+    };
+    await tryPush("README.md", "README");
+    await tryPush("readme.md", "README");
+    await tryPush("README.txt", "README");
+    const codeCandidates = [
+      "main.cpp",
+      "main.c",
+      "main.cc",
+      "main.py",
+      "main.rs",
+      "main.go",
+      "main.java",
+      "app.py",
+      "server.py",
+      "main.js",
+      "index.js",
+      "src/main.cpp",
+      "src/main.c",
+      "src/main.py",
+      "src/main.rs",
+      "lib/main.dart",
+    ];
+    for (const rel of codeCandidates) {
+      if (chunks.length >= 5) break;
+      await tryPush(rel, rel);
+    }
+    if (chunks.length === 0) {
+      try {
+        const entries = await fs.readdir(projectPath, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isFile() || e.name.startsWith(".")) continue;
+          await tryPush(e.name, e.name);
+          if (chunks.length) break;
+        }
+      } catch {}
+    }
+    const sections = chunks
+      .map(
+        (c) =>
+          `<section style="margin-bottom:2rem"><h2 style="color:#93c5fd;font-size:1rem;margin:0 0 .5rem">${esc(c.title)} <span style="opacity:.6;font-weight:400">${esc(c.rel)}</span></h2><pre style="white-space:pre-wrap;word-break:break-word;background:#111827;border:1px solid #334155;border-radius:8px;padding:1rem;font-size:13px;line-height:1.45">${esc(c.body)}</pre></section>`
+      )
+      .join("");
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Preview · ${esc(projectId)}</title></head><body style="margin:0;background:#0a0a0a;color:#e2e8f0;font-family:system-ui,Segoe UI,sans-serif;padding:1.5rem;line-height:1.5">
+<h1 style="color:#38bdf8;font-size:1.35rem">Project workspace</h1>
+<p style="color:#94a3b8;max-width:52rem">No <code>index.html</code> was found. This read-only page shows text from your project. Native programs (C++, Rust, Go, …) cannot run in the browser — use the workspace terminal or clone locally to build and run.</p>
+${sections || '<p style="color:#f97316">No readable text files found in the project root.</p>'}
+<p style="margin-top:2rem;font-size:12px;color:#64748b">Sooner — add <code>index.html</code> or Flutter <code>web/index.html</code> for an interactive web preview.</p>
+</body></html>`;
   }
 
   function isReactProject(html: string): boolean {
@@ -1696,23 +1981,23 @@ async function startServer() {
 </body></html>`);
   }
 
-  function ensurePreviewGate(req: Request, res: Response, projectId: string): boolean {
+  function ensurePreviewGate(req: Request, res: Response, projectId: string, pathOwnerUid?: string): boolean {
     if (!previewUrlSecret()) return true;
     const q = typeof req.query.pt === "string" ? req.query.pt : "";
     const c = cookieValue(req, "spv") || "";
     const token = q || c;
-    if (!verifyPreviewToken(token, projectId)) {
+    if (!verifyPreviewToken(token, projectId, pathOwnerUid)) {
       sendPreviewAuthRequired(res);
       return false;
     }
     return true;
   }
 
-  app.get("/preview/:id", async (req, res) => {
-    const { id } = req.params;
+  app.get("/preview/u/:pathUid/:id", async (req, res) => {
+    const { pathUid, id } = req.params;
 
-    if (!isValidName(id)) {
-      return res.status(400).send("Invalid project id");
+    if (!sanitizeUidForFs(pathUid) || !isValidName(id)) {
+      return res.status(400).send("Invalid preview URL");
     }
 
     const raw = req.originalUrl || "";
@@ -1723,36 +2008,29 @@ async function startServer() {
       return res.redirect(301, pathOnly + "/" + queryPart);
     }
 
-    if (!ensurePreviewGate(req, res, id)) return;
+    if (!ensurePreviewGate(req, res, id, pathUid)) return;
     if (previewUrlSecret() && typeof req.query.pt === "string" && req.query.pt.length > 0) {
-      setSpvCookie(res, id, req.query.pt);
-      return res.redirect(302, `/preview/${encodeURIComponent(id)}/`);
+      const v = verifyPreviewToken(req.query.pt, id, pathUid);
+      if (v) setSpvCookie(res, v.uid, id, req.query.pt);
+      return res.redirect(302, `/preview/u/${encodeURIComponent(pathUid)}/${encodeURIComponent(id)}/`);
     }
 
-    const projectPath = safePath(PROJECTS_ROOT, id);
+    const projectPath = projectFsPath(pathUid, id);
     if (!projectPath) {
       return res.status(400).json({ error: "Invalid project id" });
     }
 
     // If a backend/devserver is running, proxy to it with base tag injection
-    const running = runningProjects.get(id);
+    const running = runningProjects.get(workspaceRunKey(pathUid, id));
     if (running) {
-      const base = `/preview/${encodeURIComponent(id)}/`;
+      const base = `/preview/u/${encodeURIComponent(pathUid)}/${encodeURIComponent(id)}/`;
       return proxyToBackend(req, res, running.port, "/", base);
     }
 
     const found = await findIndexHtml(projectPath);
     if (!found) {
-      return res.status(404).send(`
-        <html>
-          <body style="background: #000; color: #8E9299; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-            <div style="text-align: center;">
-              <h1 style="color: #38BDF8;">index.html not found</h1>
-              <p>Create an index.html in your project root (or build/web/, public/, dist/) to preview.</p>
-            </div>
-          </body>
-        </html>
-      `);
+      const html = await buildNoIndexPreviewPage(projectPath, id);
+      return res.status(200).type("html").send(html);
     }
 
     try {
@@ -1783,7 +2061,7 @@ async function startServer() {
       // Flutter build output: serve with minimal injection, no import maps
       if (isFlutter) {
         const basePath = found.relDir ? `${found.relDir}/` : "";
-        const baseHref = `/preview/${encodeURIComponent(id)}/${basePath}`;
+        const baseHref = `/preview/u/${encodeURIComponent(pathUid)}/${encodeURIComponent(id)}/${basePath}`;
         if (content.includes("<head>")) {
           content = content.replace("<head>", `<head><base href="${baseHref}">`);
         }
@@ -1791,7 +2069,7 @@ async function startServer() {
       }
 
       const basePath = found.relDir ? `${found.relDir}/` : "";
-      const baseHref = `/preview/${encodeURIComponent(id)}/${basePath}`;
+      const baseHref = `/preview/u/${encodeURIComponent(pathUid)}/${encodeURIComponent(id)}/${basePath}`;
       const isReact = isReactProject(content);
 
       let headInjection = `<base href="${baseHref}">
@@ -1886,22 +2164,23 @@ async function startServer() {
   }
 
   // Catch-all for sub-resources in preview with on-the-fly transpilation
-  app.get("/preview/:id/*", async (req, res) => {
-    const { id } = req.params;
+  app.get("/preview/u/:pathUid/:id/*", async (req, res) => {
+    const { pathUid, id } = req.params;
     const filePath = req.params[0];
 
-    if (!isValidName(id)) {
-      return res.status(400).send("Invalid project id");
+    if (!sanitizeUidForFs(pathUid) || !isValidName(id)) {
+      return res.status(400).send("Invalid preview URL");
     }
-    if (!ensurePreviewGate(req, res, id)) return;
+    if (!ensurePreviewGate(req, res, id, pathUid)) return;
 
     // Proxy to backend if running
-    const running = runningProjects.get(id);
+    const running = runningProjects.get(workspaceRunKey(pathUid, id));
     if (running) {
       return proxyToBackend(req, res, running.port, "/" + filePath);
     }
 
-    const baseFullPath = safePath(PROJECTS_ROOT, id, filePath);
+    const projRoot = projectFsPath(pathUid, id);
+    const baseFullPath = projRoot ? safePath(projRoot, filePath) : null;
     if (!baseFullPath) {
       return res.status(400).send("Invalid file path");
     }

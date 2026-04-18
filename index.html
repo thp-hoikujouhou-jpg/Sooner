@@ -3,6 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- Per-host canonical + og:url before first paint (same rules as src/seo.ts canonicalUrl). Avoids all hosts inheriting lp.sooner.sh as canonical from static HTML. -->
+    <script>
+      (function () {
+        try {
+          if (!location.protocol || location.protocol === "file:") return;
+          var proto = location.protocol;
+          var hostname = location.hostname.toLowerCase();
+          var path = location.pathname || "/";
+          if (path === "") path = "/";
+          var canon = proto + "//" + hostname + path;
+          if (!hostname.startsWith("blog.") && !hostname.startsWith("lp.")) {
+            canon += location.search || "";
+          }
+          var link = document.createElement("link");
+          link.setAttribute("rel", "canonical");
+          link.setAttribute("href", canon);
+          document.head.appendChild(link);
+          var og = document.createElement("meta");
+          og.setAttribute("property", "og:url");
+          og.setAttribute("content", canon);
+          document.head.appendChild(og);
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
     <meta name="google" content="notranslate" />
     <meta name="description" content="Sooner is an AI-native IDE in your browser. Describe what you want, get production-ready code, live preview, Git, terminal, and Firebase sync. Build sooner, ship faster." />
     <meta name="keywords" content="Sooner, AI IDE, AI-native IDE, browser IDE, online code editor, AI coding assistant, web development, Monaco editor, Gemini AI, cloud IDE, code generation, live preview, Git integration" />
@@ -12,7 +36,6 @@
     <meta property="og:title" content="Sooner — Build sooner, ship faster | AI-native IDE" />
     <meta property="og:description" content="AI-native IDE in your browser. Describe what you want — AI builds, previews, and ships your code in seconds. No install needed." />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://lp.sooner.sh/" />
     <meta property="og:site_name" content="Sooner" />
     <meta property="og:image" content="https://lp.sooner.sh/og-image.png" />
     <meta property="og:image:width" content="1200" />
@@ -24,7 +47,6 @@
     <meta name="twitter:title" content="Sooner — Build sooner, ship faster" />
     <meta name="twitter:description" content="AI-native IDE in your browser. Build, preview, and ship from one place." />
     <meta name="twitter:image" content="https://lp.sooner.sh/og-image.png" />
-    <link rel="canonical" href="https://lp.sooner.sh/" />
     <title>Sooner — Build sooner, ship faster | AI-native IDE in the browser</title>
     <link rel="icon" type="image/png" href="/sooner-icon.png" />
     <link rel="apple-touch-icon" href="/sooner-icon.png" />

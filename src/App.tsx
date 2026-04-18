@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, Component, type ErrorInfo, type ReactNode } from "react";
+﻿import React, { useState, useEffect, useLayoutEffect, useRef, Component, type ErrorInfo, type ReactNode } from "react";
 import { 
   FolderTree, 
   Terminal as TerminalIcon, 
@@ -49,6 +49,7 @@ import {
   CloudDownload,
   Copy,
   Link2,
+  Paperclip,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -104,6 +105,7 @@ import LegalArchiveIndex from "./LegalArchiveIndex";
 import SsoHelpPage from "./SsoHelpPage";
 import DocsHubPage from "./DocsHubPage";
 import DocsAiModelsPage from "./DocsAiModelsPage";
+import SquareBillingPage from "./SquareBillingPage";
 import { formatGithubAccessError } from "./githubSso";
 import { openAiCompatibleModelsListUrl, parseOpenAiCompatibleModelsResponse } from "./openAiModels";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
@@ -817,7 +819,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       }
       const credential = GithubAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
-        localStorage.setItem("github_token", credential.accessToken);
+        writeScopedPref(result.user?.uid ?? null, "github_token", credential.accessToken);
       }
       if (result.user && !result.user.displayName && info?.profile) {
         const ghName = (info.profile as Record<string, unknown>).name as string
@@ -828,7 +830,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
         }
       }
       if (info?.username) {
-        localStorage.setItem("github_username", info.username);
+        writeScopedPref(result.user?.uid ?? null, "github_username", info.username);
       }
       redirectToApp();
     } catch (err: any) { setError(err.message || "GitHub sign-in failed"); }
@@ -1489,6 +1491,10 @@ export default function App() {
     return <DocsHubPage pathLang={locale} />;
   }
 
+  if (pathParts[0] === "billing" && pathParts[1] === "square") {
+    return <SquareBillingPage />;
+  }
+
   if (pathParts.length === 1 && (pathParts[0] === "terms" || pathParts[0] === "privacy")) {
     const locale = new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en";
     const doc = pathParts[0];
@@ -1633,13 +1639,100 @@ export default function App() {
 
 const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
 
+/** Per-Firebase-uid localStorage so switching accounts does not reuse another user's keys. */
+function userScopedStorageKey(uid: string, key: string): string {
+  return `sooner:u:${uid}:${key}`;
+}
+
+function readScopedPref(uid: string | null | undefined, key: string): string | null {
+  if (!uid) return localStorage.getItem(key);
+  const sk = userScopedStorageKey(uid, key);
+  const v = localStorage.getItem(sk);
+  if (v !== null) return v;
+  const legacy = localStorage.getItem(key);
+  if (legacy != null && legacy !== "") {
+    try {
+      localStorage.setItem(sk, legacy);
+    } catch {
+      /* ignore quota */
+    }
+  }
+  return legacy;
+}
+
+function writeScopedPref(uid: string | null | undefined, key: string, value: string | null): void {
+  if (!uid) {
+    if (value === null || value === "") localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+    return;
+  }
+  const sk = userScopedStorageKey(uid, key);
+  if (value === null || value === "") localStorage.removeItem(sk);
+  else localStorage.setItem(sk, value);
+}
+
 function apiUrl(path: string): string {
   return `${BACKEND_URL}${path}`;
 }
 
-function previewProjectUrl(projectId: string): string {
+function previewProjectUrl(projectId: string, ownerUid: string): string {
   const base = BACKEND_URL.replace(/\/$/, "");
-  return `${base}/preview/${encodeURIComponent(projectId)}/`;
+  return `${base}/preview/u/${encodeURIComponent(ownerUid)}/${encodeURIComponent(projectId)}/`;
+}
+
+/** Workspace routes under `/api/projects/:id/...` — always encode `id` (Unicode / spaces). */
+function projectApi(projectId: string, resource: string): string {
+  const tail = resource.replace(/^\//, "");
+  return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/${tail}`);
+}
+
+/** First top-level `[`…`]` slice; respects JSON double-quoted strings (so triple-backtick fences inside string values do not confuse bracket matching). */
+function extractFirstJsonArray(text: string): string | null {
+  const t = text.trim();
+  const start = t.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < t.length; i++) {
+    const c = t[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) return t.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/** Parse model JSON array; avoids splitting on inner ``` fences in write_file content. */
+function parseAgentPlanJson(raw: string | undefined): any[] {
+  if (!raw?.trim()) throw new Error("empty plan");
+  let t = raw.trim();
+  if (t.startsWith("```")) {
+    t = t.replace(/^```(?:json)?\s*\r?\n?/i, "");
+    t = t.replace(/\r?\n?```\s*$/i, "").trim();
+  }
+  const slice = extractFirstJsonArray(t) ?? t;
+  const plan = JSON.parse(slice);
+  if (!Array.isArray(plan)) throw new Error("AI plan is not an array");
+  return plan;
 }
 
 function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
@@ -1657,6 +1750,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }, [user]);
 
   const uid = user?.uid || null;
+  const prevUidForPrefs = useRef<string | null | undefined>(undefined);
 
   const [projects, setProjects] = useState<string[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -1681,6 +1775,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  /** Local files / snippets appended to the next agent request (Cursor-style @-attachments). */
+  const [contextAttachments, setContextAttachments] = useState<{ name: string; text: string }[]>([]);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
@@ -1704,27 +1801,22 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return () => window.clearTimeout(id);
   }, []);
 
-  // New States
-  const [geminiKey, setGeminiKey] = useState(() => {
-    const saved = localStorage.getItem("gemini_key");
-    if (saved) return saved;
-    return process.env.GEMINI_API_KEY || "";
-  });
-  const [githubToken, setGithubToken] = useState(localStorage.getItem("github_token") || "");
+  // New States (prefs loaded in `useEffect` when `uid` is known — avoids sharing keys across Firebase accounts)
+  const [geminiKey, setGeminiKey] = useState("");
+  const [githubToken, setGithubToken] = useState("");
   const [githubRepos, setGithubRepos] = useState<{ name: string; full_name: string; clone_url: string; html_url: string; description: string | null; private: boolean; updated_at: string; stargazers_count: number; language: string | null }[]>([]);
   const [githubRepoListError, setGithubRepoListError] = useState("");
   const [githubRepoListSsoUrl, setGithubRepoListSsoUrl] = useState<string | null>(null);
   const [githubRepoListShowSsoHelp, setGithubRepoListShowSsoHelp] = useState(false);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [githubRepoSearch, setGithubRepoSearch] = useState("");
-  const [githubUsername, setGithubUsername] = useState(localStorage.getItem("github_username") || "");
-  const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">(() => {
-    return (localStorage.getItem("aether_api_provider") as any) || "gemini";
-  });
-  const [apiBaseUrl, setApiBaseUrl] = useState(localStorage.getItem("aether_api_base_url") || "");
-  const [vercelKey, setVercelKey] = useState(localStorage.getItem("aether_vercel_key") || "");
-  const [customKey, setCustomKey] = useState(localStorage.getItem("aether_custom_key") || "");
-  const [selectedModel, setSelectedModel] = useState(localStorage.getItem("aether_selected_model") || "gemini-2.5-flash");
+  const [githubUsername, setGithubUsername] = useState("");
+  const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">("gemini");
+  const [apiBaseUrl, setApiBaseUrl] = useState("");
+  const [vercelKey, setVercelKey] = useState("");
+  const [customKey, setCustomKey] = useState("");
+  const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
+  const [apiKeyIntroOpen, setApiKeyIntroOpen] = useState(false);
   const [runningPort, setRunningPort] = useState<number | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
@@ -1765,7 +1857,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [newProjectName, setNewProjectName] = useState("");
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
-  const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix" | "auto-preview">("chat");
+  const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix">("chat");
   const [language, setLanguage] = useState<"en" | "ja">(() => {
     const paramLang = new URLSearchParams(window.location.search).get("lang");
     if (paramLang === "ja" || paramLang === "en") {
@@ -1806,6 +1898,67 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useLayoutEffect(() => {
+    const prev = prevUidForPrefs.current;
+    if (prev === uid) return;
+    prevUidForPrefs.current = uid;
+
+    const envGem = typeof process !== "undefined" && process.env.GEMINI_API_KEY ? String(process.env.GEMINI_API_KEY) : "";
+
+    if (!uid) {
+      setGeminiKey(envGem || readScopedPref(null, "gemini_key") || "");
+      setGithubToken(readScopedPref(null, "github_token") || "");
+      setGithubUsername(readScopedPref(null, "github_username") || "");
+      const p = (readScopedPref(null, "aether_api_provider") as string) || "gemini";
+      setApiProvider(p === "vercel-ai-gateway" || p === "custom" || p === "gemini" ? (p as "gemini" | "vercel-ai-gateway" | "custom") : "gemini");
+      setApiBaseUrl(readScopedPref(null, "aether_api_base_url") || "");
+      setVercelKey(readScopedPref(null, "aether_vercel_key") || "");
+      setCustomKey(readScopedPref(null, "aether_custom_key") || "");
+      setSelectedModel(readScopedPref(null, "aether_selected_model") || "gemini-2.5-flash");
+    } else {
+      setGeminiKey(readScopedPref(uid, "gemini_key") || envGem || "");
+      setGithubToken(readScopedPref(uid, "github_token") || "");
+      setGithubUsername(readScopedPref(uid, "github_username") || "");
+      const p = (readScopedPref(uid, "aether_api_provider") as string) || "gemini";
+      setApiProvider(p === "vercel-ai-gateway" || p === "custom" || p === "gemini" ? (p as "gemini" | "vercel-ai-gateway" | "custom") : "gemini");
+      setApiBaseUrl(readScopedPref(uid, "aether_api_base_url") || "");
+      setVercelKey(readScopedPref(uid, "aether_vercel_key") || "");
+      setCustomKey(readScopedPref(uid, "aether_custom_key") || "");
+      setSelectedModel(readScopedPref(uid, "aether_selected_model") || "gemini-2.5-flash");
+    }
+
+    setActiveProject(null);
+    setProjects([]);
+    setActiveFile(null);
+    setFileContent("");
+    setFiles([]);
+    setMessages([]);
+    setContextAttachments([]);
+    setAgentSteps([]);
+    setIssuedPreviewUrl(null);
+    setTerminalMap({});
+    setRunningPort(null);
+    setProjectRunning(false);
+    setEditorLoadError(null);
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setApiKeyIntroOpen(false);
+      return;
+    }
+    if (process.env.GEMINI_API_KEY) {
+      setApiKeyIntroOpen(false);
+      return;
+    }
+    const dismissed = localStorage.getItem(userScopedStorageKey(uid, "api_key_intro_dismissed")) === "1";
+    const has =
+      !!geminiKey.trim() ||
+      (apiProvider === "vercel-ai-gateway" && !!vercelKey.trim()) ||
+      (apiProvider === "custom" && !!customKey.trim());
+    setApiKeyIntroOpen(!dismissed && !has);
+  }, [uid, geminiKey, vercelKey, customKey, apiProvider]);
+
   const toggleFolder = (path: string) => {
     setOpenFolders(prev => {
       const next = new Set(prev);
@@ -1827,13 +1980,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       plan: "Plan",
       code: "Code",
       fix: "Fix",
-      autoPreview: "Auto-Preview",
       clear: "Clear",
       placeholderChat: "Ask a question...",
       placeholderPlan: "Describe a feature to plan...",
       placeholderCode: "Describe code to write...",
       placeholderFix: "Describe a bug to fix...",
-      placeholderAuto: "Build and preview automatically...",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
       idle: "Idle",
@@ -1847,6 +1998,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testConnection: "Test Connection",
       testing: "Testing...",
       missingKey: "Missing Key",
+      apiKeyIntroTitle: "Set your API key",
+      apiKeyIntroBody:
+        "To use AI features, open Settings and enter your API key (Gemini, Vercel AI Gateway, or custom). You can dismiss this reminder and configure it later.",
+      apiKeyIntroOpenSettings: "Open Settings",
+      apiKeyIntroLater: "Later",
       download: "Download Project",
       downloadProjectZip: "Download all files as ZIP",
       downloadCodeZip: "Download code as ZIP (excludes chat history)",
@@ -1922,8 +2078,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitPanelDisabledHint: "Git panel needs a workspace backend. Use ZIP upload on hosted Sooner.",
       previewUnavailableHosted:
         "Live preview is not available in this deployment. The preview server (see the repo’s Node workspace) is not bundled with static hosting. Edit files here, use Download, or self-host with VITE_BACKEND_URL and the server so /preview can serve your project.",
-      agentAutoPreviewNoBackend:
-        "Changes were saved. Live preview does not run on this hosted build—use the editor or export a ZIP, or self-host the full stack.",
       brandTagline: "AI-native IDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
       newProject: "New Project",
@@ -1940,12 +2094,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       renamePathTitle: "Rename file or folder",
       newName: "New name",
       previewLiveAssist: "AI preview assist (1s)",
-      previewLiveAssistHint: "Captures the preview and asks the model to suggest fixes. Same-origin preview only; uses your API quota.",
+      previewLiveAssistHint:
+        "Captures the preview when same-origin; otherwise uses the last server run logs. Uses your API quota.",
+      attachFiles: "Attach files",
+      attachOpenFile: "Attach open file",
+      attachmentsHint: "Attached context is sent with your next message only.",
       copyPreviewLink: "Copy preview URL",
       previewLinkCopied: "Preview link copied",
       previewIssuedUrlHint: "Issued URL (from your workspace server). Share only with people you trust.",
       previewVsProduction:
-        "Preview uses dev-time bundling (esbuild, import maps, optional Flutter dev server). Web and mobile production builds should use your framework pipeline (e.g. npm run build, vite build, flutter build web) and be tested separately.",
+        "Preview uses dev-time bundling (esbuild, import maps, Flutter via flutter run -d web-server on the workspace). Ship Flutter with flutter build web (or your CI) for production.",
       projectPreview: "Project Preview",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -2008,13 +2166,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       plan: "プラン",
       code: "コード",
       fix: "修正",
-      autoPreview: "自動プレビュー",
       clear: "クリア",
       placeholderChat: "質問を入力...",
       placeholderPlan: "機能を計画...",
       placeholderCode: "コードを生成...",
       placeholderFix: "バグを修正...",
-      placeholderAuto: "自動ビルド＆プレビュー...",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
       idle: "待機中",
@@ -2028,6 +2184,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       testConnection: "接続テスト",
       testing: "テスト中...",
       missingKey: "キーがありません",
+      apiKeyIntroTitle: "APIキーをセットしてください",
+      apiKeyIntroBody:
+        "AI機能を使うには、設定を開き、APIキー（Gemini、Vercel AI Gateway、またはカスタム）を入力してください。このダイアログを閉じて後から設定することもできます。",
+      apiKeyIntroOpenSettings: "設定を開く",
+      apiKeyIntroLater: "後で",
       download: "プロジェクトをダウンロード",
       downloadProjectZip: "すべてのファイルをZIPでダウンロード",
       downloadCodeZip: "コードのみZIP（チャット履歴などを除く）",
@@ -2103,8 +2264,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitPanelDisabledHint: "Git パネルはワークスペース用バックエンドが必要です。ホスト版では ZIP をご利用ください。",
       previewUnavailableHosted:
         "このホスト構成ではライブプレビューは利用できません。プレビュー用サーバー（リポジトリの Node ワークスペース）は静的ホスティングに含まれていません。エディタで編集・ダウンロードするか、VITE_BACKEND_URL とサーバーを用意して /preview を配信するセルフホストをご利用ください。",
-      agentAutoPreviewNoBackend:
-        "変更を保存しました。このホスト版ではライブプレビューは動きません。エディタで確認するか ZIP で書き出すか、フルスタックをセルフホストしてください。",
       brandTagline: "AIネイティブIDE",
       copyrightFooter: "© 2026 Sooner. All rights reserved.",
       newProject: "新規プロジェクト",
@@ -2123,12 +2282,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       newName: "新しい名前",
       previewLiveAssist: "AIプレビュー補助（1秒）",
       previewLiveAssistHint:
-        "プレビューをキャプチャしてモデルに修正提案させます。同一オリジンのプレビューのみ有効。API利用枠を消費します。",
+        "同一オリジンならプレビューをキャプチャします。クロスオリジンの場合はサーバーの実行ログをモデルに渡します。API利用枠を消費します。",
+      attachFiles: "ファイルを添付",
+      attachOpenFile: "開いているファイルを添付",
+      attachmentsHint: "添付は次の送信まで有効です。",
       copyPreviewLink: "プレビューURLをコピー",
       previewLinkCopied: "プレビューURLをコピーしました",
       previewIssuedUrlHint: "ワークスペースサーバーが発行したURLです。信頼できる相手のみに共有してください。",
       previewVsProduction:
-        "プレビューは開発用のバンドル（esbuild・import map・Flutter の開発サーバー等）です。本番の Web／モバイル向けには各フレームワークのビルド（npm run build、vite build、flutter build web 等）で別途検証してください。",
+        "プレビューは開発用（esbuild・import map・ワークスペース上の flutter run -d web-server 等）です。本番の Flutter Web は flutter build web や CI で別途検証してください。",
       projectPreview: "プロジェクトプレビュー",
       cancel: "キャンセル",
       confirm: "確認",
@@ -2251,38 +2413,70 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
   };
 
-  useEffect(() => {
-    if (geminiKey) {
-      localStorage.setItem("gemini_key", geminiKey);
-    } else {
-      localStorage.removeItem("gemini_key");
+  const ATTACHMENT_TOTAL_BUDGET = 200_000;
+  const onAttachmentFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fl = e.target.files;
+    if (!fl?.length) return;
+    let budget = ATTACHMENT_TOTAL_BUDGET - contextAttachments.reduce((s, a) => s + a.text.length, 0);
+    const next = [...contextAttachments];
+    for (let i = 0; i < fl.length && budget > 0; i++) {
+      const f = fl[i];
+      if (f.size > 2_000_000) continue;
+      try {
+        const raw = await f.text();
+        const slice = raw.slice(0, Math.min(120_000, budget));
+        budget -= slice.length;
+        next.push({ name: f.name, text: slice });
+      } catch {
+        /* binary or unreadable */
+      }
     }
-  }, [geminiKey]);
+    setContextAttachments(next);
+    e.target.value = "";
+  };
+
+  const attachOpenEditorBuffer = () => {
+    if (!activeFile) return;
+    const buf = fileContent ?? "";
+    if (!buf) return;
+    setContextAttachments((prev) => {
+      const budget = ATTACHMENT_TOTAL_BUDGET - prev.reduce((s, a) => s + a.text.length, 0);
+      if (budget <= 0) return prev;
+      const text = buf.slice(0, Math.min(120_000, budget));
+      const without = prev.filter((a) => a.name !== activeFile);
+      return [...without, { name: activeFile, text }];
+    });
+  };
 
   useEffect(() => {
-    localStorage.setItem("github_token", githubToken);
-  }, [githubToken]);
+    writeScopedPref(uid, "gemini_key", geminiKey.trim() ? geminiKey : null);
+  }, [geminiKey, uid]);
 
   useEffect(() => {
-    localStorage.setItem("aether_api_provider", apiProvider);
-  }, [apiProvider]);
+    writeScopedPref(uid, "github_token", githubToken.trim() ? githubToken : null);
+  }, [githubToken, uid]);
 
   useEffect(() => {
-    if (apiBaseUrl) localStorage.setItem("aether_api_base_url", apiBaseUrl);
-    else localStorage.removeItem("aether_api_base_url");
-  }, [apiBaseUrl]);
-  useEffect(() => {
-    if (vercelKey) localStorage.setItem("aether_vercel_key", vercelKey);
-    else localStorage.removeItem("aether_vercel_key");
-  }, [vercelKey]);
-  useEffect(() => {
-    if (customKey) localStorage.setItem("aether_custom_key", customKey);
-    else localStorage.removeItem("aether_custom_key");
-  }, [customKey]);
+    writeScopedPref(uid, "github_username", githubUsername.trim() ? githubUsername : null);
+  }, [githubUsername, uid]);
 
   useEffect(() => {
-    localStorage.setItem("aether_selected_model", selectedModel);
-  }, [selectedModel]);
+    writeScopedPref(uid, "aether_api_provider", apiProvider);
+  }, [apiProvider, uid]);
+
+  useEffect(() => {
+    writeScopedPref(uid, "aether_api_base_url", apiBaseUrl.trim() ? apiBaseUrl : null);
+  }, [apiBaseUrl, uid]);
+  useEffect(() => {
+    writeScopedPref(uid, "aether_vercel_key", vercelKey.trim() ? vercelKey : null);
+  }, [vercelKey, uid]);
+  useEffect(() => {
+    writeScopedPref(uid, "aether_custom_key", customKey.trim() ? customKey : null);
+  }, [customKey, uid]);
+
+  useEffect(() => {
+    writeScopedPref(uid, "aether_selected_model", selectedModel);
+  }, [selectedModel, uid]);
 
   useEffect(() => {
     writeStoredLanguage(language);
@@ -2305,7 +2499,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
         .catch(() => setMessages([]));
       if (BACKEND_URL) {
-        axios.get(apiUrl(`/api/projects/${activeProject}/detect-type`))
+        axios.get(projectApi(activeProject, "detect-type"))
           .then(res => {
             setProjectType(res.data.detected || "static");
             setProjectRunning(!!res.data.running);
@@ -2324,7 +2518,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setProjectType("static");
       setProjectRunning(false);
     }
-  }, [activeProject]);
+  }, [activeProject, uid]);
 
   useEffect(() => {
     if (!activeProject || activeTab !== "preview" || !BACKEND_URL) return;
@@ -2333,7 +2527,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       await syncWorkspaceFromCloud(activeProject);
       if (cancelled) return;
       try {
-        const res = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/detect-type`));
+        const res = await axios.get(projectApi(activeProject, "detect-type"));
         if (cancelled) return;
         setProjectType(res.data.detected || "static");
         setProjectRunning(!!res.data.running);
@@ -2342,8 +2536,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
         if (res.data.detected === "flutter-web" && !res.data.running) {
           setTerminalOutput(prev => [...prev, language === "ja"
-            ? "> Flutter ライブプレビューを起動しています…"
-            : "> Starting Flutter live preview…"]);
+            ? "> Flutter: flutter pub get のあと flutter run -d web-server でライブプレビューを起動します（flutter build web は不要）…"
+            : "> Flutter: after pub get, starting flutter run -d web-server (no flutter build web required)…"]);
           await startProject();
         } else if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
           setTerminalOutput(prev => [...prev, language === "ja"
@@ -2365,7 +2559,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return () => {
       cancelled = true;
     };
-  }, [activeProject, activeTab]);
+  }, [activeProject, activeTab, files]);
 
   /** Issued preview URL from workspace API (signed when server has PREVIEW_URL_SECRET). */
   useEffect(() => {
@@ -2381,7 +2575,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         );
         if (!cancelled && res.data?.url) setIssuedPreviewUrl(res.data.url);
       } catch {
-        if (!cancelled) setIssuedPreviewUrl(previewProjectUrl(activeProject));
+        if (!cancelled && uid) setIssuedPreviewUrl(previewProjectUrl(activeProject, uid));
       }
     })();
     return () => {
@@ -2402,7 +2596,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         .catch(err => console.error("Failed to save chat", err));
     }, 500);
     return () => clearTimeout(timer);
-  }, [messages, activeProject]);
+  }, [messages, activeProject, uid]);
 
   useEffect(() => {
     if (terminalEndRef.current) {
@@ -2484,7 +2678,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           );
           if (pr.data?.url) setIssuedPreviewUrl(pr.data.url);
         } catch {
-          setIssuedPreviewUrl(previewProjectUrl(pid));
+          if (uid) setIssuedPreviewUrl(previewProjectUrl(pid, uid));
         }
       }
     } catch (e) {
@@ -2494,42 +2688,50 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const applyRenameDialog = async () => {
     const name = renameInput.trim();
-    if (!renameDialog || !name || !uid) return;
+    const dlg = renameDialog;
+    if (!dlg || !name || !uid) return;
     if (name.includes("/") || name.includes("\\") || name.includes("..")) {
       alert(language === "ja" ? "名前に / や .. は使えません" : "Name cannot contain /, \\, or ..");
       return;
     }
-    try {
-      if (renameDialog.mode === "project") {
-        if (!BACKEND_URL) {
-          alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
-          return;
-        }
-        const oldName = renameDialog.name;
-        if (oldName === name) {
-          setRenameDialog(null);
-          return;
-        }
+    if (dlg.mode === "project") {
+      if (!BACKEND_URL) {
+        alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
+        return;
+      }
+      const oldName = dlg.name;
+      if (oldName === name) {
+        setRenameDialog(null);
+        setRenameInput("");
+        return;
+      }
+      setRenameDialog(null);
+      setRenameInput("");
+      try {
         await axios.post(apiUrl(`/api/projects/${encodeURIComponent(oldName)}/rename-project`), { newName: name });
         await fetchProjects();
         if (activeProject === oldName) setActiveProject(name);
-        setRenameDialog(null);
-      } else {
-        if (!BACKEND_URL || !activeProject) {
-          alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
-          return;
-        }
-        const oldPath = renameDialog.path;
-        const parent = oldPath.includes("/") ? oldPath.slice(0, oldPath.lastIndexOf("/")) : "";
-        const newPath = parent ? `${parent}/${name}` : name;
-        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/rename-path`), {
-          oldPath,
-          newPath,
-        });
-        if (activeFile === oldPath) setActiveFile(newPath);
-        setRenameDialog(null);
-        await fetchFiles();
+      } catch (e: any) {
+        alert(e?.response?.data?.error || e?.message || "Rename failed");
       }
+      return;
+    }
+    if (!BACKEND_URL || !activeProject) {
+      alert(language === "ja" ? "バックエンドが必要です" : "Workspace backend required for rename.");
+      return;
+    }
+    const oldPath = dlg.path.replace(/\\/g, "/").replace(/^\/+/, "");
+    const parent = oldPath.includes("/") ? oldPath.slice(0, oldPath.lastIndexOf("/")) : "";
+    const newPath = parent ? `${parent}/${name}` : name;
+    setRenameDialog(null);
+    setRenameInput("");
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/rename-path`), {
+        oldPath,
+        newPath,
+      });
+      if (activeFile === oldPath) setActiveFile(newPath);
+      await fetchFiles();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || "Rename failed");
     }
@@ -2654,7 +2856,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       return;
     }
     try {
-      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/terminal`), { command });
+      const res = await axios.post(projectApi(activeProject, "terminal"), { command });
       if (res.data.stdout) setTerminalOutput(prev => [...prev, res.data.stdout]);
       if (res.data.stderr) setTerminalOutput(prev => [...prev, `Error: ${res.data.stderr}`]);
     } catch (e) {
@@ -2719,7 +2921,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
     setTerminalOutput(prev => [...prev, `> Starting ${projectType} server...`]);
     try {
-      const res = await axios.post(apiUrl(`/api/projects/${activeProject}/run`));
+      const res = await axios.post(projectApi(activeProject, "run"));
       if (res.data.status === "install-failed") {
         setTerminalOutput(prev => [...prev, ...(res.data.lines || []), "npm install failed."]);
         return;
@@ -2732,7 +2934,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         const poll = async () => {
           if (!activeProject) return;
           try {
-            const logRes = await axios.get(apiUrl(`/api/projects/${activeProject}/run-logs?since=${seen}`));
+            const logRes = await axios.get(projectApi(activeProject, `run-logs?since=${seen}`));
             if (logRes.data.lines?.length > 0) {
               setTerminalOutput(prev => [...prev, ...logRes.data.lines]);
             }
@@ -2756,7 +2958,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const stopProject = async () => {
     if (!activeProject || !BACKEND_URL) return;
     try {
-      await axios.post(apiUrl(`/api/projects/${activeProject}/stop`));
+      await axios.post(projectApi(activeProject, "stop"));
       setProjectRunning(false);
       setRunningPort(null);
       setTerminalOutput(prev => [...prev, language === "ja" ? "サーバーを停止しました。" : "Server stopped."]);
@@ -2778,7 +2980,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       let seen = 0;
       const poll = async () => {
         try {
-          const res = await axios.get(apiUrl(`/api/projects/${project}/build-status?since=${seen}`));
+          const res = await axios.get(projectApi(project, `build-status?since=${seen}`));
           const { status, lines, total } = res.data;
           if (lines && lines.length > 0) {
             setTerminalOutput(prev => [...prev, ...lines]);
@@ -2798,14 +3000,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const buildAndPreview = async () => {
     if (!activeProject || !BACKEND_URL) return true;
     try {
-      const det = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/detect-type`));
+      const det = await axios.get(projectApi(activeProject, "detect-type"));
       if (det.data?.detected === "flutter-web") return true;
     } catch {}
     if (!isFlutterProject()) return true;
 
     setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking static web build..."]);
     try {
-      const res = await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/build-preview`));
+      const res = await axios.post(projectApi(activeProject, "build-preview"));
       const { status } = res.data;
       if (status === "already-built") {
         setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
@@ -2856,11 +3058,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const credential = GithubAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setGithubToken(credential.accessToken);
-        localStorage.setItem("github_token", credential.accessToken);
         const info = getAdditionalUserInfo(result);
         if (info?.username) {
           setGithubUsername(info.username);
-          localStorage.setItem("github_username", info.username);
         }
         return credential.accessToken;
       }
@@ -2913,7 +3113,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         if (userRes.ok) {
           const userData = await userRes.json();
           setGithubUsername(userData.login || "");
-          localStorage.setItem("github_username", userData.login || "");
         }
       }
     } catch (e: any) {
@@ -3271,33 +3470,60 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
             /* cross-origin iframe — capture not available */
           }
         }
-        if (!screenshotBase64) return;
-        const ai = createAiClient();
-        const prompt =
-          language === "ja"
-            ? `返答は JSON 配列のみ（マークダウン禁止）。型: { "action":"write_file","path":string,"content":string,"description":string }[]
-スクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
-            : `Reply with a JSON array only (no markdown). Shape: { "action":"write_file","path":string,"content":string,"description":string }[]
-Fix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
-        const visualRes = await ai.models.generateContent({
-          model: modelIdForGeminiRequest(selectedModel),
-          contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: screenshotBase64 } }] }],
-          config: { responseMimeType: "application/json" },
-        });
-        let text = visualRes.text || "[]";
-        if (text.includes("```json")) {
-          text = text.split("```json")[1].split("```")[0].trim();
-        } else if (text.includes("```")) {
-          text = text.split("```")[1].split("```")[0].trim();
+        let logTail = "";
+        if (!screenshotBase64 && BACKEND_URL && activeProject) {
+          try {
+            const lr = await axios.get(projectApi(activeProject, "run-logs?since=0"));
+            const lines: string[] = Array.isArray(lr.data?.lines) ? lr.data.lines : [];
+            if (lines.length) logTail = lines.slice(-80).join("\n");
+          } catch {
+            /* ignore */
+          }
         }
-        const fixes = JSON.parse(text);
-        if (!Array.isArray(fixes) || fixes.length === 0) return;
+        if (!screenshotBase64 && !logTail) return;
+
+        const ai = createAiClient();
+        const jsonHintJa =
+          '返答は JSON 配列のみ（マークダウン禁止）。型: { "action":"write_file","path":string,"content":string,"description":string }[]';
+        const jsonHintEn =
+          'Reply with a JSON array only (no markdown). Shape: { "action":"write_file","path":string,"content":string,"description":string }[]';
+        let visualRes;
+        if (screenshotBase64) {
+          const prompt =
+            language === "ja"
+              ? `${jsonHintJa}\nスクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
+              : `${jsonHintEn}\nFix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
+          visualRes = await ai.models.generateContent({
+            model: modelIdForGeminiRequest(selectedModel),
+            contents: [
+              { role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: screenshotBase64 } }] },
+            ],
+            config: { responseMimeType: "application/json" },
+          });
+        } else {
+          const prompt =
+            language === "ja"
+              ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
+              : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
+          visualRes = await ai.models.generateContent({
+            model: modelIdForGeminiRequest(selectedModel),
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" },
+          });
+        }
+        let fixes: unknown[];
+        try {
+          fixes = parseAgentPlanJson(visualRes.text || "[]");
+        } catch {
+          return;
+        }
+        if (fixes.length === 0) return;
         for (const fix of fixes.slice(0, 2)) {
           if (fix?.action !== "write_file" || typeof fix.path !== "string" || typeof fix.content !== "string") continue;
           await storageUploadFile(uid, activeProject, fix.path, fix.content);
           if (BACKEND_URL) {
             await axios
-              .post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
+              .post(projectApi(activeProject, "file"), {
                 filePath: fix.path,
                 content: fix.content,
               })
@@ -3326,6 +3552,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     if (apiProvider === "vercel-ai-gateway") return undefined;
     const baseUrl = getEffectiveBaseUrl();
     if (baseUrl) return undefined;
+    // Gemini explicit caches require ~1024+ tokens; our CODE_SYSTEM_INSTRUCTION is tiny — skip create() to avoid 400 INVALID_ARGUMENT.
+    if (CODE_SYSTEM_INSTRUCTION.length < 4500) return undefined;
     try {
       const cached = promptCacheRef.current;
       if (cached && cached.model === model && cached.provider === apiProvider && cached.expiresAt > Date.now()) {
@@ -3672,8 +3900,21 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
   const handleAgentAction = async (overrideInput?: string) => {
     const effectiveInput = overrideInput ?? input;
-    if (!effectiveInput) return;
-    
+    const attachmentBlock =
+      contextAttachments.length === 0
+        ? ""
+        : "\n\n<<<USER-ATTACHED-FILES>>>\n" +
+          contextAttachments.map((a) => `=== ${a.name} ===\n${a.text}`).join("\n\n") +
+          "\n<<<END-ATTACHED>>>\n";
+    const modelUserPayload =
+      (effectiveInput.trim() ||
+        (contextAttachments.length
+          ? language === "ja"
+            ? "（添付ファイルのみ — 内容を主に参照してください）"
+            : "(Attached files only — use them as primary context.)"
+          : "")) + attachmentBlock;
+    if (!modelUserPayload.trim()) return;
+
     const currentKey = getActiveApiKey();
     if (!currentKey) {
       setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIキーが設定されていません。設定画面でAPIキーを入力してください。" : "API Key is missing. Please set it in Settings." }]);
@@ -3682,11 +3923,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     }
     
     const ai = createAiClient();
-    const userMsg: ChatMessage = { role: "user", content: effectiveInput };
+    const userMsg: ChatMessage = { role: "user", content: modelUserPayload };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
-    const currentInput = effectiveInput;
+    const keywordSource = effectiveInput.trim() || contextAttachments[0]?.text.slice(0, 400) || "";
+    const currentInput = keywordSource;
     setInput("");
+    setContextAttachments([]);
     setIsAgentRunning(true);
     setAgentSteps([]);
     abortControllerRef.current = new AbortController();
@@ -3812,7 +4055,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         CONVERSATION HISTORY:
         ${historyContext}
 
-        CURRENT REQUEST: ${currentInput}
+        CURRENT REQUEST: ${modelUserPayload}
  
         CURRENT PROJECT STATE:
         Active Project: ${activeProject}
@@ -3854,14 +4097,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         INSTRUCTIONS FOR MODES:
         - 'plan': Just describe the steps in the JSON 'description' fields.
         - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
-        - 'fix': Analyze the history for errors and provide targeted fixes.
-        - 'auto-preview': Build a complete app that works immediately in the preview.
+        - 'fix': Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. Diagnose errors and return minimal targeted write_file fixes (do not rewrite unrelated files).
         
         IMPORTANT: 
         ${depsInstruction}
         2. Check existing files for missing dependencies or imports and fix them.
         3. If the user previously discussed a plan in 'Chat' or 'Plan' mode, EXECUTE that plan now.
         4. Use the language/framework the user explicitly requests. NEVER force React if not asked.
+        5. JSON ONLY: In every write_file "content" string, escape double-quotes as \\". Never put markdown code fences (triple backticks) inside JSON — use plain indented text in README strings instead.
  
         Return a JSON array of actions:
         { action: "write_file" | "run_command", path?: string, content?: string, command?: string, description: string }[]
@@ -3894,16 +4137,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         
         let plan;
         try {
-          let text = planResponse.text;
-          if (text.includes("```json")) {
-            text = text.split("```json")[1].split("```")[0].trim();
-          } else if (text.includes("```")) {
-            text = text.split("```")[1].split("```")[0].trim();
-          }
-          plan = JSON.parse(text);
-          if (!Array.isArray(plan)) {
-            throw new Error("AI plan is not an array");
-          }
+          plan = parseAgentPlanJson(planResponse.text);
         } catch (e) {
           console.error("JSON Parse Error", e, planResponse.text);
           throw new Error("Failed to parse AI plan. The response was not valid JSON array.");
@@ -3923,13 +4157,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             if (step.action === "write_file") {
               if (uid && activeProject) await storageUploadFile(uid, activeProject, step.path, step.content);
               if (BACKEND_URL && activeProject) {
-                await axios.post(apiUrl(`/api/projects/${activeProject}/file`), { filePath: step.path, content: step.content }).catch(() => {});
+                await axios.post(projectApi(activeProject, "file"), { filePath: step.path, content: step.content }).catch(() => {});
               }
               setTerminalOutput(prev => [...prev, `Agent: Wrote ${step.path}`]);
             } else if (step.action === "run_command") {
               if (BACKEND_URL && activeProject) {
                 try {
-                  const res = await axios.post(apiUrl(`/api/projects/${activeProject}/terminal`), { command: step.command });
+                  const res = await axios.post(projectApi(activeProject, "terminal"), { command: step.command });
                   setTerminalOutput(prev => [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean));
                 } catch {
                   setTerminalOutput(prev => [...prev, `Agent: Failed to run ${step.command}`]);
@@ -3943,141 +4177,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           }
 
           fetchFiles();
-          
-          if (agentMode === "auto-preview") {
-            if (BACKEND_URL) {
-              addStep("test", language === "ja" ? "ビルドチェック中..." : "Checking build requirements...");
-              await buildAndPreview();
-              updateLastStep("completed", language === "ja" ? "ビルドチェック完了" : "Build check complete");
 
-              addStep("test", language === "ja" ? "自動プレビューを起動中..." : "Launching Auto-Preview...");
-              setActiveTab("preview");
-
-              setTimeout(() => {
-                const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
-                if (iframe) iframe.src = iframe.src;
-                updateLastStep("completed", language === "ja" ? "プレビューが更新されました。" : "Preview updated.");
-              }, 500);
-            } else {
-              setActiveTab("preview");
-            }
-          }
-          
           if (!abortControllerRef.current?.signal.aborted) {
             const completionMsg =
-              agentMode === "auto-preview" && !BACKEND_URL
-                ? t.agentAutoPreviewNoBackend
-                : language === "ja"
-                  ? `実行が完了しました。${agentMode === "auto-preview" ? "プレビューが更新されました。" : "結果を確認してください。"}`
-                  : `I've executed the changes in ${agentMode} mode. ${agentMode === "auto-preview" ? "The preview has been updated." : "You can check the results now."}`;
+              language === "ja"
+                ? `実行が完了しました。${agentMode} モードの結果を確認してください。`
+                : `I've executed the changes in ${agentMode} mode. You can check the results now.`;
             setMessages(prev => [...prev, { role: "assistant", content: completionMsg }]);
-          }
-
-          // Automatic Visual Review Loop for auto-preview (needs live preview iframe)
-          if (agentMode === "auto-preview" && BACKEND_URL) {
-            const runVisualReview = async (iteration = 1) => {
-              if (iteration > 5 || abortControllerRef.current?.signal.aborted) {
-                if (iteration > 5) {
-                  setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "ビジュアルの最適化を完了しました。" : "Visual optimization complete." }]);
-                }
-                return;
-              }
-
-              addStep("test", language === "ja" ? `スクリーンショットを取得して分析中 (回数: ${iteration})...` : `Capturing screenshot and analyzing (Iteration: ${iteration})...`);
-              
-              const iframe = document.getElementById("preview-frame") as HTMLIFrameElement;
-              let screenshotBase64 = "";
-
-              if (iframe && iframe.contentDocument) {
-                try {
-                  const canvas = await html2canvas(iframe.contentDocument.body);
-                  screenshotBase64 = canvas.toDataURL("image/png").split(",")[1];
-                } catch (e) {
-                  console.error("Screenshot capture failed:", e);
-                }
-              }
-
-              const collectFiles = async (nodes: FileNode[]): Promise<{ path: string; content: string }[]> => {
-                const results: { path: string; content: string }[] = [];
-                for (const f of nodes) {
-                  if (f.type === "file") {
-                    const content = uid && activeProject ? await storageDownloadFile(uid, activeProject, f.path) : "";
-                    results.push({ path: f.path, content: content ?? "" });
-                  } else if (f.children) {
-                    results.push(...await collectFiles(f.children));
-                  }
-                }
-                return results;
-              };
-              const currentFiles = await collectFiles(files);
-
-              const visualPrompt = `
-              You are a world-class UI/UX auditor. Review the provided screenshot and code for visual bugs, layout issues, or design inconsistencies.
-              
-              FILES:
-              ${JSON.stringify(currentFiles)}
-
-              If everything looks perfect and matches professional design standards, return an empty array [].
-              If there are issues, return a JSON array of fixes:
-              { action: "write_file", path: string, content: string, description: string }[]
-              
-              Focus on:
-              1. Responsive design (mobile/desktop)
-              2. Color contrast and accessibility
-              3. Spacing and alignment
-              4. Professional typography
-              5. Visual bugs (broken images, overlapping text, etc.)
-              `;
-              
-              try {
-                const parts: any[] = [{ text: visualPrompt }];
-                if (screenshotBase64) {
-                  parts.push({
-                    inlineData: {
-                      mimeType: "image/png",
-                      data: screenshotBase64
-                    }
-                  });
-                }
-
-                const visualRes = await ai.models.generateContent({
-                  model: modelIdForGeminiRequest(selectedModel),
-                  contents: [{ role: "user", parts }],
-                  config: { responseMimeType: "application/json" }
-                });
-                
-                let text = visualRes.text;
-                if (text.includes("```json")) {
-                  text = text.split("```json")[1].split("```")[0].trim();
-                } else if (text.includes("```")) {
-                  text = text.split("```")[1].split("```")[0].trim();
-                }
-                
-                const fixes = JSON.parse(text);
-                if (fixes.length > 0) {
-                  addStep("code", language === "ja" ? `ビジュアルの問題を自動修正中 (${iteration})...` : `Auto-fixing visual issues (${iteration})...`);
-                  for (const fix of fixes) {
-                    if (uid && activeProject) await storageUploadFile(uid, activeProject, fix.path, fix.content);
-                    if (BACKEND_URL && activeProject) {
-                      await axios.post(apiUrl(`/api/projects/${activeProject}/file`), { filePath: fix.path, content: fix.content }).catch(() => {});
-                    }
-                  }
-                  fetchFiles();
-                  if (iframe) iframe.src = iframe.src;
-                  updateLastStep("completed", language === "ja" ? `ビジュアル修正 (${iteration}) を適用しました。` : `Visual fixes (${iteration}) applied.`);
-                  
-                  // Recursive call for next iteration
-                  setTimeout(() => runVisualReview(iteration + 1), 3000);
-                } else {
-                  updateLastStep("completed", language === "ja" ? "ビジュアルチェック完了（問題なし）" : "Visual check complete (no issues).");
-                }
-              } catch (e) {
-                console.error("Visual review error:", e);
-                updateLastStep("failed", "Visual review failed.");
-              }
-            };
-
-            setTimeout(() => runVisualReview(1), 3000);
           }
         }
       }
@@ -4561,7 +4667,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           <button
                             type="button"
                             onClick={async () => {
-                              const u = issuedPreviewUrl ?? previewProjectUrl(activeProject);
+                              const u = issuedPreviewUrl ?? (uid && activeProject ? previewProjectUrl(activeProject, uid) : "");
                               try {
                                 await navigator.clipboard.writeText(u);
                                 setTerminalOutput((prev) => [...prev, `> ${t.previewLinkCopied}`]);
@@ -4602,7 +4708,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                       <iframe
                         id="preview-frame"
                         key={issuedPreviewUrl || activeProject}
-                        src={issuedPreviewUrl ?? previewProjectUrl(activeProject)}
+                        src={issuedPreviewUrl ?? (uid && activeProject ? previewProjectUrl(activeProject, uid) : "about:blank")}
                         className="w-full h-full border-none"
                         title={t.projectPreview}
                         sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
@@ -4757,27 +4863,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   </div>
                 )}
 
-                {/* Suggestions for Auto-Preview */}
-                {msg.role === "assistant" && i === messages.length - 1 && agentMode === "auto-preview" && !isAgentRunning && (
-                  <div className="ml-4 mt-2 space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.suggestions}</label>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        language === "ja" ? "デザインを洗練させて" : "Refine the design",
-                        language === "ja" ? "レスポンシブ対応にして" : "Make it responsive",
-                        language === "ja" ? "ダークモードを追加して" : "Add dark mode support"
-                      ].map((suggestion, idx) => (
-                        <button 
-                          key={idx}
-                          onClick={() => { handleAgentAction(suggestion); }}
-                          className="px-3 py-1 bg-[#1A1A1A] hover:bg-[#252525] border border-[#252525] rounded-full text-[10px] text-[#8E9299] hover:text-white transition-all"
-                        >
-                          {suggestion}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </React.Fragment>
             ))}
             <div ref={chatEndRef} />
@@ -4792,11 +4877,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               { id: "plan", label: t.plan, icon: FolderTree },
               { id: "code", label: t.code, icon: CodeIcon },
               { id: "fix", label: t.fix, icon: AlertCircle },
-              { id: "auto-preview", label: t.autoPreview, icon: Play },
             ].map((mode) => (
               <button
                 key={mode.id}
-                onClick={() => setAgentMode(mode.id as any)}
+                onClick={() => setAgentMode(mode.id as "chat" | "plan" | "code" | "fix")}
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-all border",
                   agentMode === mode.id 
@@ -4816,6 +4900,37 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               {t.clear}
             </button>
           </div>
+          <input ref={attachmentInputRef} type="file" multiple className="hidden" onChange={onAttachmentFilesSelected} />
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => attachmentInputRef.current?.click()}
+              disabled={isAgentRunning}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40"
+            >
+              <Paperclip className="w-3 h-3" />
+              {t.attachFiles}
+            </button>
+            <button
+              type="button"
+              onClick={() => attachOpenEditorBuffer()}
+              disabled={isAgentRunning || !activeFile}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40"
+            >
+              <FileCode className="w-3 h-3" />
+              {t.attachOpenFile}
+            </button>
+            {contextAttachments.map((a) => (
+              <span
+                key={`${a.name}-${a.text.length}`}
+                className="text-[10px] px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[140px] truncate"
+                title={a.name}
+              >
+                {a.name}
+              </span>
+            ))}
+          </div>
+          <p className="text-[9px] text-[#555] mb-1">{t.attachmentsHint}</p>
           <div className="relative">
             <textarea
               value={input}
@@ -4830,25 +4945,73 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 agentMode === "chat" ? t.placeholderChat :
                 agentMode === "plan" ? t.placeholderPlan :
                 agentMode === "code" ? t.placeholderCode :
-                agentMode === "fix" ? t.placeholderFix : t.placeholderAuto
+                t.placeholderFix
               }
               className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl p-3 pr-12 text-sm focus:outline-none focus:border-[#38BDF8] transition-colors resize-none h-24"
             />
             <button 
               onClick={() => handleAgentAction()}
-              disabled={!input || isAgentRunning}
+              disabled={(!input.trim() && contextAttachments.length === 0) || isAgentRunning}
               className="absolute bottom-3 right-3 p-2 bg-[#38BDF8] text-white rounded-lg hover:bg-[#0EA5E9] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
           <div className="mt-2 text-[10px] text-[#8E9299] text-center">
-            {agentMode === "auto-preview" ? (language === "ja" ? "Soonerがコードを生成し、自動的にプレビューに切り替えます。" : "Sooner will code and switch to preview automatically.") : (language === "ja" ? "Enterキーで送信" : "Press Enter to send.")}
+            {language === "ja" ? "Enterキーで送信" : "Press Enter to send."}
           </div>
         </div>
       </div>
       {/* Modals */}
       <>
+        <Dialog.Root
+          open={apiKeyIntroOpen}
+          onOpenChange={(open) => {
+            if (!open && uid) {
+              try {
+                localStorage.setItem(userScopedStorageKey(uid, "api_key_intro_dismissed"), "1");
+              } catch {
+                /* ignore */
+              }
+              setApiKeyIntroOpen(false);
+            }
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0A0A0A] border border-[#252525] rounded-2xl p-6 z-[60] w-[min(420px,calc(100vw-2rem))] shadow-xl focus:outline-none">
+              <Dialog.Title className="text-lg font-semibold text-[#E4E3E0] mb-2 pr-8">{t.apiKeyIntroTitle}</Dialog.Title>
+              <Dialog.Description className="text-sm text-[#8E9299] mb-6 leading-relaxed">{t.apiKeyIntroBody}</Dialog.Description>
+              <div className="flex flex-wrap gap-3 justify-end">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-lg border border-[#252525] text-[#E4E3E0] text-sm hover:bg-[#1A1A1A] transition-colors"
+                  >
+                    {t.apiKeyIntroLater}
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (uid) {
+                      try {
+                        localStorage.setItem(userScopedStorageKey(uid, "api_key_intro_dismissed"), "1");
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                    setApiKeyIntroOpen(false);
+                    setIsSettingsOpen(true);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#38BDF8] text-black text-sm font-medium hover:bg-[#0EA5E9] transition-colors"
+                >
+                  {t.apiKeyIntroOpenSettings}
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
         {isPackagesOpen && (
           <Dialog.Root open={isPackagesOpen} onOpenChange={setIsPackagesOpen}>
             <Dialog.Portal>
@@ -5114,7 +5277,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           </div>
                         </div>
                         <button
-                          onClick={() => { setGithubToken(""); setGithubUsername(""); setGithubRepos([]); localStorage.removeItem("github_token"); localStorage.removeItem("github_username"); }}
+                          onClick={() => {
+                            setGithubToken("");
+                            setGithubUsername("");
+                            setGithubRepos([]);
+                            writeScopedPref(uid, "github_token", null);
+                            writeScopedPref(uid, "github_username", null);
+                          }}
                           className="text-[10px] text-red-400 hover:text-red-300 font-bold self-start sm:self-center shrink-0"
                         >
                           {t.disconnectGithub}

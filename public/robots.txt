@@ -2,4 +2,5 @@ User-agent: *
 Allow: /
 
 Sitemap: https://lp.sooner.sh/sitemap.xml
+Sitemap: https://sooner.sh/sitemap.xml
 Sitemap: https://blog.sooner.sh/api/blog/sitemap.xml

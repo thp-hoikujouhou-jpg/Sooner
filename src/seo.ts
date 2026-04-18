@@ -1,6 +1,9 @@
 /**
  * Per-host SEO: title, description, Open Graph, Twitter, canonical, hreflang.
  * Call after mount and when language / route context changes.
+ *
+ * `index.html` injects the same canonical + `og:url` as `canonicalUrl()` via an inline
+ * script so non-React crawlers do not see every host pointing at `lp.sooner.sh`.
  */
 
 import { readStoredLanguage } from "./language";
