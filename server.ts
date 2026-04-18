@@ -1,4 +1,5 @@
 import express from "express";
+import type { Request, Response } from "express";
 import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -231,6 +232,85 @@ async function renameStorageEntry(uid: string, project: string, oldRel: string, 
   for (const p of affected) {
     await storageDelete(uid, project, p);
   }
+}
+
+/** Public base URL for links returned by the API (preview issuance). */
+function publicServerOrigin(req: Request): string {
+  const explicit = process.env.PUBLIC_PREVIEW_ORIGIN?.trim().replace(/\/$/, "");
+  if (explicit) return explicit;
+  const xfProto = req.headers["x-forwarded-proto"];
+  const proto =
+    (typeof xfProto === "string" ? xfProto.split(",")[0] : Array.isArray(xfProto) ? xfProto[0] : undefined)?.trim() ||
+    req.protocol;
+  const xfHost = req.headers["x-forwarded-host"];
+  const host =
+    (typeof xfHost === "string" ? xfHost.split(",")[0] : Array.isArray(xfHost) ? xfHost[0] : undefined)?.trim() ||
+    req.get("host") ||
+    "localhost";
+  return `${proto}://${host}`;
+}
+
+function cookieValue(req: Request, name: string): string | null {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    if (k === name) return decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return null;
+}
+
+/** When set (16+ chars), `/preview/:id` requires a signed `?pt=` token or `spv` cookie. */
+function previewUrlSecret(): string | null {
+  const s = process.env.PREVIEW_URL_SECRET?.trim();
+  return s && s.length >= 16 ? s : null;
+}
+
+function mintPreviewToken(uid: string, projectId: string, ttlSec: number): string {
+  const secret = previewUrlSecret()!;
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const payload = Buffer.from(JSON.stringify({ uid, pid: projectId, exp })).toString("base64url");
+  const sig = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifyPreviewToken(token: string | null | undefined, projectId: string): { uid: string } | null {
+  const secret = previewUrlSecret();
+  if (!secret || !token) return null;
+  const last = token.lastIndexOf(".");
+  if (last <= 0) return null;
+  const payload = token.slice(0, last);
+  const sig = token.slice(last + 1);
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+  try {
+    const a = Buffer.from(sig, "base64url");
+    const b = Buffer.from(expected, "base64url");
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      uid?: string;
+      pid?: string;
+      exp?: number;
+    };
+    if (data.pid !== projectId || typeof data.uid !== "string" || typeof data.exp !== "number") return null;
+    if (data.exp < Math.floor(Date.now() / 1000)) return null;
+    return { uid: data.uid };
+  } catch {
+    return null;
+  }
+}
+
+function setSpvCookie(res: Response, projectId: string, token: string) {
+  const ttlRaw = parseInt(process.env.PREVIEW_URL_TTL_SEC || "3600", 10);
+  const maxAge = Number.isFinite(ttlRaw) ? Math.min(Math.max(ttlRaw, 60), 86400) : 3600;
+  const p = `/preview/${encodeURIComponent(projectId)}`;
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.append("Set-Cookie", `spv=${encodeURIComponent(token)}; Path=${p}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
 }
 
 async function startServer() {
@@ -661,6 +741,52 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: String(e?.message || e) });
     }
+  });
+
+  /** Issue the canonical preview URL for this project (optional signed `?pt=` when PREVIEW_URL_SECRET is set). */
+  app.get("/api/projects/:id/preview-url", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    let allowed = false;
+    if (firebaseStorage) {
+      const hasMarker = (await storageDownload(uid, id, ".sooner_project")) !== null;
+      const files = await storageListFiles(uid, id);
+      allowed = hasMarker || files.length > 0;
+    } else {
+      const projectPath = safePath(PROJECTS_ROOT, id);
+      if (projectPath) {
+        try {
+          await fs.access(projectPath);
+          allowed = true;
+        } catch {
+          allowed = false;
+        }
+      }
+    }
+    if (!allowed) {
+      return res.status(404).json({ error: "Project not found for this account" });
+    }
+
+    const origin = publicServerOrigin(req);
+    const base = `${origin}/preview/${encodeURIComponent(id)}/`;
+    const secret = previewUrlSecret();
+    const ttlRaw = parseInt(process.env.PREVIEW_URL_TTL_SEC || "3600", 10);
+    const ttl = Number.isFinite(ttlRaw) ? Math.min(Math.max(ttlRaw, 60), 86400) : 3600;
+    const url = secret ? `${base}?pt=${encodeURIComponent(mintPreviewToken(uid, id, ttl))}` : base;
+    res.json({
+      url,
+      expiresInSeconds: secret ? ttl : null,
+      previewAuth: secret ? "signed" : "open",
+      disclaimer:
+        "Sooner preview uses dev-time transpilation and may differ from production web/mobile builds. Validate with npm run build, vite build, or flutter build web before shipping.",
+    });
   });
 
   /** Rename a file or folder (Storage + local workspace). */
@@ -1562,12 +1688,45 @@ async function startServer() {
     req.pipe(proxyReq, { end: true });
   }
 
+  function sendPreviewAuthRequired(res: Response) {
+    res.status(401).type("html").send(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Preview</title></head><body style="margin:0;font-family:system-ui,sans-serif;background:#0a0a0a;color:#cbd5e1;padding:2rem;line-height:1.5">
+<h1 style="color:#38bdf8;font-size:1.25rem;">Preview access</h1>
+<p>Open Preview from the Sooner editor while signed in, or use a preview link issued from the app (Copy preview link).</p>
+<p style="font-size:.75rem;opacity:.75">Operators: set <code>PREVIEW_URL_SECRET</code> to require time-limited signed URLs; leave unset for open previews (project id is still unguessable).</p>
+</body></html>`);
+  }
+
+  function ensurePreviewGate(req: Request, res: Response, projectId: string): boolean {
+    if (!previewUrlSecret()) return true;
+    const q = typeof req.query.pt === "string" ? req.query.pt : "";
+    const c = cookieValue(req, "spv") || "";
+    const token = q || c;
+    if (!verifyPreviewToken(token, projectId)) {
+      sendPreviewAuthRequired(res);
+      return false;
+    }
+    return true;
+  }
+
   app.get("/preview/:id", async (req, res) => {
     const { id } = req.params;
 
-    // Ensure trailing slash so relative URLs resolve correctly in the browser
-    if (!req.originalUrl.endsWith("/")) {
-      return res.redirect(301, req.originalUrl + "/");
+    if (!isValidName(id)) {
+      return res.status(400).send("Invalid project id");
+    }
+
+    const raw = req.originalUrl || "";
+    const qIdx = raw.indexOf("?");
+    const pathOnly = qIdx === -1 ? raw : raw.slice(0, qIdx);
+    const queryPart = qIdx === -1 ? "" : raw.slice(qIdx);
+    if (!pathOnly.endsWith("/")) {
+      return res.redirect(301, pathOnly + "/" + queryPart);
+    }
+
+    if (!ensurePreviewGate(req, res, id)) return;
+    if (previewUrlSecret() && typeof req.query.pt === "string" && req.query.pt.length > 0) {
+      setSpvCookie(res, id, req.query.pt);
+      return res.redirect(302, `/preview/${encodeURIComponent(id)}/`);
     }
 
     const projectPath = safePath(PROJECTS_ROOT, id);
@@ -1730,6 +1889,11 @@ async function startServer() {
   app.get("/preview/:id/*", async (req, res) => {
     const { id } = req.params;
     const filePath = req.params[0];
+
+    if (!isValidName(id)) {
+      return res.status(400).send("Invalid project id");
+    }
+    if (!ensurePreviewGate(req, res, id)) return;
 
     // Proxy to backend if running
     const running = runningProjects.get(id);

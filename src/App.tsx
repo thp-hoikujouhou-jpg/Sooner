@@ -47,6 +47,8 @@ import {
   ExternalLink,
   Pencil,
   CloudDownload,
+  Copy,
+  Link2,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -1799,6 +1801,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   >(null);
   const [renameInput, setRenameInput] = useState("");
   const [previewLiveAssist, setPreviewLiveAssist] = useState(false);
+  const [issuedPreviewUrl, setIssuedPreviewUrl] = useState<string | null>(null);
   const previewAssistBusyRef = useRef(false);
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1938,6 +1941,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       newName: "New name",
       previewLiveAssist: "AI preview assist (1s)",
       previewLiveAssistHint: "Captures the preview and asks the model to suggest fixes. Same-origin preview only; uses your API quota.",
+      copyPreviewLink: "Copy preview URL",
+      previewLinkCopied: "Preview link copied",
+      previewIssuedUrlHint: "Issued URL (from your workspace server). Share only with people you trust.",
+      previewVsProduction:
+        "Preview uses dev-time bundling (esbuild, import maps, optional Flutter dev server). Web and mobile production builds should use your framework pipeline (e.g. npm run build, vite build, flutter build web) and be tested separately.",
       projectPreview: "Project Preview",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -2116,6 +2124,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       previewLiveAssist: "AIプレビュー補助（1秒）",
       previewLiveAssistHint:
         "プレビューをキャプチャしてモデルに修正提案させます。同一オリジンのプレビューのみ有効。API利用枠を消費します。",
+      copyPreviewLink: "プレビューURLをコピー",
+      previewLinkCopied: "プレビューURLをコピーしました",
+      previewIssuedUrlHint: "ワークスペースサーバーが発行したURLです。信頼できる相手のみに共有してください。",
+      previewVsProduction:
+        "プレビューは開発用のバンドル（esbuild・import map・Flutter の開発サーバー等）です。本番の Web／モバイル向けには各フレームワークのビルド（npm run build、vite build、flutter build web 等）で別途検証してください。",
       projectPreview: "プロジェクトプレビュー",
       cancel: "キャンセル",
       confirm: "確認",
@@ -2354,6 +2367,28 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     };
   }, [activeProject, activeTab]);
 
+  /** Issued preview URL from workspace API (signed when server has PREVIEW_URL_SECRET). */
+  useEffect(() => {
+    if (!BACKEND_URL || !activeProject || !uid) {
+      setIssuedPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await axios.get<{ url: string }>(
+          apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/preview-url`)
+        );
+        if (!cancelled && res.data?.url) setIssuedPreviewUrl(res.data.url);
+      } catch {
+        if (!cancelled) setIssuedPreviewUrl(previewProjectUrl(activeProject));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [BACKEND_URL, activeProject, uid]);
+
   useEffect(() => {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -2442,6 +2477,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!BACKEND_URL || !pid) return;
     try {
       await axios.post(apiUrl(`/api/projects/${encodeURIComponent(pid)}/sync-from-storage`));
+      if (uid) {
+        try {
+          const pr = await axios.get<{ url: string }>(
+            apiUrl(`/api/projects/${encodeURIComponent(pid)}/preview-url`)
+          );
+          if (pr.data?.url) setIssuedPreviewUrl(pr.data.url);
+        } catch {
+          setIssuedPreviewUrl(previewProjectUrl(pid));
+        }
+      }
     } catch (e) {
       console.warn("sync-from-storage", e);
     }
@@ -4493,7 +4538,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   ) : (
                     <>
                       <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2 max-w-[min(100%,220px)]">
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2 justify-end">
                           <button
                             type="button"
                             onClick={() => void syncWorkspaceFromCloud()}
@@ -4513,7 +4558,36 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           >
                             <RefreshCw className="w-4 h-4" />
                           </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const u = issuedPreviewUrl ?? previewProjectUrl(activeProject);
+                              try {
+                                await navigator.clipboard.writeText(u);
+                                setTerminalOutput((prev) => [...prev, `> ${t.previewLinkCopied}`]);
+                              } catch {
+                                setTerminalOutput((prev) => [...prev, u]);
+                              }
+                            }}
+                            className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
+                            title={t.copyPreviewLink}
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          {issuedPreviewUrl && (
+                            <a
+                              href={issuedPreviewUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors inline-flex"
+                              title={t.previewIssuedUrlHint}
+                            >
+                              <Link2 className="w-4 h-4" />
+                            </a>
+                          )}
                         </div>
+                        <p className="text-[9px] text-white/80 text-right leading-snug max-w-[240px]">{t.previewIssuedUrlHint}</p>
+                        <p className="text-[9px] text-amber-200/90 text-right leading-snug max-w-[260px]">{t.previewVsProduction}</p>
                         <label className="flex items-center gap-2 px-2 py-1 rounded-lg bg-black/50 text-white text-[10px] cursor-pointer backdrop-blur-sm">
                           <input
                             type="checkbox"
@@ -4527,7 +4601,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                       </div>
                       <iframe
                         id="preview-frame"
-                        src={previewProjectUrl(activeProject)}
+                        key={issuedPreviewUrl || activeProject}
+                        src={issuedPreviewUrl ?? previewProjectUrl(activeProject)}
                         className="w-full h-full border-none"
                         title={t.projectPreview}
                         sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
