@@ -10,6 +10,15 @@ export function openAiCompatibleModelsListUrl(apiBase: string): string {
   return `${b}/v1/models`;
 }
 
+/** OpenAI-style chat completions POST target (OpenRouter, LiteLLM, etc.). */
+export function openAiCompatibleChatCompletionsUrl(apiBase: string): string {
+  const b = apiBase.trim().replace(/\/+$/, "");
+  if (!b) return "";
+  if (/\/v1\/chat\/completions$/i.test(b)) return b;
+  if (/\/v1$/i.test(b)) return `${b}/chat/completions`;
+  return `${b}/v1/chat/completions`;
+}
+
 /** Parses typical OpenAI-style `{ data: [{ id }] }` and a few variants. */
 export function parseOpenAiCompatibleModelsResponse(body: unknown): string[] {
   if (!body || typeof body !== "object") return [];

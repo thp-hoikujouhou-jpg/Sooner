@@ -12,9 +12,20 @@
           var hostname = location.hostname.toLowerCase();
           var path = location.pathname || "/";
           if (path === "") path = "/";
-          var canon = proto + "//" + hostname + path;
-          if (!hostname.startsWith("blog.") && !hostname.startsWith("lp.")) {
-            canon += location.search || "";
+          var canon;
+          if (hostname.startsWith("blog.") || hostname.startsWith("lp.")) {
+            canon = proto + "//" + hostname + path;
+          } else if (hostname === "sooner.sh" || hostname === "www.sooner.sh") {
+            canon = "https://sooner.sh" + path;
+          } else if (hostname.indexOf("signup.") === 0 && hostname.slice(-10) === ".sooner.sh") {
+            canon = "https://sooner.sh/signup";
+          } else if (
+            (hostname.indexOf("signin.") === 0 || hostname.indexOf("login.") === 0) &&
+            hostname.slice(-10) === ".sooner.sh"
+          ) {
+            canon = "https://sooner.sh/signin";
+          } else {
+            canon = proto + "//" + hostname + path + (location.search || "");
           }
           var link = document.createElement("link");
           link.setAttribute("rel", "canonical");

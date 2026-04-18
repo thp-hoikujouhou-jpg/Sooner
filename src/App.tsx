@@ -108,7 +108,12 @@ import DocsHubPage from "./DocsHubPage";
 import DocsAiModelsPage from "./DocsAiModelsPage";
 import SquareBillingPage from "./SquareBillingPage";
 import { formatGithubAccessError } from "./githubSso";
-import { openAiCompatibleModelsListUrl, parseOpenAiCompatibleModelsResponse } from "./openAiModels";
+import {
+  openAiCompatibleChatCompletionsUrl,
+  openAiCompatibleModelsListUrl,
+  parseOpenAiCompatibleModelsResponse,
+} from "./openAiModels";
+import { geminiStreamGenerateContent, listGeminiGenerateContentModelIds } from "./geminiModels";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
@@ -349,6 +354,17 @@ const landingI18n = {
     ],
   },
 };
+
+/** GitHub repo name: letters, digits, `.`, `-`, `_` only (max 100). */
+function sanitizeGithubRepoName(raw: string): string {
+  let s = raw
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!s) s = "sooner-repo";
+  return s.slice(0, 100);
+}
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -1751,6 +1767,33 @@ function parseAgentPlanJson(raw: string | undefined): any[] {
   return plan;
 }
 
+/** Paths the agent must not delete or overwrite blindly. */
+function isAgentDeletablePath(filePath: string): boolean {
+  if (!filePath || typeof filePath !== "string") return false;
+  const p = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (p.includes("..") || p.split("/").some((seg) => seg === "..")) return false;
+  if (p.startsWith(".sooner_") || p.startsWith(".aether_")) return false;
+  if (p === ".sooner_project") return false;
+  return true;
+}
+
+function formatPlanStepSummary(step: Record<string, unknown>, lang: "en" | "ja"): string {
+  const action = typeof step.action === "string" ? step.action : "?";
+  const desc = typeof step.description === "string" ? step.description : "";
+  const path = typeof step.path === "string" ? step.path : "";
+  const cmd = typeof step.command === "string" ? step.command : "";
+  if (action === "write_file" && path) {
+    return lang === "ja" ? `・書き込み \`${path}\` — ${desc}` : `・Write \`${path}\` — ${desc}`;
+  }
+  if (action === "delete_file" && path) {
+    return lang === "ja" ? `・削除 \`${path}\` — ${desc}` : `・Delete \`${path}\` — ${desc}`;
+  }
+  if (action === "run_command" && cmd) {
+    return lang === "ja" ? `・コマンド \`${cmd}\` — ${desc}` : `・Command \`${cmd}\` — ${desc}`;
+  }
+  return lang === "ja" ? `・${action} — ${desc}` : `・${action} — ${desc}`;
+}
+
 function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
   useEffect(() => {
     const interceptor = axios.interceptors.request.use(async (config) => {
@@ -1780,6 +1823,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [terminalMap, setTerminalMap] = useState<Record<string, string[]>>({});
+  const [terminalInput, setTerminalInput] = useState("");
   const terminalOutput = activeProject ? (terminalMap[activeProject] || []) : [];
   const setTerminalOutput = (updater: string[] | ((prev: string[]) => string[])) => {
     if (!activeProject) return;
@@ -1796,6 +1840,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  /** Step-by-step agent log (file reads, API phases) shown while the agent runs. */
+  const [agentTrace, setAgentTrace] = useState("");
+  /** Streaming assistant text (Gemini SSE) while generating the latest reply. */
+  const [streamingAssistant, setStreamingAssistant] = useState("");
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
   const [isChatOpen, setIsChatOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
@@ -1865,6 +1913,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [gitDiffText, setGitDiffText] = useState("");
   const [gitDiffStaged, setGitDiffStaged] = useState(false);
   const [gitCommitMessage, setGitCommitMessage] = useState("");
+  const [gitInitRemote, setGitInitRemote] = useState("");
+  const [githubNewRepoName, setGithubNewRepoName] = useState("");
+  const [githubNewRepoPrivate, setGithubNewRepoPrivate] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
 
   const promptCacheRef = useRef<{ name: string; model: string; provider: string; expiresAt: number } | null>(null);
@@ -2005,6 +2056,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "Describe a bug to fix...",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
+      thinkingLog: "Live trace",
       idle: "Idle",
       active: "Active",
       noProjects: "No projects found",
@@ -2037,6 +2089,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       editMode: "Edit Mode",
       suggestions: "Suggestions",
       executionComplete: "Execution complete.",
+      terminalRunHint: "Run shell commands in the project folder (Enter).",
       deleteProject: "Delete Project",
       deleteFile: "Delete File",
       usingSettingsKey: "Settings Key",
@@ -2084,6 +2137,20 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitDiff: "Diff",
       gitStaged: "Staged",
       gitRefresh: "Refresh",
+      gitInitTitle: "Initialize Git",
+      gitInitHint:
+        "New project on Sooner: create an empty repo on GitHub, optionally paste its HTTPS URL, then initialize. After that, commit here and push (GitHub token in Settings).",
+      gitInitRemotePlaceholder: "https://github.com/you/repo.git (optional)",
+      gitInitButton: "Initialize repository",
+      gitCreateGithubTitle: "Create empty repo on GitHub",
+      gitCreateGithubHint: "Creates a new repository under your account, sets origin, then you can commit and push.",
+      gitNewRepoName: "Repository name",
+      gitNewRepoPrivate: "Private",
+      gitCreateGithubBtn: "Create on GitHub & link",
+      gitCreateGithubBusy: "Creating…",
+      gitCreateGithubFailed: "Could not create GitHub repository",
+      gitNoOriginHint: "No remote named origin. Create an empty GitHub repository below to set it automatically.",
+      gitManualOriginTitle: "Or paste an existing repo URL",
       gitCommitMsg: "Commit message",
       gitCommit: "Commit all",
       gitPull: "Pull from origin",
@@ -2187,6 +2254,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "バグを修正...",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
+      thinkingLog: "作業ログ",
       idle: "待機中",
       active: "実行中",
       noProjects: "プロジェクトが見つかりません",
@@ -2219,6 +2287,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       editMode: "編集モード",
       suggestions: "提案",
       executionComplete: "実行が完了しました。",
+      terminalRunHint: "プロジェクト直下でシェルコマンドを実行できます（Enter）。",
       deleteProject: "プロジェクトを削除",
       deleteFile: "ファイルを削除",
       usingSettingsKey: "設定キー使用中",
@@ -2266,6 +2335,20 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitDiff: "差分",
       gitStaged: "ステージ済み",
       gitRefresh: "更新",
+      gitInitTitle: "Git を初期化",
+      gitInitHint:
+        "Sooner 上の新規プロジェクト: GitHub で空のリポジトリを作成し、HTTPS URL を貼る（任意）→ 初期化 → ここでコミットしてプッシュ（設定の GitHub トークン）。",
+      gitInitRemotePlaceholder: "https://github.com/you/repo.git（任意）",
+      gitInitButton: "リポジトリを初期化",
+      gitCreateGithubTitle: "GitHub に空のリポジトリを作成",
+      gitCreateGithubHint: "アカウント下に新規リポジトリを作り origin を設定します。その後コミットしてプッシュしてください。",
+      gitNewRepoName: "リポジトリ名",
+      gitNewRepoPrivate: "プライベート",
+      gitCreateGithubBtn: "GitHub に作成して紐づけ",
+      gitCreateGithubBusy: "作成中…",
+      gitCreateGithubFailed: "GitHub リポジトリの作成に失敗しました",
+      gitNoOriginHint: "origin リモートがありません。下から GitHub に空のリポジトリを作成すると自動で設定されます。",
+      gitManualOriginTitle: "または既存リポジトリの URL を貼り付け",
       gitCommitMsg: "コミットメッセージ",
       gitCommit: "すべてコミット",
       gitPull: "origin からプル",
@@ -2418,6 +2501,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const clearChat = () => {
     setMessages([]);
+    setAgentTrace("");
+    setStreamingAssistant("");
     if (activeProject && uid) {
       storageSaveChatHistory(uid, activeProject, []).catch(() => {});
     }
@@ -2496,6 +2581,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   useEffect(() => {
     if (uid) void fetchProjects();
   }, [uid]);
+
+  useEffect(() => {
+    if (isGitOpen && activeProject) {
+      setGithubNewRepoName(sanitizeGithubRepoName(activeProject));
+      setGithubNewRepoPrivate(false);
+    }
+  }, [isGitOpen, activeProject]);
 
   useEffect(() => {
     if (activeProject && uid) {
@@ -2598,7 +2690,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, streamingAssistant, agentTrace]);
 
   useEffect(() => {
     if (!activeProject || !uid || messages.length === 0) return;
@@ -2861,17 +2953,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const runCommand = async (command: string) => {
     if (!activeProject) return;
-    setTerminalOutput(prev => [...prev, `> ${command}`]);
+    const trimmed = command.trim();
+    if (!trimmed) return;
+    setTerminalOutput((prev) => [...prev, `> ${trimmed}`]);
     if (!BACKEND_URL) {
-      setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
+      setTerminalOutput((prev) => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
       return;
     }
     try {
-      const res = await axios.post(projectApi(activeProject, "terminal"), { command });
-      if (res.data.stdout) setTerminalOutput(prev => [...prev, res.data.stdout]);
-      if (res.data.stderr) setTerminalOutput(prev => [...prev, `Error: ${res.data.stderr}`]);
+      const res = await axios.post(projectApi(activeProject, "terminal"), { command: trimmed });
+      if (res.data.stdout) setTerminalOutput((prev) => [...prev, res.data.stdout]);
+      if (res.data.stderr) setTerminalOutput((prev) => [...prev, `Error: ${res.data.stderr}`]);
+      const code = res.data.exitCode;
+      if (typeof code === "number" && code !== 0) {
+        setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
+      }
     } catch (e) {
-      setTerminalOutput(prev => [...prev, "Failed to execute command"]);
+      setTerminalOutput((prev) => [...prev, "Failed to execute command"]);
     }
   };
 
@@ -3010,10 +3108,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const buildAndPreview = async () => {
     if (!activeProject || !BACKEND_URL) return true;
-    try {
-      const det = await axios.get(projectApi(activeProject, "detect-type"));
-      if (det.data?.detected === "flutter-web") return true;
-    } catch {}
     if (!isFlutterProject()) return true;
 
     setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking static web build..."]);
@@ -3379,6 +3473,22 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setGitLoading(false);
   };
 
+  const handleGitInit = async () => {
+    if (!BACKEND_URL || !activeProject) return;
+    setGitLoading(true);
+    setGitError("");
+    try {
+      await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/init`), {
+        remoteUrl: gitInitRemote.trim() || undefined,
+      });
+      setGitInitRemote("");
+      await refreshGitPanel();
+    } catch (e: any) {
+      setGitError(e.response?.data?.error || e.response?.data?.details || e.message || "git init failed");
+    }
+    setGitLoading(false);
+  };
+
   const handleGitCommit = async () => {
     if (!BACKEND_URL || !activeProject || !gitCommitMessage.trim()) return;
     setGitLoading(true);
@@ -3429,6 +3539,82 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       await refreshGitPanel();
     } catch (e: any) {
       setGitError(e.response?.data?.error || e.response?.data?.details || e.message);
+    }
+    setGitLoading(false);
+  };
+
+  const handleGitHubCreateRepoAndLink = async () => {
+    if (!BACKEND_URL || !activeProject) return;
+    if (!githubToken) {
+      setGitError(t.gitPushNeedToken);
+      return;
+    }
+    const name = sanitizeGithubRepoName(githubNewRepoName);
+    if (!name) {
+      setGitError(language === "ja" ? "リポジトリ名を入力してください。" : "Enter a repository name.");
+      return;
+    }
+    setGitLoading(true);
+    setGitError("");
+    setGithubPrSsoUrl(null);
+    setGithubPrShowSsoHelp(false);
+    try {
+      let token = githubToken;
+      const createUrl = "https://api.github.com/user/repos";
+      const body = JSON.stringify({ name, private: githubNewRepoPrivate, auto_init: false });
+      const postCreate = (tok: string) =>
+        fetch(createUrl, {
+          method: "POST",
+          headers: {
+            Authorization: githubRestAuthorization(tok),
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body,
+        });
+      let res = await postCreate(token);
+      if (res.status === 401 || res.status === 403) {
+        const fresh = await reconnectGitHub();
+        if (fresh) {
+          token = fresh;
+          res = await postCreate(token);
+        }
+      }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const apiMsg = (errJson as { message?: string }).message || `HTTP ${res.status}`;
+        const fm = formatGithubAccessError(res, apiMsg, language);
+        setGitError(fm.message);
+        setGithubPrSsoUrl(fm.ssoAuthorizeUrl);
+        setGithubPrShowSsoHelp(fm.showSsoHelp);
+        return;
+      }
+      const repo = (await res.json()) as { clone_url?: string };
+      const cloneUrl = repo.clone_url;
+      if (!cloneUrl) {
+        setGitError(t.gitCreateGithubFailed);
+        return;
+      }
+      const statusRes = await axios.get(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/status`));
+      const isRepo = statusRes.data?.isRepo === true;
+      if (!isRepo) {
+        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/init`), {
+          remoteUrl: cloneUrl,
+        });
+      } else {
+        await axios.post(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/git/set-origin`), {
+          url: cloneUrl,
+        });
+      }
+      void fetchGitHubRepos();
+      await refreshGitPanel();
+    } catch (e: any) {
+      setGitError(
+        e.response?.data?.error ||
+          e.response?.data?.details ||
+          e.message ||
+          t.gitCreateGithubFailed,
+      );
     }
     setGitLoading(false);
   };
@@ -3554,7 +3740,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const getActiveApiKey = (): string => {
-    if (apiProvider === "vercel-ai-gateway") return vercelKey.trim();
+    // Vercel AI Gateway: prefer the dedicated key; Gemini field can act as fallback Bearer when both are set.
+    if (apiProvider === "vercel-ai-gateway") return vercelKey.trim() || geminiKey.trim();
     if (apiProvider === "custom") return customKey.trim();
     return geminiKey.trim() || (typeof process !== "undefined" ? String(process.env.GEMINI_API_KEY || "") : "");
   };
@@ -3564,6 +3751,80 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     const baseUrl = getEffectiveBaseUrl();
     return new GoogleGenAI(baseUrl ? { apiKey: activeKey, httpOptions: { baseUrl } } : { apiKey: activeKey });
   };
+
+  /** Custom base that speaks OpenAI Chat Completions (e.g. OpenRouter), not Gemini REST. */
+  const isCustomOpenAiChatBase = (): boolean => {
+    if (apiProvider !== "custom") return false;
+    const b = getEffectiveBaseUrl()?.trim();
+    if (!b) return false;
+    const low = b.toLowerCase();
+    if (low.includes("generativelanguage.googleapis.com")) return false;
+    return true;
+  };
+
+  function customOpenAiHeaders(baseRaw: string, key: string): Record<string, string> {
+    const h: Record<string, string> = { Authorization: `Bearer ${key}` };
+    if (baseRaw.toLowerCase().includes("openrouter.ai")) {
+      h["HTTP-Referer"] = "https://sooner.sh";
+      h["X-Title"] = "Sooner";
+    }
+    return h;
+  }
+
+  async function customOpenAiChatCompletion(params: {
+    model: string;
+    messages: { role: "system" | "user" | "assistant"; content: string | unknown }[];
+    temperature?: number;
+  }): Promise<string> {
+    const baseRaw = getEffectiveBaseUrl()!.trim();
+    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
+    if (!url) throw new Error("Invalid custom API base URL");
+    const key = getActiveApiKey();
+    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
+    const res = await axios.post(
+      url,
+      {
+        model: params.model,
+        messages: params.messages,
+        temperature: params.temperature ?? 0.7,
+        stream: false,
+      },
+      { headers },
+    );
+    const text = res.data?.choices?.[0]?.message?.content;
+    if (typeof text !== "string") throw new Error("Empty AI response");
+    return text;
+  }
+
+  async function customOpenAiVisionCompletion(params: {
+    model: string;
+    prompt: string;
+    imageBase64: string;
+  }): Promise<string> {
+    const baseRaw = getEffectiveBaseUrl()!.trim();
+    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
+    if (!url) throw new Error("Invalid custom API base URL");
+    const key = getActiveApiKey();
+    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
+    const body = {
+      model: params.model,
+      messages: [
+        {
+          role: "user" as const,
+          content: [
+            { type: "text", text: params.prompt },
+            { type: "image_url", image_url: { url: `data:image/png;base64,${params.imageBase64}` } },
+          ],
+        },
+      ],
+      temperature: 0.3,
+      stream: false,
+    };
+    const res = await axios.post(url, body, { headers });
+    const text = res.data?.choices?.[0]?.message?.content;
+    if (typeof text !== "string") throw new Error("Empty AI response");
+    return text;
+  }
 
   useEffect(() => {
     if (!previewLiveAssist || activeTab !== "preview" || !BACKEND_URL || !activeProject || !uid) return;
@@ -3616,6 +3877,28 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
                 : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
             visualText = await vercelGatewayChatCompletion({
+              model: selectedModel,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.3,
+            });
+          }
+        } else if (isCustomOpenAiChatBase()) {
+          if (screenshotBase64) {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nスクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
+                : `${jsonHintEn}\nFix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
+            visualText = await customOpenAiVisionCompletion({
+              model: selectedModel,
+              prompt,
+              imageBase64: screenshotBase64,
+            });
+          } else {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
+                : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
+            visualText = await customOpenAiChatCompletion({
               model: selectedModel,
               messages: [{ role: "user", content: prompt }],
               temperature: 0.3,
@@ -3686,8 +3969,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
 Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
 
+  /** Gemini explicit prompt caches only (Google GenAI `caches.create`). Skipped for Vercel gateway, custom/OpenRouter, and custom Gemini proxy bases. Not used when system text is below Gemini minimum size (~1024 tokens). */
   const getOrCreatePromptCache = async (ai: InstanceType<typeof GoogleGenAI>, model: string): Promise<string | undefined> => {
     if (apiProvider === "vercel-ai-gateway") return undefined;
+    if (isCustomOpenAiChatBase()) return undefined;
     const baseUrl = getEffectiveBaseUrl();
     if (baseUrl) return undefined;
     // Gemini explicit caches require ~1024+ tokens; our CODE_SYSTEM_INSTRUCTION is tiny — skip create() to avoid 400 INVALID_ARGUMENT.
@@ -3725,21 +4010,45 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     if (!key) return;
     setIsFetchingModels(true);
     const fallback = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
-    const listGeminiModels = async (): Promise<string[]> => {
-      const ai = createAiClient();
-      const modelNames: string[] = [];
-      const result = await ai.models.list();
-      for await (const model of result) {
-        const name = model.name?.replace("models/", "") || "";
-        if (name) modelNames.push(name);
+    const commitModels = (names: string[]) => {
+      const list = names.length > 0 ? names : fallback;
+      setAvailableModels(list);
+      setSelectedModel((prev) => (list.includes(prev) ? prev : list[0]));
+    };
+    const listGeminiModelsFiltered = async (): Promise<string[]> => {
+      const base = getEffectiveBaseUrl();
+      try {
+        const ids = await listGeminiGenerateContentModelIds(key, base);
+        if (ids.length > 0) return ids;
+      } catch (e) {
+        console.warn("Filtered Gemini model list failed:", e);
       }
-      modelNames.sort();
-      return modelNames;
+      try {
+        const ai = createAiClient();
+        const modelNames: string[] = [];
+        const result = await ai.models.list();
+        for await (const model of result) {
+          const raw = model as unknown as { name?: string; supportedGenerationMethods?: string[] };
+          if (
+            Array.isArray(raw.supportedGenerationMethods) &&
+            !raw.supportedGenerationMethods.includes("generateContent")
+          ) {
+            continue;
+          }
+          const name = model.name?.replace("models/", "") || "";
+          if (name) modelNames.push(name);
+        }
+        modelNames.sort();
+        if (modelNames.length > 0) return modelNames;
+      } catch (e2) {
+        console.warn("SDK Gemini model list failed:", e2);
+      }
+      return [];
     };
     try {
       if (apiProvider === "vercel-ai-gateway") {
         if (!BACKEND_URL) {
-          setAvailableModels(fallback);
+          commitModels(fallback);
         } else {
           const res = await axios.get<{ data?: { id?: string }[] }>(apiUrl("/api/ai/gateway/models"), {
             params: { base: vercelGatewayOpenAiRoot() },
@@ -3750,27 +4059,27 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             ? raw.map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0)
             : [];
           modelNames.sort();
-          setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
+          commitModels(modelNames.length > 0 ? modelNames : fallback);
         }
       } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
         const base = getEffectiveBaseUrl()!;
         const modelsUrl = openAiCompatibleModelsListUrl(base);
         try {
           const res = await axios.get(modelsUrl, {
-            headers: { Authorization: `Bearer ${key}` },
+            headers: customOpenAiHeaders(base, key),
           });
           const modelNames = parseOpenAiCompatibleModelsResponse(res.data);
-          setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
+          commitModels(modelNames.length > 0 ? modelNames : fallback);
         } catch {
-          const modelNames = await listGeminiModels();
-          setAvailableModels(modelNames.length === 0 ? fallback : modelNames);
+          const modelNames = await listGeminiModelsFiltered();
+          commitModels(modelNames.length > 0 ? modelNames : fallback);
         }
       } else {
-        const modelNames = await listGeminiModels();
-        setAvailableModels(modelNames.length === 0 ? fallback : modelNames);
+        const modelNames = await listGeminiModelsFiltered();
+        commitModels(modelNames.length > 0 ? modelNames : fallback);
       }
     } catch {
-      setAvailableModels(fallback);
+      commitModels(fallback);
     }
     setIsFetchingModels(false);
   };
@@ -3796,15 +4105,25 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           fetchModels();
         }
       } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
-        const modelsUrl = openAiCompatibleModelsListUrl(getEffectiveBaseUrl()!);
-        try {
-          await axios.get(modelsUrl, { headers: { Authorization: `Bearer ${key}` } });
-        } catch {
-          const testAi = createAiClient();
-          await testAi.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel || "gemini-2.5-flash"),
-            contents: "Hi",
+        const base = getEffectiveBaseUrl()!.trim();
+        const modelsUrl = openAiCompatibleModelsListUrl(base);
+        if (isCustomOpenAiChatBase()) {
+          await axios.get(modelsUrl, { headers: customOpenAiHeaders(base, key) });
+          await customOpenAiChatCompletion({
+            model: selectedModel.trim() || "openai/gpt-4o-mini",
+            messages: [{ role: "user", content: "Hi" }],
+            temperature: 0.2,
           });
+        } else {
+          try {
+            await axios.get(modelsUrl, { headers: { Authorization: `Bearer ${key}` } });
+          } catch {
+            const testAi = createAiClient();
+            await testAi.models.generateContent({
+              model: modelIdForGeminiRequest(selectedModel || "gemini-2.5-flash"),
+              contents: "Hi",
+            });
+          }
         }
         alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
         fetchModels();
@@ -4074,7 +4393,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       return;
     }
     
-    const ai = apiProvider !== "vercel-ai-gateway" ? createAiClient() : null;
+    const ai =
+      apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase() ? createAiClient() : null;
     const userMsg: ChatMessage = { role: "user", content: modelUserPayload };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
@@ -4084,7 +4404,14 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     setContextAttachments([]);
     setIsAgentRunning(true);
     setAgentSteps([]);
+    setAgentTrace("");
+    setStreamingAssistant("");
     abortControllerRef.current = new AbortController();
+
+    const appendTrace = (line: string) => {
+      setAgentTrace((prev) => (prev ? `${prev}\n` : "") + line);
+    };
+    const geminiNativeChat = apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase();
 
     // Context selection (not Gemini Prompt Caching API — uses last messages + keyword heuristics only)
     // We pick the last 10 messages + any messages containing keywords from the current input
@@ -4135,6 +4462,11 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         let chatResponse: { text?: string };
         try {
           if (apiProvider === "vercel-ai-gateway") {
+            appendTrace(
+              language === "ja"
+                ? `Vercel AI Gateway: ${selectedModel} へリクエスト中…`
+                : `Calling Vercel AI Gateway (${selectedModel})…`,
+            );
             chatResponse = {
               text: await vercelGatewayChatCompletion({
                 model: selectedModel,
@@ -4147,14 +4479,65 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 ],
               }),
             };
-          } else {
-            chatResponse = await ai!.models.generateContent({
-              model: modelIdForGeminiRequest(selectedModel),
-              contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-              config: {
-                systemInstruction: chatSystemInstruction,
-              },
-            });
+          } else if (isCustomOpenAiChatBase()) {
+            appendTrace(
+              language === "ja"
+                ? `カスタム API（OpenAI 互換）: ${selectedModel} へリクエスト中…`
+                : `Calling custom OpenAI-compatible API (${selectedModel})…`,
+            );
+            chatResponse = {
+              text: await customOpenAiChatCompletion({
+                model: selectedModel,
+                messages: [
+                  { role: "system", content: chatSystemInstruction },
+                  ...cappedMessages.map((m) => ({
+                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+                    content: m.content,
+                  })),
+                ],
+              }),
+            };
+          } else if (geminiNativeChat) {
+            appendTrace(
+              language === "ja"
+                ? `Gemini: ${modelIdForGeminiRequest(selectedModel)} でストリーミング応答…`
+                : `Gemini streaming (${modelIdForGeminiRequest(selectedModel)})…`,
+            );
+            const contents = cappedMessages.map((m) => ({
+              role: (m.role === "assistant" ? "model" : "user") as "model" | "user",
+              parts: [{ text: m.content }],
+            }));
+            try {
+              const text = await geminiStreamGenerateContent({
+                apiKey: currentKey,
+                baseUrl: getEffectiveBaseUrl(),
+                model: modelIdForGeminiRequest(selectedModel),
+                body: {
+                  contents,
+                  systemInstruction: { parts: [{ text: chatSystemInstruction }] },
+                },
+                onText: (acc) => setStreamingAssistant(acc),
+                signal: abortControllerRef.current?.signal,
+              });
+              setStreamingAssistant("");
+              chatResponse = { text };
+            } catch (streamErr: unknown) {
+              setStreamingAssistant("");
+              const sm = streamErr instanceof Error ? streamErr.message : String(streamErr);
+              appendTrace(
+                language === "ja" ? `ストリーミング不可、通常生成に切替: ${sm}` : `Stream unavailable, using non-stream: ${sm}`,
+              );
+              chatResponse = await ai!.models.generateContent({
+                model: modelIdForGeminiRequest(selectedModel),
+                contents: cappedMessages.map((m) => ({
+                  role: m.role === "assistant" ? "model" : "user",
+                  parts: [{ text: m.content }],
+                })),
+                config: {
+                  systemInstruction: chatSystemInstruction,
+                },
+              });
+            }
           }
         } catch (e: any) {
           const isRate = e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("rate");
@@ -4175,7 +4558,24 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 ],
               }),
             };
-          } else if (apiProvider !== "vercel-ai-gateway" && isRate) {
+          } else if (isCustomOpenAiChatBase() && isRate) {
+            chatResponse = {
+              text: await customOpenAiChatCompletion({
+                model: selectedModel,
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
+                  },
+                  ...newMessages.map((m) => ({
+                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+                    content: m.content,
+                  })),
+                ],
+              }),
+            };
+          } else if (apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase() && isRate) {
             chatResponse = await ai!.models.generateContent({
               model: modelIdForGeminiRequest(selectedModel),
               contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
@@ -4218,19 +4618,78 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           ? `1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').`
           : `1. Do not use 'run_command' for installs or builds. Use write_file only; list packages in package.json and use bare imports suitable for browser preview (esm.sh).`;
 
-        const collectCurrentCode = async (nodes: FileNode[], prefix = ""): Promise<{ path: string; content: string }[]> => {
-          const results: { path: string; content: string }[] = [];
-          for (const n of nodes) {
-            if (n.type === "file" && !n.path.startsWith(".sooner_") && !n.path.startsWith(".aether_") && n.path !== ".sooner_project") {
-              const c = uid && activeProject ? await storageDownloadFile(uid, activeProject, n.path) : null;
-              if (c !== null) results.push({ path: n.path, content: c });
-            } else if (n.children) {
-              results.push(...await collectCurrentCode(n.children));
-            }
-          }
-          return results;
+        const updateReadLabel = (msg: string) => {
+          setAgentSteps((prev) => {
+            if (prev.length === 0) return prev;
+            const next = [...prev];
+            next[next.length - 1] = { ...next[next.length - 1], message: msg };
+            return next;
+          });
         };
-        const existingCode = await collectCurrentCode(files);
+
+        appendTrace(
+          language === "ja"
+            ? "コードモード: プロジェクトのソースをエディタで順に開いて読み込みます。"
+            : "Code mode: opening project sources in the editor for review.",
+        );
+        addStep(
+          "read",
+          language === "ja" ? "エディタでファイルを開いています…" : "Opening files in the editor…",
+        );
+        setActiveTab("editor");
+
+        const flattenSourcePaths = (nodes: FileNode[]): string[] => {
+          const out: string[] = [];
+          const walk = (list: FileNode[]) => {
+            for (const n of list) {
+              if (
+                n.type === "file" &&
+                !n.path.startsWith(".sooner_") &&
+                !n.path.startsWith(".aether_") &&
+                n.path !== ".sooner_project"
+              ) {
+                out.push(n.path);
+              } else if (n.children) walk(n.children);
+            }
+          };
+          walk(nodes);
+          return out;
+        };
+
+        const paths = flattenSourcePaths(files);
+        const existingCode: { path: string; content: string }[] = [];
+        const MAX_EDITOR_WALK = 40;
+        for (let i = 0; i < paths.length; i++) {
+          const p = paths[i];
+          if (abortControllerRef.current?.signal.aborted) break;
+          const c = uid && activeProject ? await storageDownloadFile(uid, activeProject, p) : null;
+          if (c === null) continue;
+          existingCode.push({ path: p, content: c });
+          appendTrace(`${i + 1}/${paths.length}  ${p}  (${c.length} chars)`);
+          updateReadLabel(language === "ja" ? `開いています: ${p}` : `Opening: ${p}`);
+          if (i < MAX_EDITOR_WALK) {
+            await openFile(p);
+            await new Promise((r) => setTimeout(r, 55));
+          }
+        }
+        updateLastStep(
+          "completed",
+          language === "ja"
+            ? `${existingCode.length} ファイルを読み込みました`
+            : `Loaded ${existingCode.length} file(s)`,
+        );
+
+        const planModelLabel =
+          apiProvider === "vercel-ai-gateway" || isCustomOpenAiChatBase()
+            ? selectedModel
+            : modelIdForGeminiRequest(selectedModel);
+        appendTrace(
+          language === "ja"
+            ? `AI にプランを依頼しています（${planModelLabel}）…`
+            : `Requesting plan from model (${planModelLabel})…`,
+        );
+        addStep("plan", language === "ja" ? "プラン生成中…" : "Generating plan…");
+
         const existingFilesSummary = existingCode.length > 0
           ? existingCode.map(f => `--- ${f.path} ---\n${f.content.slice(0, 6000)}${f.content.length > 6000 ? "\n... (truncated)" : ""}`).join("\n\n")
           : "(empty project)";
@@ -4282,9 +4741,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         - For Flutter web: create web/index.html as the entry point.
         ${backendServerSection}
         INSTRUCTIONS FOR MODES:
-        - 'plan': Just describe the steps in the JSON 'description' fields.
+        - 'plan': Use concrete descriptions (what file/command, why). Same JSON schema as code — you may include write_file with full content if you want the user to see exact diffs in plan mode, or only run_command/delete_file descriptions.
         - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
-        - 'fix': Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. Diagnose errors and return minimal targeted write_file fixes (do not rewrite unrelated files).
+        - 'fix': Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. Diagnose errors and return minimal targeted write_file / delete_file fixes (do not rewrite unrelated files).
+        - AGENT TOOLS: You may use delete_file to remove obsolete/conflicting files; use run_command for installs, tests, flutter pub get, flutter build web, etc. Do not delete .sooner_* / .aether_* / .sooner_project paths.
         
         IMPORTANT: 
         ${depsInstruction}
@@ -4294,13 +4754,24 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         5. JSON ONLY: In every write_file "content" string, escape double-quotes as \\". Never put markdown code fences (triple backticks) inside JSON — use plain indented text in README strings instead.
  
         Return a JSON array of actions:
-        { action: "write_file" | "run_command", path?: string, content?: string, command?: string, description: string }[]
+        { action: "write_file" | "run_command" | "delete_file", path?: string, content?: string, command?: string, description: string }[]
         
         Return ONLY the JSON array. No markdown, no extra text.`;
 
         if (apiProvider === "vercel-ai-gateway") {
           planResponse = {
             text: await vercelGatewayChatCompletion({
+              model: selectedModel,
+              messages: [
+                { role: "system", content: CODE_SYSTEM_INSTRUCTION },
+                { role: "user", content: planPrompt },
+              ],
+              temperature: 0.3,
+            }),
+          };
+        } else if (isCustomOpenAiChatBase()) {
+          planResponse = {
+            text: await customOpenAiChatCompletion({
               model: selectedModel,
               messages: [
                 { role: "system", content: CODE_SYSTEM_INSTRUCTION },
@@ -4348,44 +4819,102 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
         if (agentMode === "plan") {
           if (!abortControllerRef.current?.signal.aborted) {
-            setMessages(prev => [...prev, { role: "assistant", content: "I've drafted a plan based on our conversation. Switch to 'Code' mode to apply these changes:\n\n" + plan.map((s: any) => `- ${s.description}`).join("\n") }]);
+            const lang = language === "ja" ? "ja" : "en";
+            const header =
+              lang === "ja"
+                ? `プラン（${plan.length} ステップ）。Code モードで実行できます。`
+                : `Plan (${plan.length} step(s)). Switch to Code mode to apply.`;
+            const body = plan.map((s: Record<string, unknown>) => formatPlanStepSummary(s, lang)).join("\n");
+            setMessages((prev) => [...prev, { role: "assistant", content: `${header}\n\n${body}` }]);
           }
         } else {
           // 3. Execute
+          const resultLines: string[] = [];
+          const lang = language === "ja" ? "ja" : "en";
           for (const step of plan) {
             if (abortControllerRef.current?.signal.aborted) break;
-            addStep(step.action === "write_file" ? "code" : "test", step.description);
-            
+            const act = step.action as string;
+            addStep(
+              act === "write_file" ? "code" : act === "delete_file" ? "fix" : "test",
+              typeof step.description === "string" ? step.description : act,
+            );
+
             if (step.action === "write_file") {
               if (uid && activeProject) await storageUploadFile(uid, activeProject, step.path, step.content);
               if (BACKEND_URL && activeProject) {
                 await axios.post(projectApi(activeProject, "file"), { filePath: step.path, content: step.content }).catch(() => {});
               }
-              setTerminalOutput(prev => [...prev, `Agent: Wrote ${step.path}`]);
+              setTerminalOutput((prev) => [...prev, `Agent: Wrote ${step.path}`]);
+              resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
+            } else if (step.action === "delete_file") {
+              const p = typeof step.path === "string" ? step.path : "";
+              if (uid && activeProject && p && isAgentDeletablePath(p)) {
+                try {
+                  if (BACKEND_URL) {
+                    await axios.delete(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
+                      data: { filePath: p },
+                    });
+                  } else {
+                    await storageDeleteFile(uid, activeProject, p);
+                  }
+                  setTerminalOutput((prev) => [...prev, `Agent: Deleted ${p}`]);
+                  resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
+                  if (activeFile === p) {
+                    setActiveFile(null);
+                    setFileContent("");
+                  }
+                } catch {
+                  setTerminalOutput((prev) => [...prev, `Agent: Failed to delete ${p}`]);
+                }
+              } else {
+                setTerminalOutput((prev) => [...prev, `Agent: Skipped delete (reserved or invalid path)`]);
+              }
             } else if (step.action === "run_command") {
               if (BACKEND_URL && activeProject) {
                 try {
                   const res = await axios.post(projectApi(activeProject, "terminal"), { command: step.command });
-                  setTerminalOutput(prev => [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean));
+                  setTerminalOutput((prev) =>
+                    [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean),
+                  );
+                  const code = res.data.exitCode;
+                  if (typeof code === "number" && code !== 0) {
+                    setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
+                  }
+                  resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
                 } catch {
-                  setTerminalOutput(prev => [...prev, `Agent: Failed to run ${step.command}`]);
+                  setTerminalOutput((prev) => [...prev, `Agent: Failed to run ${step.command}`]);
                 }
               } else {
-                setTerminalOutput(prev => [...prev, `Agent: ${step.command} (backend not configured)`]);
+                setTerminalOutput((prev) => [...prev, `Agent: ${step.command} (backend not configured)`]);
               }
             }
-            
+
             updateLastStep("completed", `Done: ${step.description}`);
           }
 
           fetchFiles();
 
           if (!abortControllerRef.current?.signal.aborted) {
-            const completionMsg =
-              language === "ja"
-                ? `実行が完了しました。${agentMode} モードの結果を確認してください。`
-                : `I've executed the changes in ${agentMode} mode. You can check the results now.`;
-            setMessages(prev => [...prev, { role: "assistant", content: completionMsg }]);
+            const modeLabel =
+              agentMode === "fix"
+                ? lang === "ja"
+                  ? "修正"
+                  : "Fix"
+                : agentMode === "code"
+                  ? lang === "ja"
+                    ? "コード"
+                    : "Code"
+                  : agentMode;
+            const head =
+              lang === "ja"
+                ? `【${modeLabel}】実行結果（${resultLines.length} 件）`
+                : `【${modeLabel}】Done (${resultLines.length} action(s))`;
+            const detail = resultLines.length ? `\n\n${resultLines.join("\n")}` : "";
+            const tail =
+              lang === "ja"
+                ? "\n\nエディタ・プレビュー・ターミナルで確認してください。"
+                : "\n\nCheck the editor, preview, and terminal.";
+            setMessages((prev) => [...prev, { role: "assistant", content: `${head}${detail}${tail}` }]);
           }
         }
       }
@@ -4409,6 +4938,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       }
     } finally {
       setIsAgentRunning(false);
+      setStreamingAssistant("");
     }
   };
 
@@ -4760,9 +5290,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             <button 
               onClick={async () => {
                 if (activeTab === "editor") {
-                  if (projectType !== "static" && !projectRunning) {
+                  const flutterPreview = projectType === "flutter-web" || isFlutterProject();
+                  if (!flutterPreview && projectType !== "static" && !projectRunning) {
                     await startProject();
-                    await new Promise(r => setTimeout(r, 2000));
+                    await new Promise((r) => setTimeout(r, 2000));
                   }
                   const ok = await buildAndPreview();
                   if (ok !== false) {
@@ -4955,7 +5486,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   </div>
                 )}
               </div>
-              <div className="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-1">
+              <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-1 min-h-0">
                 {terminalOutput.map((line, i) => (
                   <div key={i} className={cn(
                     line.startsWith(">") ? "text-[#38BDF8]" : 
@@ -4966,6 +5497,30 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 ))}
                 <div ref={terminalEndRef} />
               </div>
+              {BACKEND_URL && activeProject && (
+                <form
+                  className="flex items-center gap-2 px-3 py-2 border-t border-[#1A1A1A] bg-[#0F0F0F] shrink-0"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const cmd = terminalInput.trim();
+                    if (!cmd || !activeProject) return;
+                    setTerminalInput("");
+                    void runCommand(cmd);
+                  }}
+                >
+                  <span className="text-[#38BDF8] shrink-0 select-none">$</span>
+                  <input
+                    type="text"
+                    value={terminalInput}
+                    onChange={(e) => setTerminalInput(e.target.value)}
+                    placeholder={t.terminalRunHint}
+                    disabled={!BACKEND_URL}
+                    className="flex-1 min-w-0 bg-[#0A0A0A] border border-[#252525] rounded px-2 py-1.5 text-[11px] text-[#E4E3E0] placeholder:text-[#52525B] focus:outline-none focus:border-[#38BDF8]/50"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </form>
+              )}
             </div>
           </Tabs.Root>
         </div>
@@ -5033,7 +5588,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 </div>
                 
                 {/* Render Pipeline after the user message if it's the last one and agent is running */}
-                {msg.role === "user" && i === messages.length - 1 && isAgentRunning && agentSteps.length > 0 && (
+                {msg.role === "user" &&
+                  i === messages.length - 1 &&
+                  isAgentRunning &&
+                  (agentSteps.length > 0 || agentTrace || streamingAssistant) && (
                   <div className="space-y-3 py-2 ml-4">
                     <label className="text-[10px] uppercase tracking-widest text-[#8E9299] flex items-center gap-2">
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -5054,11 +5612,37 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                             )}
                           </div>
                           <div className="flex-1">
+                            <div className="text-[10px] uppercase tracking-wider text-[#52525B] mb-0.5">
+                              {step.type === "read"
+                                ? language === "ja"
+                                  ? "読取"
+                                  : "Read"
+                                : step.type === "plan"
+                                  ? language === "ja"
+                                    ? "計画"
+                                    : "Plan"
+                                  : step.type}
+                            </div>
                             <div className="text-[11px] font-medium text-[#E4E3E0]">{step.message}</div>
                           </div>
                         </div>
                       ))}
                     </div>
+                    {(agentTrace || streamingAssistant) && (
+                      <div className="mt-3 rounded-md border border-[#252525] bg-[#0A0A0A]/80 p-3 space-y-2">
+                        <div className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">{t.thinkingLog}</div>
+                        {streamingAssistant ? (
+                          <div className="text-[11px] leading-relaxed text-[#C4C4C0] whitespace-pre-wrap font-mono max-h-48 overflow-y-auto border-l-2 border-[#38BDF8]/50 pl-2">
+                            {streamingAssistant}
+                          </div>
+                        ) : null}
+                        {agentTrace ? (
+                          <pre className="text-[10px] leading-snug text-[#8E9299] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+                            {agentTrace}
+                          </pre>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -5774,10 +6358,117 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 {BACKEND_URL && activeProject && (
                   <>
                     {gitError && (
-                      <p className="text-sm text-red-400 whitespace-pre-wrap">{gitError}</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-red-400 whitespace-pre-wrap">{gitError}</p>
+                        {(githubPrSsoUrl || githubPrShowSsoHelp) && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {githubPrSsoUrl && (
+                              <a
+                                href={githubPrSsoUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#252525] text-[11px] font-bold text-[#38BDF8] hover:bg-[#2A2A2A]"
+                              >
+                                {t.githubSsoAuthorizeBtn}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                            <a
+                              href={`/docs/github-sso${language === "ja" ? "?lang=ja" : ""}`}
+                              className="text-[11px] text-[#8E9299] hover:text-[#38BDF8] underline"
+                            >
+                              {t.githubSsoHelpPageLink}
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {gitStatusData && gitStatusData.isRepo === false && (
-                      <p className="text-sm text-[#8E9299]">{gitStatusData.message || t.gitNoRepo}</p>
+                      <div className="space-y-3 rounded-xl border border-[#252525] bg-[#0A0A0A] p-3">
+                        <p className="text-sm text-[#8E9299]">{gitStatusData.message || t.gitNoRepo}</p>
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold text-[#E4E3E0]">{t.gitCreateGithubTitle}</p>
+                          <p className="text-[10px] text-[#71717A] leading-relaxed">{t.gitCreateGithubHint}</p>
+                          <label className="block text-[10px] text-[#8E9299]">{t.gitNewRepoName}</label>
+                          <input
+                            type="text"
+                            value={githubNewRepoName}
+                            onChange={(e) => setGithubNewRepoName(e.target.value)}
+                            className="w-full bg-[#0F0F0F] border border-[#252525] rounded-lg px-3 py-2 text-xs font-mono text-[#E4E3E0] focus:outline-none focus:border-[#38BDF8]/50"
+                            autoComplete="off"
+                          />
+                          <label className="flex items-center gap-2 text-xs text-[#8E9299] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={githubNewRepoPrivate}
+                              onChange={(e) => setGithubNewRepoPrivate(e.target.checked)}
+                              className="rounded border-[#252525]"
+                            />
+                            {t.gitNewRepoPrivate}
+                          </label>
+                          <button
+                            type="button"
+                            disabled={gitLoading}
+                            onClick={() => void handleGitHubCreateRepoAndLink()}
+                            className="w-full py-2 rounded-lg text-xs font-bold bg-[#1A1A1A] border border-[#252525] text-[#38BDF8] hover:border-[#38BDF8]/50 disabled:opacity-50"
+                          >
+                            {gitLoading ? t.gitCreateGithubBusy : t.gitCreateGithubBtn}
+                          </button>
+                        </div>
+                        <div className="space-y-2 pt-2 border-t border-[#252525]">
+                          <p className="text-[11px] font-semibold text-[#71717A]">{t.gitManualOriginTitle}</p>
+                          <p className="text-[10px] text-[#71717A] leading-relaxed">{t.gitInitHint}</p>
+                          <input
+                            type="url"
+                            value={gitInitRemote}
+                            onChange={(e) => setGitInitRemote(e.target.value)}
+                            placeholder={t.gitInitRemotePlaceholder}
+                            className="w-full bg-[#0F0F0F] border border-[#252525] rounded-lg px-3 py-2 text-xs text-[#E4E3E0] placeholder:text-[#52525B] focus:outline-none focus:border-[#38BDF8]/50"
+                          />
+                          <button
+                            type="button"
+                            disabled={gitLoading}
+                            onClick={() => void handleGitInit()}
+                            className="w-full py-2 rounded-lg text-xs font-bold bg-[#38BDF8]/15 border border-[#38BDF8]/40 text-[#38BDF8] hover:bg-[#38BDF8]/25 disabled:opacity-50"
+                          >
+                            {t.gitInitButton}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {gitStatusData?.isRepo && !gitStatusData.originUrl && (
+                      <div className="space-y-3 rounded-xl border border-[#252525] bg-[#0A0A0A] p-3">
+                        <p className="text-xs text-[#8E9299]">{t.gitNoOriginHint}</p>
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold text-[#E4E3E0]">{t.gitCreateGithubTitle}</p>
+                          <p className="text-[10px] text-[#71717A] leading-relaxed">{t.gitCreateGithubHint}</p>
+                          <label className="block text-[10px] text-[#8E9299]">{t.gitNewRepoName}</label>
+                          <input
+                            type="text"
+                            value={githubNewRepoName}
+                            onChange={(e) => setGithubNewRepoName(e.target.value)}
+                            className="w-full bg-[#0F0F0F] border border-[#252525] rounded-lg px-3 py-2 text-xs font-mono text-[#E4E3E0] focus:outline-none focus:border-[#38BDF8]/50"
+                            autoComplete="off"
+                          />
+                          <label className="flex items-center gap-2 text-xs text-[#8E9299] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={githubNewRepoPrivate}
+                              onChange={(e) => setGithubNewRepoPrivate(e.target.checked)}
+                              className="rounded border-[#252525]"
+                            />
+                            {t.gitNewRepoPrivate}
+                          </label>
+                          <button
+                            type="button"
+                            disabled={gitLoading}
+                            onClick={() => void handleGitHubCreateRepoAndLink()}
+                            className="w-full py-2 rounded-lg text-xs font-bold bg-[#1A1A1A] border border-[#252525] text-[#38BDF8] hover:border-[#38BDF8]/50 disabled:opacity-50"
+                          >
+                            {gitLoading ? t.gitCreateGithubBusy : t.gitCreateGithubBtn}
+                          </button>
+                        </div>
+                      </div>
                     )}
                     {gitStatusData?.isRepo && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-[#8E9299] shrink-0">

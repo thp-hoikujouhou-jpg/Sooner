@@ -115,7 +115,9 @@ async function storageListFiles(uid: string, project: string): Promise<string[]>
   const bucket = firebaseStorage.bucket();
   const prefix = storagePath(uid, project) + "/";
   const [files] = await bucket.getFiles({ prefix });
-  return files.map(f => f.name.slice(prefix.length)).filter(Boolean);
+  return files
+    .map((f) => f.name.slice(prefix.length))
+    .filter((rel) => rel.length > 0 && !rel.endsWith("/") && !rel.includes("\0"));
 }
 
 // --- Auth Middleware ---
@@ -134,13 +136,33 @@ async function extractUid(req: express.Request): Promise<string | null> {
 // Sync all files from Storage to local cache for a project
 async function syncProjectToLocal(uid: string, project: string, localDir: string): Promise<void> {
   if (!firebaseStorage) return;
-  const files = await storageListFiles(uid, project);
+  let files: string[] = [];
+  try {
+    files = await storageListFiles(uid, project);
+  } catch (e) {
+    console.warn("[syncProjectToLocal] storageListFiles failed:", project, e);
+    return;
+  }
   for (const filePath of files) {
-    const content = await storageDownload(uid, project, filePath);
-    if (content !== null) {
+    if (!filePath || filePath.endsWith("/") || !safeStorageRelPath(filePath)) {
+      console.warn("[syncProjectToLocal] skip invalid storage path:", filePath);
+      continue;
+    }
+    try {
+      const content = await storageDownload(uid, project, filePath);
+      if (content === null) continue;
       const fullPath = path.join(localDir, filePath);
-      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      const dir = path.dirname(fullPath);
+      const resolvedDir = path.resolve(dir);
+      const resolvedRoot = path.resolve(localDir);
+      if (!resolvedDir.startsWith(resolvedRoot + path.sep) && resolvedDir !== resolvedRoot) {
+        console.warn("[syncProjectToLocal] skip path outside project:", filePath);
+        continue;
+      }
+      await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(fullPath, content, "utf-8");
+    } catch (e) {
+      console.warn("[syncProjectToLocal] file failed:", filePath, e);
     }
   }
 }
@@ -171,7 +193,9 @@ function safePath(base: string, ...segments: string[]): string | null {
 function isValidName(name: string): boolean {
   if (!name || name.length > 255) return false;
   if (name.includes("..") || name.includes("/") || name.includes("\\") || name.includes("\0")) return false;
-  if (name.startsWith(".") || name.trim() !== name) return false;
+  // Allow leading/trailing spaces in stored project ids so preview/storage routes still work
+  // for legacy names like "New " (previously rejected here, breaking HTML preview).
+  if (name.startsWith(".")) return false;
   return true;
 }
 
@@ -336,11 +360,42 @@ async function startServer() {
   ];
   const railwayHost = process.env.RAILWAY_PUBLIC_DOMAIN;
   if (railwayHost) prodOrigins.push(`https://${railwayHost}`);
+  const extraCorsOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean);
 
-  app.use(cors({
-    origin: process.env.NODE_ENV === "production" ? prodOrigins : true,
-    credentials: true,
-  }));
+  function isAllowedCorsOrigin(origin: string | undefined): boolean {
+    if (!origin) return true;
+    if (extraCorsOrigins.includes(origin)) return true;
+    if (prodOrigins.includes(origin)) return true;
+    try {
+      const u = new URL(origin);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+      const h = u.hostname.toLowerCase();
+      if (h === "sooner.sh" || h.endsWith(".sooner.sh")) return true;
+      if (railwayHost && h === railwayHost.toLowerCase()) return true;
+      if (h === "localhost" || h === "127.0.0.1") return true;
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  app.use(
+    cors({
+      origin:
+        process.env.NODE_ENV === "production"
+          ? (origin, cb) => {
+              if (isAllowedCorsOrigin(origin)) cb(null, true);
+              else cb(null, false);
+            }
+          : true,
+      credentials: true,
+      methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Sooner-Gateway-Key", "X-Requested-With"],
+    }),
+  );
   app.use(bodyParser.json({ limit: "32mb" }));
 
   /** Browser-safe proxy: Vercel AI Gateway does not send CORS for arbitrary web origins. */
@@ -472,7 +527,11 @@ async function startServer() {
       existed = false;
       await fs.mkdir(projectPath, { recursive: true });
     }
-    await syncProjectToLocal(uid, id, projectPath);
+    try {
+      await syncProjectToLocal(uid, id, projectPath);
+    } catch (e) {
+      console.warn("syncProjectToLocal in ensureProjectPath failed:", id, e);
+    }
     return projectPath;
   }
 
@@ -593,7 +652,8 @@ async function startServer() {
       const udir = userDirFromUid(uid);
       if (udir) {
         try {
-          localProjects = await fs.readdir(udir);
+          const raw = await fs.readdir(udir);
+          localProjects = raw.filter((name) => isValidName(name));
         } catch {
           localProjects = [];
         }
@@ -961,59 +1021,153 @@ async function startServer() {
   // Git: status (syncs latest from Storage first when authenticated)
   app.get("/api/projects/:id/git/status", async (req, res) => {
     const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    try {
+      const uid = await extractUid(req);
+      const projectPath = await ensureProjectPath(uid, id);
+      if (!projectPath) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      try {
+        await fs.access(path.join(projectPath, ".git"));
+      } catch {
+        return res.json({
+          isRepo: false,
+          message: "Not a git repository. Clone from GitHub or use “Initialize Git” in the Git panel.",
+        });
+      }
+      const branchOut = await execGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+      const branch = branchOut.stdout.trim() || "HEAD";
+      const porcelain = await execGit(projectPath, ["status", "--porcelain=v1", "-b"]);
+      const lines = porcelain.stdout.split("\n").filter(Boolean);
+      let tracking: string | undefined;
+      let ahead = 0;
+      let behind = 0;
+      const files: { path: string; status: string }[] = [];
+      for (const line of lines) {
+        if (line.startsWith("## ")) {
+          const rest = line.slice(3).trim();
+          const abMatch = rest.match(/\[([^\]]+)\]/);
+          const branchPart = abMatch ? rest.slice(0, rest.indexOf("[")).trim() : rest;
+          if (branchPart.includes("...")) {
+            const idx = branchPart.indexOf("...");
+            tracking = branchPart.slice(idx + 3) || undefined;
+          }
+          if (abMatch) {
+            const ab = abMatch[1];
+            const am = ab.match(/ahead (\d+)/);
+            const bm = ab.match(/behind (\d+)/);
+            if (am) ahead = parseInt(am[1], 10);
+            if (bm) behind = parseInt(bm[1], 10);
+          }
+          continue;
+        }
+        if (line.length >= 4) {
+          const status = line.slice(0, 2);
+          const filePath = line.slice(3).trim();
+          if (filePath) files.push({ path: filePath, status: status.trim() });
+        }
+      }
+      let originUrl: string | undefined;
+      const remoteOut = await execGit(projectPath, ["remote", "get-url", "origin"]);
+      if (remoteOut.code === 0 && remoteOut.stdout.trim()) {
+        originUrl = remoteOut.stdout.trim();
+      }
+      res.json({ isRepo: true, branch, tracking, ahead, behind, files, raw: porcelain.stdout, originUrl });
+    } catch (e: any) {
+      console.error("git/status", id, e);
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
+  /** Initialize a new git repo in the project (optional GitHub HTTPS origin). */
+  app.post("/api/projects/:id/git/init", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const remoteUrlRaw = typeof req.body?.remoteUrl === "string" ? req.body.remoteUrl.trim() : "";
     const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     const projectPath = await ensureProjectPath(uid, id);
     if (!projectPath) {
-      return res.status(404).json({ error: "Project not found" });
+      return res.status(400).json({ error: "Invalid project" });
+    }
+    try {
+      await fs.access(path.join(projectPath, ".git"));
+      return res.status(400).json({ error: "Already a git repository" });
+    } catch {
+      /* no .git */
+    }
+    try {
+      const initOut = await execGit(projectPath, ["init"]);
+      if (initOut.code !== 0) {
+        return res.status(500).json({ error: "git init failed", details: initOut.stderr || initOut.stdout });
+      }
+      await execGit(projectPath, ["branch", "-M", "main"]);
+      if (remoteUrlRaw) {
+        const addOut = await execGit(projectPath, ["remote", "add", "origin", remoteUrlRaw]);
+        if (addOut.code !== 0) {
+          return res.status(500).json({ error: "git remote add failed", details: addOut.stderr || addOut.stdout });
+        }
+      }
+      res.json({ ok: true, message: remoteUrlRaw ? "Git initialized with origin" : "Git initialized" });
+    } catch (e: any) {
+      console.error("git/init", id, e);
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
+  /** Set or replace `origin` remote (HTTPS or git@github.com). */
+  app.post("/api/projects/:id/git/set-origin", async (req, res) => {
+    const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+    const remoteUrlRaw = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+    if (!remoteUrlRaw) {
+      return res.status(400).json({ error: "url required" });
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const projectPath = await ensureProjectPath(uid, id);
+    if (!projectPath) {
+      return res.status(400).json({ error: "Invalid project" });
     }
     try {
       await fs.access(path.join(projectPath, ".git"));
     } catch {
-      return res.json({ isRepo: false, message: "Not a git repository (clone a repo or run git init locally)." });
+      return res.status(400).json({ error: "Not a git repository" });
     }
-    const branchOut = await execGit(projectPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
-    const branch = branchOut.stdout.trim() || "HEAD";
-    const porcelain = await execGit(projectPath, ["status", "--porcelain=v1", "-b"]);
-    const lines = porcelain.stdout.split("\n").filter(Boolean);
-    let tracking: string | undefined;
-    let ahead = 0;
-    let behind = 0;
-    const files: { path: string; status: string }[] = [];
-    for (const line of lines) {
-      if (line.startsWith("## ")) {
-        const rest = line.slice(3).trim();
-        const abMatch = rest.match(/\[([^\]]+)\]/);
-        const branchPart = abMatch ? rest.slice(0, rest.indexOf("[")).trim() : rest;
-        if (branchPart.includes("...")) {
-          const idx = branchPart.indexOf("...");
-          tracking = branchPart.slice(idx + 3) || undefined;
-        }
-        if (abMatch) {
-          const ab = abMatch[1];
-          const am = ab.match(/ahead (\d+)/);
-          const bm = ab.match(/behind (\d+)/);
-          if (am) ahead = parseInt(am[1], 10);
-          if (bm) behind = parseInt(bm[1], 10);
-        }
-        continue;
+    try {
+      const getOut = await execGit(projectPath, ["remote", "get-url", "origin"]);
+      const hasOrigin = getOut.code === 0 && Boolean(getOut.stdout.trim());
+      const cmd = hasOrigin
+        ? (["remote", "set-url", "origin", remoteUrlRaw] as const)
+        : (["remote", "add", "origin", remoteUrlRaw] as const);
+      const out = await execGit(projectPath, [...cmd]);
+      if (out.code !== 0) {
+        return res.status(500).json({ error: "git remote failed", details: out.stderr || out.stdout });
       }
-      if (line.length >= 4) {
-        const status = line.slice(0, 2);
-        const filePath = line.slice(3).trim();
-        if (filePath) files.push({ path: filePath, status: status.trim() });
-      }
+      res.json({ ok: true, message: hasOrigin ? "origin updated" : "origin added" });
+    } catch (e: any) {
+      console.error("git/set-origin", id, e);
+      res.status(500).json({ error: String(e?.message || e) });
     }
-    let originUrl: string | undefined;
-    const remoteOut = await execGit(projectPath, ["remote", "get-url", "origin"]);
-    if (remoteOut.code === 0 && remoteOut.stdout.trim()) {
-      originUrl = remoteOut.stdout.trim();
-    }
-    res.json({ isRepo: true, branch, tracking, ahead, behind, files, raw: porcelain.stdout, originUrl });
   });
 
   // Git: diff (unstaged or staged)
   app.get("/api/projects/:id/git/diff", async (req, res) => {
     const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
     const staged = req.query.staged === "1" || req.query.staged === "true";
     const uid = await extractUid(req);
     const projectPath = await ensureProjectPath(uid, id);
@@ -1033,6 +1187,9 @@ async function startServer() {
   // Git: commit all changes (add -A + commit)
   app.post("/api/projects/:id/git/commit", async (req, res) => {
     const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) {
       return res.status(400).json({ error: "Commit message required" });
@@ -1072,6 +1229,9 @@ async function startServer() {
   // Git: push to origin (uses GitHub token in body for HTTPS)
   app.post("/api/projects/:id/git/push", async (req, res) => {
     const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
     const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
     if (!token) {
       return res.status(400).json({ error: "GitHub token required in body" });
@@ -1105,6 +1265,9 @@ async function startServer() {
   // Git: pull from origin (token for private repos; syncs pulled files to Storage)
   app.post("/api/projects/:id/git/pull", async (req, res) => {
     const { id } = req.params;
+    if (!isValidName(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
     const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
     if (!token) {
       return res.status(400).json({ error: "GitHub token required in body" });
@@ -2092,7 +2255,7 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       return proxyToBackend(req, res, running.port, "/", base);
     }
 
-    const found = await findIndexHtml(projectPath);
+    let found = await findIndexHtml(projectPath);
     if (!found) {
       const html = await buildNoIndexPreviewPage(projectPath, id);
       return res.status(200).type("html").send(html);
@@ -2103,19 +2266,34 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       const isFlutter = isFlutterProject(content);
 
       if (isFlutter) {
-        const flutterJsPath = path.join(projectPath, found.relDir || "", "flutter.js");
+        const flutterJsBesideIndex = path.join(projectPath, found.relDir || "", "flutter.js");
         let flutterJsExists = false;
-        try { await fs.access(flutterJsPath); flutterJsExists = true; } catch {}
+        try {
+          await fs.access(flutterJsBesideIndex);
+          flutterJsExists = true;
+        } catch {}
+        // Source `web/index.html` has no `flutter.js` until `flutter build web`. Prefer built output when present.
+        if (!flutterJsExists) {
+          const builtIndex = path.join(projectPath, "build/web/index.html");
+          const builtJs = path.join(projectPath, "build/web/flutter.js");
+          try {
+            await fs.access(builtIndex);
+            await fs.access(builtJs);
+            found = { fullPath: builtIndex, relDir: "build/web" };
+            content = await fs.readFile(found.fullPath, "utf-8");
+            flutterJsExists = true;
+          } catch {}
+        }
         if (!flutterJsExists) {
           return res.send(`
             <html>
               <body style="background:#0A0A0A;color:#ccc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-                <div style="text-align:center;max-width:500px;">
+                <div style="text-align:center;max-width:520px;padding:1rem;">
                   <h1 style="color:#38BDF8;">Flutter Web Preview</h1>
-                  <p>Flutter Web requires the Flutter SDK to build for web.</p>
-                  <p style="color:#8E9299;">Run <code style="background:#1a1a1a;padding:2px 8px;border-radius:4px;">flutter build web</code> in the terminal, then refresh this preview.</p>
-                  <p style="color:#8E9299;font-size:12px;margin-top:20px;">The built output will appear in <code>build/web/</code> and be served automatically.</p>
-                  <p style="color:#555;font-size:11px;margin-top:12px;">Note: Flutter SDK must be installed on this machine.</p>
+                  <p>This project uses Flutter <code>web/index.html</code>, but the compiled bundle (<code>build/web/flutter.js</code>) is not on the server yet.</p>
+                  <p style="color:#8E9299;">From Sooner: open <strong>Preview</strong> — the app runs <code>flutter build web</code> when possible — or run it yourself in the workspace terminal, then refresh.</p>
+                  <p style="color:#8E9299;font-size:12px;margin-top:16px;">The workspace API needs the Flutter SDK on the host (<code>FLUTTER_BIN</code> optional).</p>
+                  <p style="color:#555;font-size:11px;margin-top:12px;">Alternatively use <strong>Run server</strong> for <code>flutter run -d web-server</code> (live dev) when the SDK is available.</p>
                 </div>
               </body>
             </html>

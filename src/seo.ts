@@ -141,6 +141,18 @@ function canonicalUrl(): string {
   if (h.startsWith("blog.") || h.startsWith("lp.")) {
     return `${protocol}//${hostname}${path}`;
   }
+  // Main app: apex host + path only (no ?lang=) so / and /?lang=ja are not competing canonicals;
+  // www → apex to fix "Google chose a different canonical than the user" duplicate clusters.
+  const appApex = "sooner.sh";
+  if (h === appApex || h === `www.${appApex}`) {
+    return `https://${appApex}${path}`;
+  }
+  if (h.startsWith("signup.") && h.endsWith(".sooner.sh")) {
+    return `https://${appApex}/signup`;
+  }
+  if ((h.startsWith("signin.") || h.startsWith("login.")) && h.endsWith(".sooner.sh")) {
+    return `https://${appApex}/signin`;
+  }
   return `${protocol}//${hostname}${path}${search}`;
 }
 

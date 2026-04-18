@@ -11,7 +11,7 @@ export interface Project {
 
 export interface AgentStep {
   id: string;
-  type: "plan" | "code" | "fix" | "test" | "deploy";
+  type: "plan" | "code" | "fix" | "test" | "deploy" | "read";
   status: "pending" | "running" | "completed" | "failed";
   message: string;
   timestamp: number;
