@@ -63,9 +63,9 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
               <h2 className="text-lg font-semibold text-white">Sooner の実装</h2>
               <ul className="list-disc pl-5 space-y-2 text-[#A1A1AA]">
                 <li>
-                  <strong className="text-white">Vercel AI Gateway</strong>: モデル一覧は{" "}
-                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code> です。Sooner で「Vercel AI」を選ぶと、チャットやコード計画・プレビュー補助は{" "}
-                  <code className="text-[#38BDF8]">/v1/chat/completions</code>（OpenAI 互換）経由で同じキーを使います。
+                  <strong className="text-white">Vercel AI Gateway</strong>: ブラウザから直接は CORS のため使えず、Sooner の <code className="text-[#38BDF8]">VITE_BACKEND_URL</code> API が{" "}
+                  <code className="text-[#38BDF8]">/api/ai/gateway/models</code> と{" "}
+                  <code className="text-[#38BDF8]">/api/ai/gateway/chat-completions</code> として中継します（ヘッダー <code className="text-[#38BDF8]">X-Sooner-Gateway-Key</code>）。
                 </li>
                 <li>
                   <strong className="text-white">カスタム + API Base URL</strong>: Base が OpenAI 互換のときは、同じく{" "}
@@ -121,9 +121,10 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
               <h2 className="text-lg font-semibold text-white">How Sooner does it</h2>
               <ul className="list-disc pl-5 space-y-2 text-[#A1A1AA]">
                 <li>
-                  <strong className="text-white">Vercel AI Gateway</strong>: model list uses{" "}
-                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code>. With <strong className="text-white">Vercel AI</strong> selected in Sooner, chat, planning, and preview assist call{" "}
-                  <code className="text-[#38BDF8]">/v1/chat/completions</code> (OpenAI-compatible) with the same key.
+                  <strong className="text-white">Vercel AI Gateway</strong>: browsers cannot call the gateway directly (CORS). The Sooner{" "}
+                  <code className="text-[#38BDF8]">VITE_BACKEND_URL</code> API proxies{" "}
+                  <code className="text-[#38BDF8]">/api/ai/gateway/models</code> and{" "}
+                  <code className="text-[#38BDF8]">/api/ai/gateway/chat-completions</code> with header <code className="text-[#38BDF8]">X-Sooner-Gateway-Key</code>.
                 </li>
                 <li>
                   <strong className="text-white">Custom + API Base URL</strong>: if you set an OpenAI-compatible base URL, Sooner calls{" "}

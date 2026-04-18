@@ -343,6 +343,62 @@ async function startServer() {
   }));
   app.use(bodyParser.json({ limit: "32mb" }));
 
+  /** Browser-safe proxy: Vercel AI Gateway does not send CORS for arbitrary web origins. */
+  const DEFAULT_AI_GATEWAY_ORIGIN = (process.env.AI_GATEWAY_PROXY_ORIGIN || "https://ai-gateway.vercel.sh/v1").replace(/\/$/, "");
+  function normalizeAiGatewayBase(raw: unknown): string | null {
+    if (typeof raw !== "string" || !raw.trim()) return DEFAULT_AI_GATEWAY_ORIGIN;
+    const s = raw.trim().replace(/\/$/, "");
+    try {
+      const u = new URL(s);
+      if (u.protocol !== "https:") return null;
+      if (u.hostname !== "ai-gateway.vercel.sh") return null;
+      const path = (u.pathname || "/").replace(/\/$/, "") || "/v1";
+      return `${u.origin}${path === "/" ? "/v1" : path}`;
+    } catch {
+      return null;
+    }
+  }
+
+  app.get("/api/ai/gateway/models", async (req, res) => {
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const gatewayKey = typeof req.headers["x-sooner-gateway-key"] === "string" ? req.headers["x-sooner-gateway-key"].trim() : "";
+    if (!gatewayKey) return res.status(400).json({ error: "Missing X-Sooner-Gateway-Key" });
+    const base = normalizeAiGatewayBase(typeof req.query.base === "string" ? req.query.base : undefined);
+    if (!base) return res.status(400).json({ error: "Invalid gateway base URL" });
+    try {
+      const url = `${base}/models`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${gatewayKey}` } });
+      const text = await r.text();
+      res.status(r.status).set("Content-Type", r.headers.get("content-type") || "application/json").send(text);
+    } catch (e: any) {
+      res.status(502).json({ error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/ai/gateway/chat-completions", async (req, res) => {
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const gatewayKey = typeof req.headers["x-sooner-gateway-key"] === "string" ? req.headers["x-sooner-gateway-key"].trim() : "";
+    if (!gatewayKey) return res.status(400).json({ error: "Missing X-Sooner-Gateway-Key" });
+    const body = req.body && typeof req.body === "object" ? { ...req.body } as Record<string, unknown> : {};
+    const base = normalizeAiGatewayBase(body.gatewayBase);
+    delete body.gatewayBase;
+    if (!base) return res.status(400).json({ error: "Invalid gateway base URL" });
+    try {
+      const url = `${base}/chat/completions`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${gatewayKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await r.text();
+      res.status(r.status).set("Content-Type", r.headers.get("content-type") || "application/json").send(text);
+    } catch (e: any) {
+      res.status(502).json({ error: String(e?.message || e) });
+    }
+  });
+
   const PROJECTS_ROOT = path.resolve(process.cwd(), "projects");
 
   try {

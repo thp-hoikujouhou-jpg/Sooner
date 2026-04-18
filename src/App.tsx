@@ -1932,7 +1932,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setCustomKey(readScopedPref(null, "aether_custom_key") || "");
       setSelectedModel(readScopedPref(null, "aether_selected_model") || "gemini-2.5-flash");
     } else {
-      setGeminiKey(readScopedPref(uid, "gemini_key") || envGem || "");
+      // Logged-in: only this uid's stored keys — never pre-fill from build-time GEMINI_API_KEY
+      // (that would look like "another user's" key on hosted builds and breaks per-account isolation).
+      setGeminiKey(readScopedPref(uid, "gemini_key") || "");
       setGithubToken(readScopedPref(uid, "github_token") || "");
       setGithubUsername(readScopedPref(uid, "github_username") || "");
       const p = (readScopedPref(uid, "aether_api_provider") as string) || "gemini";
@@ -2042,11 +2044,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "API Provider",
       apiBaseUrl: "API Base URL (optional)",
       apiBaseUrlPlaceholderVercel:
-        "Optional — override OpenAI-compatible gateway root (default https://ai-gateway.vercel.sh/v1). Used for /v1/models and /v1/chat/completions.",
+        "Optional — gateway root for the server proxy only (default https://ai-gateway.vercel.sh/v1). Hostname must be ai-gateway.vercel.sh.",
       apiBaseUrlPlaceholderCustom:
         "Optional — leave empty to use Google Gemini API (generativelanguage.googleapis.com)",
       vercelGatewayGenHint:
-        "With Vercel AI selected, chat, code planning, and preview assist use the gateway OpenAI-compatible API (https://ai-gateway.vercel.sh/v1/chat/completions) with your gateway key. Model ids from the list (e.g. google/gemini-2.5-flash) are sent as-is; short names get a google/ prefix. Optional Base URL overrides the host for a custom proxy.",
+        "With Vercel AI selected, your Sooner API server (VITE_BACKEND_URL) proxies requests to the gateway — the browser cannot call ai-gateway.vercel.sh directly (CORS). Use the same Firebase login; send the gateway key only in the X-Sooner-Gateway-Key header to your API. Model ids from the list (e.g. google/gemini-2.5-flash) are sent as-is; short names get a google/ prefix.",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2224,11 +2226,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "APIプロバイダー",
       apiBaseUrl: "APIベースURL（任意）",
       apiBaseUrlPlaceholderVercel:
-        "任意 — ゲートウェイの OpenAI 互換ルートを上書き（既定 https://ai-gateway.vercel.sh/v1）。/v1/models と /v1/chat/completions に使います。",
+        "任意 — API サーバー経由プロキシ用のゲートウェイルート（既定 https://ai-gateway.vercel.sh/v1）。ホストは ai-gateway.vercel.sh のみ。",
       apiBaseUrlPlaceholderCustom:
         "任意 — 空欄なら Google Gemini API（generativelanguage.googleapis.com）を使用",
       vercelGatewayGenHint:
-        "「Vercel AI」を選ぶと、チャット・コードの計画・プレビュー補助はゲートウェイの OpenAI 互換 API（https://ai-gateway.vercel.sh/v1/chat/completions）へ送り、ゲートウェイのキーで認証します。一覧のモデル id（例: google/gemini-2.5-flash）はそのまま使い、短い名前は google/… に補います。下の Base URL は別ホストのプロキシ用に任意です。",
+        "「Vercel AI」では、ブラウザから ai-gateway.vercel.sh を直接呼べません（CORS）。VITE_BACKEND_URL の API がゲートウェイへ中継します。ゲートウェイのキーはログイン済みの自分の API へだけ送られます。モデル id（例: google/gemini-2.5-flash）はそのまま、短い名前は google/… に補完されます。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -3438,8 +3440,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return undefined;
   };
 
-  const VERCEL_AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
-
   /** OpenAI-compatible root (no trailing slash); default Vercel AI Gateway. */
   const vercelGatewayOpenAiRoot = (): string => {
     const raw = apiBaseUrl.trim().replace(/\/$/, "");
@@ -3447,7 +3447,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (raw.endsWith("/chat/completions")) return raw.slice(0, -"/chat/completions".length);
     return raw;
   };
-  const vercelGatewayChatCompletionsUrl = () => `${vercelGatewayOpenAiRoot().replace(/\/$/, "")}/chat/completions`;
 
   /** Gateway chat uses provider/model ids (e.g. google/gemini-2.5-flash). */
   const gatewayOpenAiModelId = (model: string): string => {
@@ -3464,23 +3463,30 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }): Promise<string> {
     const key = getActiveApiKey();
     if (!key) throw new Error("Missing API key");
-    const url = vercelGatewayChatCompletionsUrl();
-    try {
-      const res = await axios.post(
-        url,
-        {
-          model: gatewayOpenAiModelId(params.model),
-          messages: params.messages,
-          temperature: params.temperature ?? 0.7,
-        },
-        { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } },
+    if (!BACKEND_URL) {
+      throw new Error(
+        language === "ja"
+          ? "Vercel AI Gateway はブラウザから直接呼べません（CORS）。VITE_BACKEND_URL を設定したワークスペース API 経由で利用してください。"
+          : "Vercel AI Gateway cannot be called directly from the browser (CORS). Set VITE_BACKEND_URL to your Sooner API server, which proxies these requests.",
       );
+    }
+    const openaiBody = {
+      gatewayBase: vercelGatewayOpenAiRoot(),
+      model: gatewayOpenAiModelId(params.model),
+      messages: params.messages,
+      temperature: params.temperature ?? 0.7,
+    };
+    try {
+      const res = await axios.post(apiUrl("/api/ai/gateway/chat-completions"), openaiBody, {
+        headers: { "X-Sooner-Gateway-Key": key },
+      });
       const text = res.data?.choices?.[0]?.message?.content;
       if (typeof text !== "string") throw new Error("Empty AI response");
       return text;
     } catch (e: any) {
       const msg =
         e?.response?.data?.error?.message ||
+        e?.response?.data?.error ||
         e?.response?.data?.message ||
         (Array.isArray(e?.response?.data?.error)
           ? e.response.data.error.map((x: { message?: string }) => x?.message).filter(Boolean).join("; ")
@@ -3498,8 +3504,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }): Promise<string> {
     const key = getActiveApiKey();
     if (!key) throw new Error("Missing API key");
-    const url = vercelGatewayChatCompletionsUrl();
+    if (!BACKEND_URL) {
+      throw new Error(
+        language === "ja"
+          ? "Vercel AI Gateway はブラウザから直接呼べません（CORS）。VITE_BACKEND_URL を設定したワークスペース API 経由で利用してください。"
+          : "Vercel AI Gateway cannot be called directly from the browser (CORS). Set VITE_BACKEND_URL to your Sooner API server, which proxies these requests.",
+      );
+    }
     const body = {
+      gatewayBase: vercelGatewayOpenAiRoot(),
       model: gatewayOpenAiModelId(params.model),
       messages: [
         {
@@ -3513,8 +3526,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       temperature: 0.3,
     };
     try {
-      const res = await axios.post(url, body, {
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      const res = await axios.post(apiUrl("/api/ai/gateway/chat-completions"), body, {
+        headers: { "X-Sooner-Gateway-Key": key },
       });
       const text = res.data?.choices?.[0]?.message?.content;
       if (typeof text !== "string") throw new Error("Empty AI response");
@@ -3522,6 +3535,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     } catch (e: any) {
       const msg =
         e?.response?.data?.error?.message ||
+        e?.response?.data?.error ||
         e?.response?.data?.message ||
         e?.message ||
         String(e);
@@ -3540,9 +3554,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const getActiveApiKey = (): string => {
-    if (apiProvider === "vercel-ai-gateway") return vercelKey || geminiKey;
-    if (apiProvider === "custom") return customKey || geminiKey;
-    return geminiKey || process.env.GEMINI_API_KEY || "";
+    if (apiProvider === "vercel-ai-gateway") return vercelKey.trim();
+    if (apiProvider === "custom") return customKey.trim();
+    return geminiKey.trim() || (typeof process !== "undefined" ? String(process.env.GEMINI_API_KEY || "") : "");
   };
 
   const createAiClient = (key?: string) => {
@@ -3724,15 +3738,20 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     };
     try {
       if (apiProvider === "vercel-ai-gateway") {
-        const res = await axios.get<{ data?: { id?: string }[] }>(VERCEL_AI_GATEWAY_MODELS_URL, {
-          headers: { Authorization: `Bearer ${key}` },
-        });
-        const raw = res.data?.data;
-        const modelNames: string[] = Array.isArray(raw)
-          ? raw.map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0)
-          : [];
-        modelNames.sort();
-        setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
+        if (!BACKEND_URL) {
+          setAvailableModels(fallback);
+        } else {
+          const res = await axios.get<{ data?: { id?: string }[] }>(apiUrl("/api/ai/gateway/models"), {
+            params: { base: vercelGatewayOpenAiRoot() },
+            headers: { "X-Sooner-Gateway-Key": key },
+          });
+          const raw = res.data?.data;
+          const modelNames: string[] = Array.isArray(raw)
+            ? raw.map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0)
+            : [];
+          modelNames.sort();
+          setAvailableModels(modelNames.length > 0 ? modelNames : fallback);
+        }
       } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
         const base = getEffectiveBaseUrl()!;
         const modelsUrl = openAiCompatibleModelsListUrl(base);
@@ -3762,11 +3781,20 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     setIsTestingKey(true);
     try {
       if (apiProvider === "vercel-ai-gateway") {
-        await axios.get(VERCEL_AI_GATEWAY_MODELS_URL, {
-          headers: { Authorization: `Bearer ${key}` },
-        });
-        alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
-        fetchModels();
+        if (!BACKEND_URL) {
+          alert(
+            language === "ja"
+              ? "モデル一覧とチャットは VITE_BACKEND_URL の API 経由が必要です（ゲートウェイの CORS 回避）。"
+              : "Model list and chat require VITE_BACKEND_URL (API server proxies the gateway to avoid browser CORS).",
+          );
+        } else {
+          await axios.get(apiUrl("/api/ai/gateway/models"), {
+            params: { base: vercelGatewayOpenAiRoot() },
+            headers: { "X-Sooner-Gateway-Key": key },
+          });
+          alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
+          fetchModels();
+        }
       } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
         const modelsUrl = openAiCompatibleModelsListUrl(getEffectiveBaseUrl()!);
         try {
