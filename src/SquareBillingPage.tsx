@@ -37,7 +37,13 @@ export default function SquareBillingPage() {
     axios
       .get<{ applicationId: string; locationId: string; environment?: string }>(api("/api/square/config"))
       .then((r) => setConfig(r.data))
-      .catch((e) => setConfigError(e?.response?.data?.error || e?.message || "Failed to load Square config"));
+      .catch((e) => {
+        const d = e?.response?.data as { error?: string; missing?: string[]; hint?: string } | undefined;
+        const parts = [d?.error || e?.message || "Failed to load Square config"];
+        if (d?.missing?.length) parts.push(`Missing: ${d.missing.join(", ")}.`);
+        if (d?.hint) parts.push(d.hint);
+        setConfigError(parts.join(" "));
+      });
   }, []);
 
   useEffect(() => {
@@ -162,8 +168,16 @@ export default function SquareBillingPage() {
         {result && <p className="text-sm text-emerald-400">{result}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <p className="text-[11px] text-[#555] leading-relaxed">
-          Env on server: SQUARE_APPLICATION_ID, SQUARE_LOCATION_ID, SQUARE_ACCESS_TOKEN (Sandbox access token),
-          SQUARE_PLAN_VARIATION_ID (subscription plan variation from Catalog), optional SQUARE_ENVIRONMENT=production.
+          Required on the <strong className="text-[#71717A]">same host as /api</strong> (the Node server):{" "}
+          <code className="text-[#52525B]">SQUARE_APPLICATION_ID</code>, <code className="text-[#52525B]">SQUARE_LOCATION_ID</code>,{" "}
+          <code className="text-[#52525B]">SQUARE_ACCESS_TOKEN</code> (sandbox or prod access token),{" "}
+          <code className="text-[#52525B]">SQUARE_PLAN_VARIATION_ID</code>. Optional:{" "}
+          <code className="text-[#52525B]">SQUARE_ENVIRONMENT=production</code> (default is sandbox Connect + Web SDK).
+        </p>
+        <p className="text-[11px] text-[#555] leading-relaxed">
+          <strong className="text-[#71717A]">Where to get IDs:</strong> In the Square Developer Dashboard —{" "}
+          <em>Locations</em> for <code className="text-[#52525B]">SQUARE_LOCATION_ID</code>; for subscriptions, create a catalog subscription plan and copy the{" "}
+          <strong>plan variation</strong> id for <code className="text-[#52525B]">SQUARE_PLAN_VARIATION_ID</code> (Square docs: Catalog / Subscriptions APIs).
         </p>
       </div>
     </div>

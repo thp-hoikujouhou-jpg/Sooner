@@ -1162,10 +1162,19 @@ async function startServer() {
   app.get("/api/square/config", (_req, res) => {
     const applicationId = process.env.SQUARE_APPLICATION_ID?.trim();
     const locationId = process.env.SQUARE_LOCATION_ID?.trim();
-    if (!applicationId || !locationId) {
+    const accessToken = process.env.SQUARE_ACCESS_TOKEN?.trim();
+    const planVariationId = process.env.SQUARE_PLAN_VARIATION_ID?.trim();
+    const missing: string[] = [];
+    if (!applicationId) missing.push("SQUARE_APPLICATION_ID");
+    if (!locationId) missing.push("SQUARE_LOCATION_ID");
+    if (!accessToken) missing.push("SQUARE_ACCESS_TOKEN");
+    if (!planVariationId) missing.push("SQUARE_PLAN_VARIATION_ID");
+    if (missing.length) {
       return res.status(503).json({
         error: "Square is not configured",
-        needs: ["SQUARE_APPLICATION_ID", "SQUARE_LOCATION_ID", "SQUARE_ACCESS_TOKEN", "SQUARE_PLAN_VARIATION_ID"],
+        missing,
+        hint:
+          "Set these on the Node process that runs server.ts (e.g. Railway Variables for the API service), save, then redeploy or restart. Names are case-sensitive.",
       });
     }
     res.json({

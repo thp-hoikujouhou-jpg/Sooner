@@ -63,8 +63,9 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
               <h2 className="text-lg font-semibold text-white">Sooner の実装</h2>
               <ul className="list-disc pl-5 space-y-2 text-[#A1A1AA]">
                 <li>
-                  <strong className="text-white">Vercel AI Gateway</strong>: API キーだけで、固定の{" "}
-                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code> から一覧を取得します。
+                  <strong className="text-white">Vercel AI Gateway</strong>: モデル一覧は{" "}
+                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code> です。Sooner で「Vercel AI」を選ぶと、チャットやコード計画・プレビュー補助は{" "}
+                  <code className="text-[#38BDF8]">/v1/chat/completions</code>（OpenAI 互換）経由で同じキーを使います。
                 </li>
                 <li>
                   <strong className="text-white">カスタム + API Base URL</strong>: Base が OpenAI 互換のときは、同じく{" "}
@@ -120,8 +121,9 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
               <h2 className="text-lg font-semibold text-white">How Sooner does it</h2>
               <ul className="list-disc pl-5 space-y-2 text-[#A1A1AA]">
                 <li>
-                  <strong className="text-white">Vercel AI Gateway</strong>: uses a fixed URL{" "}
-                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code> with your gateway key.
+                  <strong className="text-white">Vercel AI Gateway</strong>: model list uses{" "}
+                  <code className="text-[#38BDF8]">https://ai-gateway.vercel.sh/v1/models</code>. With <strong className="text-white">Vercel AI</strong> selected in Sooner, chat, planning, and preview assist call{" "}
+                  <code className="text-[#38BDF8]">/v1/chat/completions</code> (OpenAI-compatible) with the same key.
                 </li>
                 <li>
                   <strong className="text-white">Custom + API Base URL</strong>: if you set an OpenAI-compatible base URL, Sooner calls{" "}

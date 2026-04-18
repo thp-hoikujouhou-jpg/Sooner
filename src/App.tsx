@@ -36,6 +36,7 @@ import {
   GitMerge,
   Menu,
   BookOpen,
+  FileText,
   Rocket,
   Sparkles,
   Cloud,
@@ -187,6 +188,8 @@ const landingI18n = {
       "Sooner's editor is developed on Monaco Editor — the same engine that powers VS Code. You get familiar shortcuts, syntax highlighting, and multi-file editing directly in the browser.",
     navBlog: "Blog",
     navBlogAria: "Blog",
+    navDocs: "Docs",
+    navDocsAria: "Documentation",
     navFeatures: "Features",
     navSignUp: "Sign Up",
     navBrandReloadAria: "Reload page",
@@ -280,6 +283,8 @@ const landingI18n = {
       "コード編集体験は Monaco Editor（VS Code と同じエディタエンジン）を土台にしています。おなじみのショートカット、シンタックスハイライト、複数ファイル編集をブラウザで利用できます。",
     navBlog: "ブログ",
     navBlogAria: "ブログ",
+    navDocs: "ドキュメント",
+    navDocsAria: "ドキュメント",
     navFeatures: "機能",
     navSignUp: "新規登録",
     navBrandReloadAria: "ページを再読み込み",
@@ -367,6 +372,12 @@ function navigateToBlog(lang: "en" | "ja") {
       ? "https:"
       : window.location.protocol;
   window.location.href = `${proto}//blog.sooner.sh${langParam}`;
+}
+
+function navigateToDocs(lang: "en" | "ja") {
+  const q = lang !== "en" ? "?lang=ja" : "";
+  const onSoonerSh = window.location.hostname.endsWith("sooner.sh");
+  window.location.href = onSoonerSh ? `https://sooner.sh/docs${q}` : `${window.location.origin}/docs${q}`;
 }
 
 
@@ -964,6 +975,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               <BookOpen className="w-4 h-4 text-[#38BDF8]" />
               <span>{t.navBlog}</span>
             </button>
+            <button type="button" onClick={() => navigateToDocs(lang)} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[#8E9299] hover:text-white border border-white/[0.06] rounded-lg transition-colors" aria-label={t.navDocsAria}>
+              <FileText className="w-4 h-4 text-[#38BDF8]" />
+              <span>{t.navDocs}</span>
+            </button>
             <button type="button" onClick={() => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); }} className="px-3 py-1.5 text-xs font-semibold text-[#71717A] hover:text-white border border-white/[0.06] rounded-lg transition-colors">
               {lang === "en" ? "日本語" : "EN"}
             </button>
@@ -991,6 +1006,9 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               </button>
               <button type="button" onClick={() => { setMobileNavOpen(false); navigateToBlog(lang); }} className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg">
                 <BookOpen className="w-4 h-4 text-[#38BDF8] shrink-0" />{t.navBlog}
+              </button>
+              <button type="button" onClick={() => { setMobileNavOpen(false); navigateToDocs(lang); }} className="flex items-center gap-2 w-full px-3 py-2.5 text-sm font-semibold text-left text-[#E4E4E7] border border-white/[0.08] rounded-lg">
+                <FileText className="w-4 h-4 text-[#38BDF8] shrink-0" />{t.navDocs}
               </button>
               <button type="button" onClick={() => { const next = lang === "en" ? "ja" : "en"; writeStoredLanguage(next); setLang(next); }} className="w-full px-3 py-2 text-xs font-semibold text-[#71717A] border border-white/[0.08] rounded-lg text-left">
                 {lang === "en" ? "日本語" : "EN"}
@@ -1305,6 +1323,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
               <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-[#8E9299]">
                 <button type="button" onClick={scrollToFeatures} className="hover:text-[#38BDF8] transition-colors">{t.navFeatures}</button>
                 <button type="button" onClick={() => navigateToBlog(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navBlog}</button>
+                <button type="button" onClick={() => navigateToDocs(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navDocs}</button>
                 {firebaseConfigured && (
                   <>
                     <button type="button" onClick={() => (isProduction ? navigateToSubdomain("signin", lang) : setMode("login"))} className="hover:text-[#38BDF8] transition-colors">{t.signIn}</button>
@@ -1343,6 +1362,10 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
           </div>
           <span className="font-black text-xl tracking-tight">Sooner</span>
         </button>
+        <div className="flex justify-center gap-5 mb-5 text-xs font-semibold text-[#8E9299]">
+          <button type="button" onClick={() => navigateToBlog(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navBlog}</button>
+          <button type="button" onClick={() => navigateToDocs(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navDocs}</button>
+        </div>
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 backdrop-blur-sm">
           <h2 className="text-xl font-bold mb-1 text-center">{mode === "login" ? t.welcomeBack : t.createAccount}</h2>
           <p className="text-sm text-[#71717A] mb-6 text-center">{mode === "login" ? t.signInDesc : t.signUpDesc}</p>
@@ -1428,6 +1451,8 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
       <footer className="relative z-10 w-full shrink-0 py-8 text-center border-t border-white/[0.06] bg-[#09090B]/80 backdrop-blur-sm">
         <p className="text-[10px] text-[#3F3F46] mb-3">{t.copyright}</p>
         <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#71717A]">
+          <button type="button" onClick={() => navigateToDocs(lang)} className="hover:text-[#38BDF8] transition-colors">{t.navDocs}</button>
+          <span className="text-[#3F3F46]">·</span>
           <a href={legalDocHref(lang, "terms")} className="hover:text-[#38BDF8] transition-colors">{t.terms}</a>
           <span className="text-[#3F3F46]">·</span>
           <a href={legalDocHref(lang, "privacy")} className="hover:text-[#38BDF8] transition-colors">{t.privacy}</a>
@@ -1646,18 +1671,9 @@ function userScopedStorageKey(uid: string, key: string): string {
 
 function readScopedPref(uid: string | null | undefined, key: string): string | null {
   if (!uid) return localStorage.getItem(key);
-  const sk = userScopedStorageKey(uid, key);
-  const v = localStorage.getItem(sk);
-  if (v !== null) return v;
-  const legacy = localStorage.getItem(key);
-  if (legacy != null && legacy !== "") {
-    try {
-      localStorage.setItem(sk, legacy);
-    } catch {
-      /* ignore quota */
-    }
-  }
-  return legacy;
+  // Logged-in: only per-uid keys. Do not fall back to unscoped legacy — that would copy
+  // another account's (or pre-auth) keys into this uid on first read.
+  return localStorage.getItem(userScopedStorageKey(uid, key));
 }
 
 function writeScopedPref(uid: string | null | undefined, key: string, value: string | null): void {
@@ -2026,11 +2042,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "API Provider",
       apiBaseUrl: "API Base URL (optional)",
       apiBaseUrlPlaceholderVercel:
-        "Optional — only if you use a Gemini-compatible proxy; model list uses Vercel AI Gateway when empty",
+        "Optional — override OpenAI-compatible gateway root (default https://ai-gateway.vercel.sh/v1). Used for /v1/models and /v1/chat/completions.",
       apiBaseUrlPlaceholderCustom:
         "Optional — leave empty to use Google Gemini API (generativelanguage.googleapis.com)",
       vercelGatewayGenHint:
-        "Model list uses the gateway with your key. Chat/preview calls use the Gemini API unless you set a Gemini-compatible Base URL below (or use the Gemini provider with a Google AI key).",
+        "With Vercel AI selected, chat, code planning, and preview assist use the gateway OpenAI-compatible API (https://ai-gateway.vercel.sh/v1/chat/completions) with your gateway key. Model ids from the list (e.g. google/gemini-2.5-flash) are sent as-is; short names get a google/ prefix. Optional Base URL overrides the host for a custom proxy.",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2094,16 +2110,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       renamePathTitle: "Rename file or folder",
       newName: "New name",
       previewLiveAssist: "AI preview assist (1s)",
-      previewLiveAssistHint:
-        "Captures the preview when same-origin; otherwise uses the last server run logs. Uses your API quota.",
       attachFiles: "Attach files",
       attachOpenFile: "Attach open file",
       attachmentsHint: "Attached context is sent with your next message only.",
+      attachRemoveAria: "Remove attachment",
       copyPreviewLink: "Copy preview URL",
       previewLinkCopied: "Preview link copied",
-      previewIssuedUrlHint: "Issued URL (from your workspace server). Share only with people you trust.",
-      previewVsProduction:
-        "Preview uses dev-time bundling (esbuild, import maps, Flutter via flutter run -d web-server on the workspace). Ship Flutter with flutter build web (or your CI) for production.",
       projectPreview: "Project Preview",
       cancel: "Cancel",
       confirm: "Confirm",
@@ -2212,11 +2224,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "APIプロバイダー",
       apiBaseUrl: "APIベースURL（任意）",
       apiBaseUrlPlaceholderVercel:
-        "任意 — Gemini互換プロキシを使う場合のみ。空ならモデル一覧は Vercel AI Gateway を利用",
+        "任意 — ゲートウェイの OpenAI 互換ルートを上書き（既定 https://ai-gateway.vercel.sh/v1）。/v1/models と /v1/chat/completions に使います。",
       apiBaseUrlPlaceholderCustom:
         "任意 — 空欄なら Google Gemini API（generativelanguage.googleapis.com）を使用",
       vercelGatewayGenHint:
-        "モデル一覧はゲートウェイで取得します。チャット／プレビューは通常 Gemini API へ送ります。AI Gateway キーのみで生成したい場合は下の Gemini 互換 Base URL を設定するか、Gemini プロバイダーで Google AI キーを使ってください。",
+        "「Vercel AI」を選ぶと、チャット・コードの計画・プレビュー補助はゲートウェイの OpenAI 互換 API（https://ai-gateway.vercel.sh/v1/chat/completions）へ送り、ゲートウェイのキーで認証します。一覧のモデル id（例: google/gemini-2.5-flash）はそのまま使い、短い名前は google/… に補います。下の Base URL は別ホストのプロキシ用に任意です。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -2281,16 +2293,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       renamePathTitle: "ファイルまたはフォルダ名を変更",
       newName: "新しい名前",
       previewLiveAssist: "AIプレビュー補助（1秒）",
-      previewLiveAssistHint:
-        "同一オリジンならプレビューをキャプチャします。クロスオリジンの場合はサーバーの実行ログをモデルに渡します。API利用枠を消費します。",
       attachFiles: "ファイルを添付",
       attachOpenFile: "開いているファイルを添付",
       attachmentsHint: "添付は次の送信まで有効です。",
+      attachRemoveAria: "添付を解除",
       copyPreviewLink: "プレビューURLをコピー",
       previewLinkCopied: "プレビューURLをコピーしました",
-      previewIssuedUrlHint: "ワークスペースサーバーが発行したURLです。信頼できる相手のみに共有してください。",
-      previewVsProduction:
-        "プレビューは開発用（esbuild・import map・ワークスペース上の flutter run -d web-server 等）です。本番の Flutter Web は flutter build web や CI で別途検証してください。",
       projectPreview: "プロジェクトプレビュー",
       cancel: "キャンセル",
       confirm: "確認",
@@ -2438,13 +2446,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const attachOpenEditorBuffer = () => {
     if (!activeFile) return;
     const buf = fileContent ?? "";
-    if (!buf) return;
     setContextAttachments((prev) => {
+      const already = prev.some((a) => a.name === activeFile);
+      if (already) return prev.filter((a) => a.name !== activeFile);
+      if (!buf) return prev;
       const budget = ATTACHMENT_TOTAL_BUDGET - prev.reduce((s, a) => s + a.text.length, 0);
       if (budget <= 0) return prev;
       const text = buf.slice(0, Math.min(120_000, budget));
-      const without = prev.filter((a) => a.name !== activeFile);
-      return [...without, { name: activeFile, text }];
+      return [...prev, { name: activeFile, text }];
     });
   };
 
@@ -3431,6 +3440,95 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const VERCEL_AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
 
+  /** OpenAI-compatible root (no trailing slash); default Vercel AI Gateway. */
+  const vercelGatewayOpenAiRoot = (): string => {
+    const raw = apiBaseUrl.trim().replace(/\/$/, "");
+    if (!raw) return "https://ai-gateway.vercel.sh/v1";
+    if (raw.endsWith("/chat/completions")) return raw.slice(0, -"/chat/completions".length);
+    return raw;
+  };
+  const vercelGatewayChatCompletionsUrl = () => `${vercelGatewayOpenAiRoot().replace(/\/$/, "")}/chat/completions`;
+
+  /** Gateway chat uses provider/model ids (e.g. google/gemini-2.5-flash). */
+  const gatewayOpenAiModelId = (model: string): string => {
+    const m = model.trim();
+    if (!m) return "google/gemini-2.5-flash";
+    if (m.includes("/")) return m;
+    return `google/${m}`;
+  };
+
+  async function vercelGatewayChatCompletion(params: {
+    model: string;
+    messages: { role: "system" | "user" | "assistant"; content: string }[];
+    temperature?: number;
+  }): Promise<string> {
+    const key = getActiveApiKey();
+    if (!key) throw new Error("Missing API key");
+    const url = vercelGatewayChatCompletionsUrl();
+    try {
+      const res = await axios.post(
+        url,
+        {
+          model: gatewayOpenAiModelId(params.model),
+          messages: params.messages,
+          temperature: params.temperature ?? 0.7,
+        },
+        { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } },
+      );
+      const text = res.data?.choices?.[0]?.message?.content;
+      if (typeof text !== "string") throw new Error("Empty AI response");
+      return text;
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.error?.message ||
+        e?.response?.data?.message ||
+        (Array.isArray(e?.response?.data?.error)
+          ? e.response.data.error.map((x: { message?: string }) => x?.message).filter(Boolean).join("; ")
+          : null) ||
+        e?.message ||
+        String(e);
+      throw new Error(msg);
+    }
+  }
+
+  async function vercelGatewayVisionCompletion(params: {
+    model: string;
+    prompt: string;
+    imageBase64: string;
+  }): Promise<string> {
+    const key = getActiveApiKey();
+    if (!key) throw new Error("Missing API key");
+    const url = vercelGatewayChatCompletionsUrl();
+    const body = {
+      model: gatewayOpenAiModelId(params.model),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: params.prompt },
+            { type: "image_url", image_url: { url: `data:image/png;base64,${params.imageBase64}` } },
+          ],
+        },
+      ],
+      temperature: 0.3,
+    };
+    try {
+      const res = await axios.post(url, body, {
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      });
+      const text = res.data?.choices?.[0]?.message?.content;
+      if (typeof text !== "string") throw new Error("Empty AI response");
+      return text;
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.error?.message ||
+        e?.response?.data?.message ||
+        e?.message ||
+        String(e);
+      throw new Error(msg);
+    }
+  }
+
   /** Map gateway-style ids (e.g. google/gemini-2.5-pro) to Gemini API model names. */
   const modelIdForGeminiRequest = (m: string): string => {
     if (!m) return "gemini-2.5-flash";
@@ -3482,38 +3580,64 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         }
         if (!screenshotBase64 && !logTail) return;
 
-        const ai = createAiClient();
         const jsonHintJa =
           '返答は JSON 配列のみ（マークダウン禁止）。型: { "action":"write_file","path":string,"content":string,"description":string }[]';
         const jsonHintEn =
           'Reply with a JSON array only (no markdown). Shape: { "action":"write_file","path":string,"content":string,"description":string }[]';
-        let visualRes;
-        if (screenshotBase64) {
-          const prompt =
-            language === "ja"
-              ? `${jsonHintJa}\nスクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
-              : `${jsonHintEn}\nFix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
-          visualRes = await ai.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel),
-            contents: [
-              { role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: screenshotBase64 } }] },
-            ],
-            config: { responseMimeType: "application/json" },
-          });
+        let visualText: string;
+        if (apiProvider === "vercel-ai-gateway") {
+          if (screenshotBase64) {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nスクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
+                : `${jsonHintEn}\nFix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
+            visualText = await vercelGatewayVisionCompletion({
+              model: selectedModel,
+              prompt,
+              imageBase64: screenshotBase64,
+            });
+          } else {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
+                : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
+            visualText = await vercelGatewayChatCompletion({
+              model: selectedModel,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.3,
+            });
+          }
         } else {
-          const prompt =
-            language === "ja"
-              ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
-              : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
-          visualRes = await ai.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel),
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            config: { responseMimeType: "application/json" },
-          });
+          const ai = createAiClient();
+          let visualRes;
+          if (screenshotBase64) {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nスクリーンショットのUIの明らかな不具合だけ最小限修正。不要なら []。最大2件。`
+                : `${jsonHintEn}\nFix only clear UI issues visible in the screenshot. Return [] if none. Max 2 items.`;
+            visualRes = await ai.models.generateContent({
+              model: modelIdForGeminiRequest(selectedModel),
+              contents: [
+                { role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: screenshotBase64 } }] },
+              ],
+              config: { responseMimeType: "application/json" },
+            });
+          } else {
+            const prompt =
+              language === "ja"
+                ? `${jsonHintJa}\nプレビュー iframe が別オリジンのため画像はありません。以下はワークスペースの実行ログ末尾です。ログから推測できる設定・ビルド・ルート不具合のみ write_file で最小修正。不要なら []。最大2件。\n\n--- LOG ---\n${logTail}`
+                : `${jsonHintEn}\nNo screenshot (cross-origin preview iframe). Server run log tail:\n\n--- LOG ---\n${logTail}\n\nReturn minimal write_file fixes inferred from the log only. [] if none. Max 2 items.`;
+            visualRes = await ai.models.generateContent({
+              model: modelIdForGeminiRequest(selectedModel),
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              config: { responseMimeType: "application/json" },
+            });
+          }
+          visualText = visualRes.text || "";
         }
         let fixes: unknown[];
         try {
-          fixes = parseAgentPlanJson(visualRes.text || "[]");
+          fixes = parseAgentPlanJson(visualText || "[]");
         } catch {
           return;
         }
@@ -3543,7 +3667,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       void tick();
     }, 1000);
     return () => window.clearInterval(id);
-  }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel]);
+  }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel, apiProvider, apiBaseUrl]);
 
   const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
 Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
@@ -3922,7 +4046,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       return;
     }
     
-    const ai = createAiClient();
+    const ai = apiProvider !== "vercel-ai-gateway" ? createAiClient() : null;
     const userMsg: ChatMessage = { role: "user", content: modelUserPayload };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
@@ -3974,28 +4098,63 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
 
         updateLastStep("completed", "Generating response...");
-        let chatResponse;
-        try {
-          chatResponse = await ai.models.generateContent({
-            model: modelIdForGeminiRequest(selectedModel),
-            contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-            config: { 
-              systemInstruction: `You are Sooner. You are helpful, technical, and concise. 
+        const chatSystemInstruction = `You are Sooner. You are helpful, technical, and concise. 
               ${langInstruction}
               Conversation History Context:
               ${historyContext}
               
-              Use this context to maintain continuity. If the user asks about a previous plan, refer to it.`
-            }
-          });
+              Use this context to maintain continuity. If the user asks about a previous plan, refer to it.`;
+        let chatResponse: { text?: string };
+        try {
+          if (apiProvider === "vercel-ai-gateway") {
+            chatResponse = {
+              text: await vercelGatewayChatCompletion({
+                model: selectedModel,
+                messages: [
+                  { role: "system", content: chatSystemInstruction },
+                  ...cappedMessages.map((m) => ({
+                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+                    content: m.content,
+                  })),
+                ],
+              }),
+            };
+          } else {
+            chatResponse = await ai!.models.generateContent({
+              model: modelIdForGeminiRequest(selectedModel),
+              contents: cappedMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+              config: {
+                systemInstruction: chatSystemInstruction,
+              },
+            });
+          }
         } catch (e: any) {
-          if (e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED")) {
-            chatResponse = await ai.models.generateContent({
+          const isRate = e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("rate");
+          if (apiProvider === "vercel-ai-gateway" && isRate) {
+            chatResponse = {
+              text: await vercelGatewayChatCompletion({
+                model: selectedModel,
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
+                  },
+                  ...newMessages.map((m) => ({
+                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+                    content: m.content,
+                  })),
+                ],
+              }),
+            };
+          } else if (apiProvider !== "vercel-ai-gateway" && isRate) {
+            chatResponse = await ai!.models.generateContent({
               model: modelIdForGeminiRequest(selectedModel),
               contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-              config: { 
-                systemInstruction: "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context."
-              }
+              config: {
+                systemInstruction:
+                  "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
+              },
             });
           } else {
             throw e;
@@ -4111,28 +4270,43 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         
         Return ONLY the JSON array. No markdown, no extra text.`;
 
-        const geminiModel = modelIdForGeminiRequest(selectedModel);
-        let cacheName: string | undefined;
-        try { cacheName = await getOrCreatePromptCache(ai, geminiModel); } catch {}
+        if (apiProvider === "vercel-ai-gateway") {
+          planResponse = {
+            text: await vercelGatewayChatCompletion({
+              model: selectedModel,
+              messages: [
+                { role: "system", content: CODE_SYSTEM_INSTRUCTION },
+                { role: "user", content: planPrompt },
+              ],
+              temperature: 0.3,
+            }),
+          };
+        } else {
+          const geminiModel = modelIdForGeminiRequest(selectedModel);
+          let cacheName: string | undefined;
+          try {
+            cacheName = await getOrCreatePromptCache(ai!, geminiModel);
+          } catch {}
 
-        try {
-          planResponse = await ai.models.generateContent({
-            model: geminiModel,
-            contents: planPrompt,
-            config: { 
-              responseMimeType: "application/json",
-              ...(cacheName ? { cachedContent: cacheName } : { systemInstruction: CODE_SYSTEM_INSTRUCTION }),
-            }
-          });
-        } catch (e: any) {
-          planResponse = await ai.models.generateContent({
-            model: geminiModel,
-            contents: planPrompt,
-            config: { 
-              responseMimeType: "application/json",
-              systemInstruction: CODE_SYSTEM_INSTRUCTION,
-            }
-          });
+          try {
+            planResponse = await ai!.models.generateContent({
+              model: geminiModel,
+              contents: planPrompt,
+              config: {
+                responseMimeType: "application/json",
+                ...(cacheName ? { cachedContent: cacheName } : { systemInstruction: CODE_SYSTEM_INSTRUCTION }),
+              },
+            });
+          } catch {
+            planResponse = await ai!.models.generateContent({
+              model: geminiModel,
+              contents: planPrompt,
+              config: {
+                responseMimeType: "application/json",
+                systemInstruction: CODE_SYSTEM_INSTRUCTION,
+              },
+            });
+          }
         }
         
         let plan;
@@ -4643,7 +4817,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     </div>
                   ) : (
                     <>
-                      <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2 max-w-[min(100%,220px)]">
+                      <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-2">
                         <div className="flex flex-wrap gap-2 justify-end">
                           <button
                             type="button"
@@ -4686,14 +4860,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                               target="_blank"
                               rel="noreferrer"
                               className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors inline-flex"
-                              title={t.previewIssuedUrlHint}
+                              aria-label={t.projectPreview}
                             >
                               <Link2 className="w-4 h-4" />
                             </a>
                           )}
                         </div>
-                        <p className="text-[9px] text-white/80 text-right leading-snug max-w-[240px]">{t.previewIssuedUrlHint}</p>
-                        <p className="text-[9px] text-amber-200/90 text-right leading-snug max-w-[260px]">{t.previewVsProduction}</p>
                         <label className="flex items-center gap-2 px-2 py-1 rounded-lg bg-black/50 text-white text-[10px] cursor-pointer backdrop-blur-sm">
                           <input
                             type="checkbox"
@@ -4703,7 +4875,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           />
                           <span className="leading-tight">{t.previewLiveAssist}</span>
                         </label>
-                        <p className="text-[9px] text-white/70 text-right leading-snug px-1">{t.previewLiveAssistHint}</p>
                       </div>
                       <iframe
                         id="preview-frame"
@@ -4915,18 +5086,31 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               type="button"
               onClick={() => attachOpenEditorBuffer()}
               disabled={isAgentRunning || !activeFile}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40"
+              aria-pressed={!!activeFile && contextAttachments.some((a) => a.name === activeFile)}
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40 transition-colors",
+                activeFile && contextAttachments.some((a) => a.name === activeFile) && "border-[#38BDF8]/45 text-[#38BDF8] bg-[#38BDF8]/10",
+              )}
             >
               <FileCode className="w-3 h-3" />
               {t.attachOpenFile}
             </button>
-            {contextAttachments.map((a) => (
+            {contextAttachments.map((a, i) => (
               <span
-                key={`${a.name}-${a.text.length}`}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[140px] truncate"
+                key={`${i}:${a.name}:${a.text.length}`}
+                className="inline-flex items-center gap-1 text-[10px] pl-2 pr-1 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[min(180px,calc(100vw-8rem))]"
                 title={a.name}
               >
-                {a.name}
+                <span className="truncate min-w-0">{a.name}</span>
+                <button
+                  type="button"
+                  disabled={isAgentRunning}
+                  onClick={() => setContextAttachments((prev) => prev.filter((_, j) => j !== i))}
+                  className="shrink-0 p-0.5 rounded-full text-[#71717A] hover:text-white hover:bg-white/10 disabled:opacity-40 transition-colors"
+                  aria-label={t.attachRemoveAria}
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             ))}
           </div>
@@ -5153,7 +5337,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                       </button>
                     </div>
                     <div className="relative">
-                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
+                      <Key className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 w-4 h-4 text-[#8E9299]" />
                       {apiProvider === "gemini" && (
                         <input 
                           type="password"
@@ -5164,16 +5348,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         />
                       )}
                       {apiProvider === "vercel-ai-gateway" && (
-                        <>
-                          <input 
-                            type="password"
-                            value={vercelKey}
-                            onChange={(e) => setVercelKey(e.target.value)}
-                            placeholder="Enter Vercel AI Gateway API Key"
-                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
-                          />
-                          <p className="text-[10px] text-[#555] leading-snug">{t.vercelGatewayGenHint}</p>
-                        </>
+                        <input 
+                          type="password"
+                          value={vercelKey}
+                          onChange={(e) => setVercelKey(e.target.value)}
+                          placeholder="Enter Vercel AI Gateway API Key"
+                          className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
+                        />
                       )}
                       {apiProvider === "custom" && (
                         <input 
@@ -5185,6 +5366,9 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         />
                       )}
                     </div>
+                    {apiProvider === "vercel-ai-gateway" && (
+                      <p className="text-[10px] text-[#555] leading-snug">{t.vercelGatewayGenHint}</p>
+                    )}
                     {apiProvider !== "gemini" && (
                       <div className="space-y-1 mt-2">
                         <label className="text-[10px] uppercase tracking-widest text-[#555]">{t.apiBaseUrl}</label>
