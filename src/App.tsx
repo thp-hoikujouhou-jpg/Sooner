@@ -5331,10 +5331,22 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
       } else if (humaneLower.includes("provider returned error")) {
         const base = humane.trim();
-        errorMsg =
-          language === "ja"
-            ? `${base}\n\nGoogle 側の汎用エラーです（理由は返らないことがあります）。別モデル・Clear・短い入力、または Google AI Studio で利用枠・課金を確認してください。`
-            : `${base}\n\nGeneric error from Google (details are often omitted). Try another model, Clear chat, a shorter prompt, or check quota/billing in Google AI Studio.`;
+        if (apiProvider === "custom") {
+          errorMsg =
+            language === "ja"
+              ? `${base}\n\nOpenRouter またはその先のモデル提供者（Minimax など）が返す汎用メッセージです。Google 限定ではありません。モデル ID の表記（例: minimax のスラッグ）・OpenRouter の残高・:free の混雑・別モデル・Clear を確認してください。`
+              : `${base}\n\nGeneric message from OpenRouter or the upstream host (e.g. Minimax)—not Google-specific. Check the exact model slug, OpenRouter credits, :free tier congestion, another model, or Clear.`;
+        } else if (apiProvider === "vercel-ai-gateway") {
+          errorMsg =
+            language === "ja"
+              ? `${base}\n\nVercel AI Gateway またはその上流からのエラーです。キー・モデル・利用枠を確認してください。`
+              : `${base}\n\nThis came from Vercel AI Gateway (or its upstream). Check your key, model, and limits.`;
+        } else {
+          errorMsg =
+            language === "ja"
+              ? `${base}\n\nGoogle（Gemini）API の汎用エラーです（理由は返らないことがあります）。別モデル・Clear・短い入力、または Google AI Studio で利用枠・課金を確認してください。`
+              : `${base}\n\nGeneric error from the Google Gemini API (details are often omitted). Try another model, Clear chat, a shorter prompt, or check quota/billing in Google AI Studio.`;
+        }
       } else {
         errorMsg =
           humane.trim() ||
