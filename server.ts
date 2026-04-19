@@ -393,7 +393,13 @@ async function startServer() {
           : true,
       credentials: true,
       methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-Sooner-Gateway-Key", "X-Requested-With"],
+      allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Sooner-Gateway-Key",
+        "X-Sooner-OpenRouter-Key",
+        "X-Requested-With",
+      ],
     }),
   );
   app.use(bodyParser.json({ limit: "32mb" }));
