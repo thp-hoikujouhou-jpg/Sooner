@@ -329,15 +329,27 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
   }
 
   if (key === "blog") {
+    const blogDesc = (lang === "ja" ? ja : en).blog.description;
+    const blogName = lang === "ja" ? "Sooner ブログ" : "Sooner Blog";
+    const blogSite = {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: blogName,
+      url: "https://blog.sooner.sh/",
+      description: blogDesc,
+      inLanguage: ["en", "ja"],
+      publisher: org,
+    };
     const blog = {
       "@context": "https://schema.org",
       "@type": "Blog",
-      name: lang === "ja" ? "Sooner ブログ" : "Sooner Blog",
+      name: blogName,
       url: "https://blog.sooner.sh/",
-      description: (lang === "ja" ? ja : en).blog.description,
+      description: blogDesc,
       publisher: { "@type": "Organization", name: "Sooner", logo: { "@type": "ImageObject", url: OG_IMAGE } },
+      mainEntityOfPage: { "@type": "WebPage", "@id": "https://blog.sooner.sh/" },
     };
-    return [org, blog];
+    return [org, blogSite, blog];
   }
 
   return [org, website];
@@ -376,11 +388,6 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   setMeta("name", "twitter:description", ogDescription);
   setMeta("name", "twitter:image", OG_IMAGE);
 
-  if (key === "blog") {
-    setMeta("property", "article:author", "Sooner Team");
-    setMeta("property", "article:published_time", "2026-04-14");
-  }
-
   setLink("canonical", url);
 
   document.documentElement.lang = lang === "ja" ? "ja" : "en";
@@ -388,7 +395,7 @@ export function applyDocumentSeo(override?: SeoOverrides): void {
   injectHreflangForLanding();
 
   const schemas = buildJsonLd(key, lang);
-  document.querySelectorAll('script[data-sooner-ld]').forEach((n) => n.remove());
+  document.querySelectorAll('script[data-sooner-ld], script[data-sooner-inline-ld]').forEach((n) => n.remove());
   schemas.forEach((schema, i) => {
     const el = document.createElement("script");
     el.type = "application/ld+json";
@@ -451,7 +458,7 @@ export function applyArticleSeo(article: {
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
   };
 
-  document.querySelectorAll("script[data-sooner-ld]").forEach((n) => n.remove());
+  document.querySelectorAll("script[data-sooner-ld], script[data-sooner-inline-ld]").forEach((n) => n.remove());
   const el = document.createElement("script");
   el.type = "application/ld+json";
   el.setAttribute("data-sooner-ld", "article");

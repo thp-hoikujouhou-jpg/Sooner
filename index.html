@@ -61,54 +61,133 @@
     <title>Sooner — Build sooner, ship faster | AI-native IDE in the browser</title>
     <link rel="icon" type="image/png" href="/sooner-icon.png" />
     <link rel="apple-touch-icon" href="/sooner-icon.png" />
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Sooner",
-      "applicationCategory": "DeveloperApplication",
-      "operatingSystem": "Web",
-      "url": "https://sooner.sh/",
-      "description": "Sooner is an AI-native IDE in your browser. Describe what you want, get production-ready code, live preview, and ship instantly.",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "author": { "@type": "Organization", "name": "Sooner", "url": "https://sooner.sh/" }
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "Sooner",
-      "url": "https://sooner.sh/",
-      "description": "AI-native IDE in your browser. Build sooner, ship faster.",
-      "inLanguage": ["en", "ja"],
-      "publisher": { "@type": "Organization", "name": "Sooner", "url": "https://sooner.sh/" }
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [
-        { "@type": "Question", "name": "What is Sooner?", "acceptedAnswer": { "@type": "Answer", "text": "Sooner is a browser-based AI-native IDE. Describe what you want in natural language and AI builds, previews, and ships your code in seconds. No installation required." } },
-        { "@type": "Question", "name": "Is Sooner free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes, Sooner is free to use. Sign up with email, Google, or GitHub and start building immediately." } },
-        { "@type": "Question", "name": "What programming languages does Sooner support?", "acceptedAnswer": { "@type": "Answer", "text": "Sooner supports JavaScript, TypeScript, Python, Go, Rust, HTML/CSS, and popular frameworks like React, Vue, Next.js, and Three.js." } }
-      ]
-    }
-    </script>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "ItemList",
-      "name": "Sooner primary navigation",
-      "itemListElement": [
-        { "@type": "ListItem", "position": 1, "name": "Sooner", "item": "https://sooner.sh/" },
-        { "@type": "ListItem", "position": 2, "name": "Sign up", "item": "https://sooner.sh/signup" },
-        { "@type": "ListItem", "position": 3, "name": "Sign in", "item": "https://sooner.sh/signin" },
-        { "@type": "ListItem", "position": 4, "name": "Blog", "item": "https://blog.sooner.sh/" },
-        { "@type": "ListItem", "position": 5, "name": "Landing page", "item": "https://lp.sooner.sh/" }
-      ]
-    }
+    <!-- Host-specific JSON-LD: avoid serving SoftwareApplication + sooner.sh WebSite on blog (causes GSC duplicate canonical clusters). -->
+    <script>
+      (function () {
+        try {
+          if (!location.protocol || location.protocol === "file:") return;
+          var h = location.hostname.toLowerCase();
+          function setMeta(sel, attr, val) {
+            var el = document.head.querySelector(sel);
+            if (!el) return;
+            el.setAttribute(attr, val);
+          }
+          function injectLd(obj) {
+            var s = document.createElement("script");
+            s.type = "application/ld+json";
+            s.setAttribute("data-sooner-inline-ld", "1");
+            s.textContent = JSON.stringify(obj);
+            document.head.appendChild(s);
+          }
+          var OG = "https://lp.sooner.sh/og-image.png";
+          if (h.indexOf("blog.") === 0) {
+            var blogDesc =
+              "Product updates, tips, and tutorials from the Sooner team. Learn about the AI-native IDE, web development, and how to ship faster.";
+            var blogTitle = "Sooner Blog — News, tutorials & updates | AI-native IDE";
+            document.title = blogTitle;
+            setMeta('meta[name="description"]', "content", blogDesc);
+            setMeta('meta[property="og:title"]', "content", "Sooner Blog — News & tutorials");
+            setMeta('meta[property="og:description"]', "content", blogDesc);
+            setMeta('meta[name="twitter:title"]', "content", "Sooner Blog — News & tutorials");
+            setMeta('meta[name="twitter:description"]', "content", blogDesc);
+            setMeta('meta[name="keywords"]', "content", "Sooner blog, AI IDE tutorials, web development tips, browser IDE updates, Sooner news");
+            var org = {
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Sooner",
+              url: "https://sooner.sh/",
+              logo: OG,
+            };
+            var blogSite = {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Sooner Blog",
+              url: "https://blog.sooner.sh/",
+              description: blogDesc,
+              inLanguage: ["en", "ja"],
+              publisher: org,
+            };
+            var blog = {
+              "@context": "https://schema.org",
+              "@type": "Blog",
+              name: "Sooner Blog",
+              url: "https://blog.sooner.sh/",
+              description: blogDesc,
+              publisher: { "@type": "Organization", name: "Sooner", logo: { "@type": "ImageObject", url: OG } },
+              mainEntityOfPage: { "@type": "WebPage", "@id": "https://blog.sooner.sh/" },
+            };
+            injectLd(org);
+            injectLd(blogSite);
+            injectLd(blog);
+            return;
+          }
+          injectLd({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "Sooner",
+            applicationCategory: "DeveloperApplication",
+            operatingSystem: "Web",
+            url: "https://sooner.sh/",
+            description:
+              "Sooner is an AI-native IDE in your browser. Describe what you want, get production-ready code, live preview, and ship instantly.",
+            offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+            author: { "@type": "Organization", name: "Sooner", url: "https://sooner.sh/" },
+          });
+          injectLd({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Sooner",
+            url: "https://sooner.sh/",
+            description: "AI-native IDE in your browser. Build sooner, ship faster.",
+            inLanguage: ["en", "ja"],
+            publisher: { "@type": "Organization", name: "Sooner", url: "https://sooner.sh/" },
+          });
+          injectLd({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+              {
+                "@type": "Question",
+                name: "What is Sooner?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Sooner is a browser-based AI-native IDE. Describe what you want in natural language and AI builds, previews, and ships your code in seconds. No installation required.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "Is Sooner free?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Yes, Sooner is free to use. Sign up with email, Google, or GitHub and start building immediately.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "What programming languages does Sooner support?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Sooner supports JavaScript, TypeScript, Python, Go, Rust, HTML/CSS, and popular frameworks like React, Vue, Next.js, and Three.js.",
+                },
+              },
+            ],
+          });
+          injectLd({
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            name: "Sooner primary navigation",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Sooner", item: "https://sooner.sh/" },
+              { "@type": "ListItem", position: 2, name: "Sign up", item: "https://sooner.sh/signup" },
+              { "@type": "ListItem", position: 3, name: "Sign in", item: "https://sooner.sh/signin" },
+              { "@type": "ListItem", position: 4, name: "Blog", item: "https://blog.sooner.sh/" },
+              { "@type": "ListItem", position: 5, name: "Landing page", item: "https://lp.sooner.sh/" },
+            ],
+          });
+        } catch (e) {
+          /* ignore */
+        }
+      })();
     </script>
     <script>
       (function() {
