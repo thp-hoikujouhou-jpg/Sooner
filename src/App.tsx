@@ -3989,8 +3989,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       temperature: params.temperature ?? 0.7,
       stream: false,
     };
+    const isOpenRouterApi = baseRaw.toLowerCase().includes("openrouter.ai");
     if (typeof params.maxTokens === "number" && params.maxTokens > 0) {
-      body.max_tokens = params.maxTokens;
+      let cap = Math.floor(params.maxTokens);
+      if (isOpenRouterApi && cap > 16384) cap = 16384;
+      body.max_tokens = cap;
+    } else if (isOpenRouterApi) {
+      // OpenRouter treats omitted max_tokens as a very large completion budget (~65535), which breaks low-credit keys.
+      body.max_tokens = 8192;
     }
 
     const throwOpenRouter401 = (detail: string) => {
@@ -4057,7 +4063,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }): Promise<string> {
     const baseRaw = customOpenAiRoot();
     const key = getActiveApiKey();
-    const body = {
+    const body: Record<string, unknown> = {
       model: params.model,
       messages: [
         {
@@ -4071,6 +4077,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       temperature: 0.3,
       stream: false,
     };
+    if (baseRaw.toLowerCase().includes("openrouter.ai")) {
+      body.max_tokens = 4096;
+    }
 
     if (BACKEND_URL && apiProvider === "custom") {
       try {
@@ -4412,6 +4421,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           model: selectedModel.trim() || "openai/gpt-4o-mini",
           messages: [{ role: "user", content: "Hi" }],
           temperature: 0.2,
+          maxTokens: 128,
         });
         alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
         fetchModels();
@@ -5087,7 +5097,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 { role: "user", content: planPrompt },
               ],
               temperature: 0.3,
-              maxTokens: 16384,
+              maxTokens: 8192,
             }),
           };
         } else {
