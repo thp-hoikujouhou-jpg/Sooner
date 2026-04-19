@@ -2252,8 +2252,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "API Provider",
       providerOpenRouter: "OpenRouter",
       openRouterApiKey: "OpenRouter API Key",
-      openRouterKeyHint:
-        "Uses https://openrouter.ai/api/v1. With VITE_BACKEND_URL, requests are proxied (stable Referer). Without it, browser calls OpenRouter directly — key referrer allowlist must include this origin.",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2454,8 +2452,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       apiProvider: "APIプロバイダー",
       providerOpenRouter: "OpenRouter",
       openRouterApiKey: "OpenRouter API キー",
-      openRouterKeyHint:
-        "接続先は https://openrouter.ai/api/v1。VITE_BACKEND_URL がある場合は API 経由でプロキシされます。ない場合はブラウザから直接呼び出すため、OpenRouter キーのリファラー許可にこのオリジンを含めてください。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -3983,10 +3979,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }): Promise<string> {
     const baseRaw = customOpenAiRoot();
     const key = getActiveApiKey();
+    const t0 = params.temperature;
+    const safeTemp =
+      typeof t0 === "number" && Number.isFinite(t0) ? Math.min(2, Math.max(0, t0)) : 0.7;
     const body: Record<string, unknown> = {
       model: params.model,
       messages: params.messages,
-      temperature: params.temperature ?? 0.7,
+      temperature: safeTemp,
       stream: false,
     };
     const isOpenRouterApi = baseRaw.toLowerCase().includes("openrouter.ai");
@@ -5971,7 +5970,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   "p-3 rounded-lg text-sm break-words",
                   msg.role === "user" ? "bg-[#1A1A1A] ml-4" : "bg-[#151515] mr-4 border border-[#1A1A1A]"
                 )}>
-                  <div className="text-[10px] uppercase tracking-widest text-[#8E9299] mb-1">
+                  <div
+                    className={cn(
+                      "text-[10px] tracking-widest text-[#8E9299] mb-1",
+                      msg.role === "user" ? "uppercase" : "normal-case",
+                    )}
+                  >
                     {msg.role === "user" ? (language === "ja" ? "あなた" : "You") : "Sooner"}
                   </div>
                   <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
@@ -6405,9 +6409,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         />
                       )}
                     </div>
-                    {apiProvider === "custom" && (
-                      <p className="text-[10px] text-[#555] leading-snug">{t.openRouterKeyHint}</p>
-                    )}
                   </div>
 
                   <div className="rounded-xl border border-[#252525] bg-[#111] px-3 py-2.5 space-y-1.5">

@@ -235,6 +235,16 @@ export async function recordNewUserLegalProfile(
 ): Promise<void> {
   if (!db) return;
   try {
+    // OAuth flows: wait until Auth has the same uid, then refresh ID token so Firestore rules see request.auth.uid.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (auth?.currentUser?.uid === uid) break;
+      await new Promise((r) => setTimeout(r, 75));
+    }
+    if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+      console.warn("recordNewUserLegalProfile: signed-in user not ready or uid mismatch", { uid });
+      return;
+    }
+    await auth.currentUser.getIdToken(true);
     await setDoc(
       doc(db, "users", uid),
       {
@@ -256,8 +266,9 @@ export async function recordNewUserLegalProfile(
       },
       { merge: true }
     );
-  } catch (e) {
-    console.warn("recordNewUserLegalProfile:", e);
+  } catch (e: unknown) {
+    const code = e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code) : "";
+    console.warn("recordNewUserLegalProfile:", code || e);
   }
 }
 

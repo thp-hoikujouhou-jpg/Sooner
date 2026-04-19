@@ -504,6 +504,46 @@ async function startServer() {
     }
   }
 
+  /** OpenRouter rejects some payloads (400) when JSON contains nulls from NaN or Gemini-style roles. */
+  function sanitizeOpenRouterChatBody(raw: Record<string, unknown>): { ok: true; body: Record<string, unknown> } | { ok: false; error: string } {
+    const model = typeof raw.model === "string" ? raw.model.trim() : "";
+    if (!model) return { ok: false, error: "Missing or empty model" };
+    if (!Array.isArray(raw.messages) || raw.messages.length === 0) {
+      return { ok: false, error: "messages must be a non-empty array" };
+    }
+    const allowedRoles = new Set(["system", "user", "assistant", "tool", "function"]);
+    const messages = raw.messages.map((m: unknown) => {
+      if (!m || typeof m !== "object") return { role: "user", content: "" };
+      const o = { ...(m as Record<string, unknown>) };
+      let role = o.role;
+      if (role === "model") role = "assistant";
+      if (typeof role !== "string" || !allowedRoles.has(role)) role = "user";
+      o.role = role;
+      return o;
+    });
+    const out: Record<string, unknown> = { model, messages, stream: raw.stream === true };
+    const t = raw.temperature;
+    if (typeof t === "number" && Number.isFinite(t)) {
+      out.temperature = Math.min(2, Math.max(0, t));
+    } else {
+      out.temperature = 0.7;
+    }
+    const mt = raw.max_tokens;
+    if (typeof mt === "number" && Number.isFinite(mt) && mt > 0) {
+      out.max_tokens = Math.min(65536, Math.max(1, Math.floor(mt)));
+    }
+    if (raw.top_p !== undefined) {
+      const tp = raw.top_p;
+      if (typeof tp === "number" && Number.isFinite(tp) && tp >= 0 && tp <= 1) out.top_p = tp;
+    }
+    if (raw.response_format !== undefined && raw.response_format !== null && typeof raw.response_format === "object") {
+      out.response_format = raw.response_format;
+    }
+    if (raw.tools !== undefined && Array.isArray(raw.tools)) out.tools = raw.tools;
+    if (raw.tool_choice !== undefined) out.tool_choice = raw.tool_choice;
+    return { ok: true, body: out };
+  }
+
   app.post("/api/ai/openrouter/chat-completions", async (req, res) => {
     const uid = await extractUid(req);
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
@@ -516,6 +556,8 @@ async function startServer() {
     delete body.openrouterBase;
     const url = openRouterChatCompletionsUrlFromBase(baseOverride);
     if (!url) return res.status(400).json({ error: "Invalid or disallowed OpenRouter API base" });
+    const sanitized = sanitizeOpenRouterChatBody(body);
+    if (!sanitized.ok) return res.status(400).json({ error: sanitized.error });
     const referer = (process.env.OPENROUTER_HTTP_REFERER || "https://sooner.sh").trim() || "https://sooner.sh";
     try {
       const r = await fetch(url, {
@@ -526,7 +568,7 @@ async function startServer() {
           "HTTP-Referer": referer,
           "X-OpenRouter-Title": "Sooner",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(sanitized.body),
       });
       const text = await r.text();
       res.status(r.status).set("Content-Type", r.headers.get("content-type") || "application/json").send(text);

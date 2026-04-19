@@ -218,56 +218,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Real <a href> for apex host: helps Google discover sitelinks (cannot be guaranteed). -->
-    <script>
-      (function () {
-        try {
-          var h = (location.hostname || "").toLowerCase();
-          if (h !== "sooner.sh" && h !== "www.sooner.sh") return;
-          var f = document.createElement("footer");
-          f.id = "soon-sitelink-nav";
-          f.setAttribute("lang", "en");
-          f.style.margin = "0";
-          f.style.padding = "10px 16px";
-          f.style.fontSize = "12px";
-          f.style.lineHeight = "1.5";
-          f.style.borderTop = "1px solid #27272a";
-          f.style.background = "#09090b";
-          f.style.color = "#a1a1aa";
-          var nav = document.createElement("nav");
-          nav.setAttribute("aria-label", "Account and key pages");
-          nav.style.display = "flex";
-          nav.style.flexWrap = "wrap";
-          nav.style.alignItems = "center";
-          nav.style.gap = "16px";
-          nav.style.maxWidth = "1100px";
-          nav.style.margin = "0 auto";
-          function link(href, text, title, accent) {
-            var e = document.createElement("a");
-            e.href = href;
-            e.textContent = text;
-            if (title) e.setAttribute("title", title);
-            e.style.color = accent ? "#38bdf8" : "#a1a1aa";
-            e.style.fontWeight = accent ? "600" : "500";
-            e.style.textDecoration = "none";
-            return e;
-          }
-          nav.appendChild(link("https://sooner.sh/signup", "Sign up", "新規登録 — Create account", true));
-          nav.appendChild(link("https://sooner.sh/signin", "Sign in", "ログイン — Sign in to Sooner", true));
-          var sep = document.createElement("span");
-          sep.textContent = "·";
-          sep.style.opacity = "0.5";
-          sep.setAttribute("aria-hidden", "true");
-          nav.appendChild(sep);
-          nav.appendChild(link("https://lp.sooner.sh/", "About", "ランディングページ", false));
-          nav.appendChild(link("https://blog.sooner.sh/", "Blog", "ブログ", false));
-          f.appendChild(nav);
-          var r = document.getElementById("root");
-          if (r && r.parentNode) r.parentNode.insertBefore(f, r.nextSibling);
-          else document.body.appendChild(f);
-        } catch (e) {}
-      })();
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
