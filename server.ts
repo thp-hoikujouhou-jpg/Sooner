@@ -1026,6 +1026,9 @@ async function startServer() {
     }
     try {
       const uid = await extractUid(req);
+      if (!uid) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
       const projectPath = await ensureProjectPath(uid, id);
       if (!projectPath) {
         return res.status(404).json({ error: "Project not found" });
@@ -1170,6 +1173,9 @@ async function startServer() {
     }
     const staged = req.query.staged === "1" || req.query.staged === "true";
     const uid = await extractUid(req);
+    if (!uid) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     const projectPath = await ensureProjectPath(uid, id);
     if (!projectPath) {
       return res.status(404).json({ error: "Project not found" });

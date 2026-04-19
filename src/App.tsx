@@ -1731,8 +1731,8 @@ function projectApi(projectId: string, resource: string): string {
   return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/${tail}`);
 }
 
-/** Strip markdown / preamble so the first `[` starts a JSON array (models often wrap output in ```json … ``` or prose). */
-function stripAgentPlanMarkdown(raw: string): string {
+/** Remove ```json fences; keep inner text (may be array or single object). */
+function stripAgentPlanFences(raw: string): string {
   let t = raw.trim();
   if (t.includes("```")) {
     const fence = /```(?:json)?\s*/i.exec(t);
@@ -1742,10 +1742,14 @@ function stripAgentPlanMarkdown(raw: string): string {
       if (close !== -1) t = t.slice(0, close);
     }
   }
-  t = t.trim();
-  const b = t.indexOf("[");
-  if (b === -1) throw new Error("No JSON array found in model output");
-  return t.slice(b).trimEnd();
+  return t.trim();
+}
+
+/** Prefer first `[` payload; if array starts after prose, slice from `[`. */
+function sliceFromFirstBracketArray(text: string): string {
+  const b = text.indexOf("[");
+  if (b === -1) return text;
+  return text.slice(b).trimEnd();
 }
 
 /** First top-level `[`…`]` slice; respects JSON double-quoted strings (so triple-backtick fences inside string values do not confuse bracket matching). */
@@ -1783,14 +1787,63 @@ function extractFirstJsonArray(text: string): string | null {
   return null;
 }
 
-/** Parse model JSON array; tolerates markdown fences and leading prose. */
+/** First top-level `{`…`}` slice; string-aware (for single-step JSON objects). */
+function extractFirstJsonObject(text: string): string | null {
+  const t = text.trim();
+  const start = t.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < t.length; i++) {
+    const c = t[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return t.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/** Parse model JSON array; tolerates markdown, prose, a single object, or `{ "steps": [...] }`. */
 function parseAgentPlanJson(raw: string | undefined): any[] {
   if (!raw?.trim()) throw new Error("empty plan");
-  const stripped = stripAgentPlanMarkdown(raw);
-  const slice = extractFirstJsonArray(stripped) ?? stripped;
-  const plan = JSON.parse(slice);
-  if (!Array.isArray(plan)) throw new Error("AI plan is not an array");
-  return plan;
+  const fenced = stripAgentPlanFences(raw);
+  const forArray = sliceFromFirstBracketArray(fenced);
+  const arrSlice = extractFirstJsonArray(forArray);
+  if (arrSlice) {
+    const plan = JSON.parse(arrSlice) as unknown;
+    if (!Array.isArray(plan)) throw new Error("AI plan is not an array");
+    return plan;
+  }
+  const objStart = fenced.indexOf("{");
+  const searchObj = objStart === -1 ? fenced : fenced.slice(objStart);
+  const objSlice = extractFirstJsonObject(searchObj);
+  if (objSlice) {
+    const obj = JSON.parse(objSlice) as Record<string, unknown>;
+    if (obj && typeof obj === "object") {
+      if (Array.isArray(obj.steps)) return obj.steps as any[];
+      if (typeof obj.action === "string") return [obj];
+    }
+  }
+  throw new Error("No JSON array found in model output");
 }
 
 /** Paths the agent must not delete or overwrite blindly. */
@@ -1817,6 +1870,9 @@ function formatPlanStepSummary(step: Record<string, unknown>, lang: "en" | "ja")
   if (action === "run_command" && cmd) {
     return lang === "ja" ? `・コマンド \`${cmd}\` — ${desc}` : `・Command \`${cmd}\` — ${desc}`;
   }
+  if ((action === "read_file" || action === "list_dir") && path) {
+    return lang === "ja" ? `・（無効）${action} \`${path}\` — ${desc}` : `・(ignored) ${action} \`${path}\` — ${desc}`;
+  }
   return lang === "ja" ? `・${action} — ${desc}` : `・${action} — ${desc}`;
 }
 
@@ -1832,6 +1888,33 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       return config;
     });
     return () => { axios.interceptors.request.eject(interceptor); };
+  }, [user]);
+
+  /** One retry after 401 with a fresh ID token (expired Firebase tokens against workspace API). */
+  useEffect(() => {
+    if (!BACKEND_URL) return;
+    const id = axios.interceptors.response.use(
+      (res) => res,
+      async (err: unknown) => {
+        const ax = err as { config?: any; response?: { status?: number } };
+        const cfg = ax.config;
+        const status = ax.response?.status;
+        if (status !== 401 || !cfg || cfg._sooner401Retry || !auth?.currentUser) {
+          return Promise.reject(err);
+        }
+        const url = String(cfg.url || "");
+        if (!url.startsWith(BACKEND_URL)) return Promise.reject(err);
+        try {
+          const token = await auth.currentUser.getIdToken(true);
+          cfg._sooner401Retry = true;
+          cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${token}` };
+          return axios.request(cfg);
+        } catch {
+          return Promise.reject(err);
+        }
+      },
+    );
+    return () => axios.interceptors.response.eject(id);
   }, [user]);
 
   const uid = user?.uid || null;
@@ -4785,7 +4868,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         Return a JSON array of actions:
         { action: "write_file" | "run_command" | "delete_file", path?: string, content?: string, command?: string, description: string }[]
         
-        Return ONLY the JSON array. No markdown, no extra text.`;
+        Allowed action values ONLY: write_file, delete_file, run_command. Never use read_file, list_dir, or other tool names — file contents are already in this prompt.
+        Return ONLY the JSON array (or a single object of one step, which the app will wrap). No markdown, no extra text.`;
 
         if (apiProvider === "vercel-ai-gateway") {
           planResponse = {
@@ -4922,6 +5006,21 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               } else {
                 setTerminalOutput((prev) => [...prev, `Agent: ${step.command} (backend not configured)`]);
               }
+            } else if (step.action === "read_file" || step.action === "list_dir" || step.action === "list_directory") {
+              const p = typeof step.path === "string" ? step.path : "";
+              setTerminalOutput((prev) => [
+                ...prev,
+                lang === "ja"
+                  ? `Agent: 「${step.action}」はこの環境では使いません（${p || "—"}）。プランに write_file / delete_file / run_command のみ含めてください。`
+                  : `Agent: Skipped unsupported action "${step.action}" (${p || "—"}). Use only write_file, delete_file, or run_command in the plan JSON.`,
+              ]);
+            } else {
+              setTerminalOutput((prev) => [
+                ...prev,
+                lang === "ja"
+                  ? `Agent: 未対応のアクション「${String(step.action)}」をスキップしました。`
+                  : `Agent: Skipped unknown action "${String(step.action)}".`,
+              ]);
             }
 
             updateLastStep("completed", `Done: ${step.description}`);
