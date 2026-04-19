@@ -4,6 +4,10 @@ import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
+import http from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import pty from "node-pty";
+import { z } from "zod";
 import { exec, execFile, spawn, ChildProcess } from "child_process";
 import cors from "cors";
 import bodyParser from "body-parser";
@@ -345,6 +349,8 @@ function setSpvCookie(res: Response, ownerUid: string, projectId: string, token:
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "3000", 10);
+  /** One interactive PTY + browser socket per user+project (new tab replaces previous). */
+  const ptyConnections = new Map<string, { pty: pty.IPty; ws: WebSocket }>();
 
   const cmsImageUpload = multer({
     storage: multer.memoryStorage(),
@@ -647,6 +653,113 @@ async function startServer() {
   /** Dev servers keyed per Firebase user + project (avoids cross-account collisions). */
   function workspaceRunKey(uid: string, projectId: string): string {
     return `${uid}::${projectId}`;
+  }
+
+  function terminalCommandBlockedReason(cmd: string): string | null {
+    const t = cmd.trim();
+    if (!t) return "empty command";
+    if (t.length > 20000) return "command too long";
+    const patterns = [
+      /rm\s+(-[a-zA-Z]*f|--force)\s+[/~]/i,
+      /rm\s+(-[a-zA-Z]*r[a-zA-Z\s]*f|--recursive)\s+[/~]/i,
+      /:\(\)\s*\{\s*:\|:&\s*\};:/,
+      /mkfs\.[a-z]+/i,
+      /dd\s+if=/i,
+      />\s*\/dev\/[sh]d/i,
+      /curl\s+[^|]*\|\s*(ba)?sh/i,
+    ];
+    if (patterns.some((re) => re.test(t))) return "blocked dangerous pattern";
+    return null;
+  }
+
+  function attachProjectPtyWebSocket(ws: WebSocket, uid: string, project: string): void {
+    if (!isValidName(project)) {
+      try {
+        ws.send(JSON.stringify({ type: "error", data: "Invalid project id" }));
+      } catch {}
+      ws.close(4003);
+      return;
+    }
+    const projectPath = projectFsPath(uid, project);
+    if (!projectPath) {
+      try {
+        ws.send(JSON.stringify({ type: "error", data: "Project path unavailable" }));
+      } catch {}
+      ws.close(4003);
+      return;
+    }
+    const key = workspaceRunKey(uid, project);
+    const prev = ptyConnections.get(key);
+    if (prev) {
+      try {
+        prev.pty.kill();
+      } catch {}
+      try {
+        prev.ws.close();
+      } catch {}
+      ptyConnections.delete(key);
+    }
+    const shell = process.platform === "win32" ? "powershell.exe" : "bash";
+    const shellArgs: string[] = process.platform === "win32" ? ["-NoLogo"] : [];
+    const cols = 80;
+    const rows = 24;
+    let ptyProc: pty.IPty;
+    try {
+      ptyProc = pty.spawn(shell, shellArgs, {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd: projectPath,
+        env: { ...process.env, TERM: "xterm-256color" },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      try {
+        ws.send(JSON.stringify({ type: "error", data: msg }));
+      } catch {}
+      ws.close();
+      return;
+    }
+    ptyConnections.set(key, { pty: ptyProc, ws });
+    const safeSend = (obj: unknown) => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+      } catch {}
+    };
+    ptyProc.onData((data) => safeSend({ type: "output", data }));
+    ptyProc.onExit(() => {
+      safeSend({ type: "exit" });
+      ptyConnections.delete(key);
+      try {
+        ws.close();
+      } catch {}
+    });
+    ws.on("message", (buf) => {
+      try {
+        const msg = JSON.parse(buf.toString()) as { type?: string; data?: string; cols?: number; rows?: number };
+        if (msg.type === "input" && typeof msg.data === "string") {
+          ptyProc.write(msg.data);
+        } else if (
+          msg.type === "resize" &&
+          typeof msg.cols === "number" &&
+          typeof msg.rows === "number" &&
+          msg.cols > 0 &&
+          msg.cols <= 500 &&
+          msg.rows > 0 &&
+          msg.rows <= 200
+        ) {
+          try {
+            ptyProc.resize(msg.cols, msg.rows);
+          } catch {}
+        }
+      } catch {}
+    });
+    ws.on("close", () => {
+      try {
+        ptyProc.kill();
+      } catch {}
+      if (ptyConnections.get(key)?.pty === ptyProc) ptyConnections.delete(key);
+    });
   }
 
   /** Same URL shape as push/pull: embed token for HTTPS GitHub clone (OAuth + PAT). */
@@ -1464,14 +1577,19 @@ async function startServer() {
     res.json({ message: "Pulled", output: pullOut.stdout + pullOut.stderr });
   });
 
+  const terminalPostBodySchema = z.object({
+    command: z.string().max(20000),
+    timeoutMs: z.number().min(5000).max(900000).optional(),
+  });
+
   // Terminal execution
   app.post("/api/projects/:id/terminal", async (req, res) => {
     const { id } = req.params;
-    const { command } = req.body;
-
-    if (!command || typeof command !== "string") {
-      return res.status(400).json({ error: "Command is required" });
+    const parsed = terminalPostBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
     }
+    const { command, timeoutMs: bodyTimeoutParsed } = parsed.data;
 
     const uid = await extractUid(req);
     if (!uid) {
@@ -1483,17 +1601,17 @@ async function startServer() {
     }
 
     const cmdTrim = command.trim();
-    const bodyTimeout = req.body?.timeoutMs;
+    const blocked = terminalCommandBlockedReason(cmdTrim);
+    if (blocked) {
+      return res.status(400).json({ error: blocked, stdout: "", stderr: blocked, exitCode: 1 });
+    }
     const defaultTimeout =
       /^flutter\s+build\s+web(\s|$)/i.test(cmdTrim) || /^flutter\s+run(\s|$)/i.test(cmdTrim)
         ? 480000
         : 30000;
-    const timeoutMs =
-      typeof bodyTimeout === "number" && bodyTimeout >= 5000 && bodyTimeout <= 900000
-        ? bodyTimeout
-        : defaultTimeout;
+    const timeoutMs = bodyTimeoutParsed ?? defaultTimeout;
 
-    exec(command, { cwd: projectPath, timeout: timeoutMs }, (error, stdout, stderr) => {
+    exec(cmdTrim, { cwd: projectPath, timeout: timeoutMs }, (error, stdout, stderr) => {
       res.json({
         stdout,
         stderr,
@@ -3229,6 +3347,28 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
     }
   });
 
+  // --- MCP-style tool manifest (for external orchestrators; Sooner IDE still requires per-command user approval in the UI) ---
+  app.get("/api/mcp/tools", (_req, res) => {
+    res.json({
+      protocolVersion: "2024-11-05",
+      serverInfo: { name: "sooner-workspace", version: "0.0.0" },
+      tools: [
+        {
+          name: "soon_terminal_run_once",
+          description:
+            "Run one shell command in the user's project directory on the Sooner workspace. In the Sooner web IDE, each command must be approved by the user before it is executed.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              command: { type: "string", description: "Full shell command (single shot, not an interactive session)." },
+            },
+            required: ["command"],
+          },
+        },
+      ],
+    });
+  });
+
   // --- Health check ---
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -3265,7 +3405,43 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
     next(err);
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ noServer: true });
+  httpServer.on("upgrade", (req, socket, head) => {
+    void (async () => {
+      try {
+        if (!firebaseAuth) {
+          socket.destroy();
+          return;
+        }
+        const host = req.headers.host || "localhost";
+        const url = new URL(req.url || "/", `http://${host}`);
+        if (url.pathname !== "/api/ws/terminal") {
+          socket.destroy();
+          return;
+        }
+        const token = url.searchParams.get("token");
+        const project = url.searchParams.get("project");
+        if (!token || !project) {
+          socket.destroy();
+          return;
+        }
+        const decoded = await firebaseAuth.verifyIdToken(token);
+        const uid = decoded.uid;
+        if (!isValidName(project)) {
+          socket.destroy();
+          return;
+        }
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          attachProjectPtyWebSocket(ws, uid, project);
+        });
+      } catch {
+        socket.destroy();
+      }
+    })();
+  });
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT} (${process.env.NODE_ENV || "development"})`);
     execFile("git", ["--version"], { timeout: 5000 }, (e, out) => {
       if (e) console.error("[Sooner] git not found in PATH — clone/push/pull will fail:", (e as Error).message);

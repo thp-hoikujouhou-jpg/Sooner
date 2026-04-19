@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useLayoutEffect, useRef, Component, type ErrorInfo, type ReactNode } from "react";
+﻿import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, Component, type ErrorInfo, type ReactNode } from "react";
 import { 
   FolderTree, 
   Terminal as TerminalIcon, 
@@ -113,6 +113,7 @@ import {
   parseOpenAiCompatibleModelsResponse,
 } from "./openAiModels";
 import { geminiStreamGenerateContent, listGeminiGenerateContentModelIds } from "./geminiModels";
+import { WorkspacePtyTerminal, type WorkspacePtyTerminalHandle } from "./WorkspacePtyTerminal";
 import {
   buildPlanFileSnippets,
   computeAgentPlanCharBudget,
@@ -1995,7 +1996,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [terminalMap, setTerminalMap] = useState<Record<string, string[]>>({});
-  const [terminalInput, setTerminalInput] = useState("");
   const terminalOutput = activeProject ? (terminalMap[activeProject] || []) : [];
   const setTerminalOutput = (updater: string[] | ((prev: string[]) => string[])) => {
     if (!activeProject) return;
@@ -2005,6 +2005,34 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       return { ...prev, [activeProject]: next };
     });
   };
+  const workspacePtyRef = useRef<WorkspacePtyTerminalHandle | null>(null);
+  const terminalRunApprovalResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const [terminalRunApprovalCommand, setTerminalRunApprovalCommand] = useState<string | null>(null);
+
+  const waitForTerminalCommandApproval = useCallback((command: string) => {
+    return new Promise<boolean>((resolve) => {
+      terminalRunApprovalResolveRef.current = resolve;
+      setTerminalRunApprovalCommand(command);
+    });
+  }, []);
+
+  const finishTerminalCommandApproval = useCallback((ok: boolean) => {
+    const r = terminalRunApprovalResolveRef.current;
+    if (!r) return;
+    terminalRunApprovalResolveRef.current = null;
+    setTerminalRunApprovalCommand(null);
+    r(ok);
+  }, []);
+
+  const getWorkspaceIdToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const u = auth.currentUser;
+      if (!u) return null;
+      return await u.getIdToken();
+    } catch {
+      return null;
+    }
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   /** Local files / snippets appended to the next agent request (Cursor-style @-attachments). */
@@ -2274,6 +2302,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       suggestions: "Suggestions",
       executionComplete: "Execution complete.",
       terminalRunHint: "Run shell commands in the project folder (Enter).",
+      terminalActivityLog: "Activity log",
+      terminalApproveTitle: "Approve shell command",
+      terminalApproveDescription:
+        "The AI wants to run this command on the workspace server in your project folder. Approve only if you trust it.",
       deleteProject: "Delete Project",
       deleteFile: "Delete File",
       usingSettingsKey: "Settings Key",
@@ -2474,6 +2506,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       suggestions: "提案",
       executionComplete: "実行が完了しました。",
       terminalRunHint: "プロジェクト直下でシェルコマンドを実行できます（Enter）。",
+      terminalActivityLog: "アクティビティログ",
+      terminalApproveTitle: "シェルコマンドの実行を許可しますか？",
+      terminalApproveDescription:
+        "AI がプロジェクトフォルダ上で次のコマンドをワークスペースサーバー上で実行しようとしています。内容を確認のうえ、信頼できる場合のみ許可してください。",
       deleteProject: "プロジェクトを削除",
       deleteFile: "ファイルを削除",
       usingSettingsKey: "設定キー使用中",
@@ -3165,28 +3201,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
   }, [fileContent, activeFile, activeProject, uid]);
-
-  const runCommand = async (command: string) => {
-    if (!activeProject) return;
-    const trimmed = command.trim();
-    if (!trimmed) return;
-    setTerminalOutput((prev) => [...prev, `> ${trimmed}`]);
-    if (!BACKEND_URL) {
-      setTerminalOutput((prev) => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
-      return;
-    }
-    try {
-      const res = await axios.post(projectApi(activeProject, "terminal"), { command: trimmed });
-      if (res.data.stdout) setTerminalOutput((prev) => [...prev, res.data.stdout]);
-      if (res.data.stderr) setTerminalOutput((prev) => [...prev, `Error: ${res.data.stderr}`]);
-      const code = res.data.exitCode;
-      if (typeof code === "number" && code !== 0) {
-        setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
-      }
-    } catch (e) {
-      setTerminalOutput((prev) => [...prev, "Failed to execute command"]);
-    }
-  };
 
   const fetchPackages = async () => {
     if (!activeProject || !uid) return;
@@ -5279,22 +5293,47 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 setTerminalOutput((prev) => [...prev, `Agent: Skipped delete (reserved or invalid path)`]);
               }
             } else if (step.action === "run_command") {
-              if (BACKEND_URL && activeProject) {
-                try {
-                  const res = await axios.post(projectApi(activeProject, "terminal"), { command: step.command });
-                  setTerminalOutput((prev) =>
-                    [...prev, `Agent: Ran ${step.command}`, res.data.stdout, res.data.stderr].filter(Boolean),
+              const cmdRaw = typeof step.command === "string" ? step.command : "";
+              const cmd = cmdRaw.trim();
+              if (BACKEND_URL && activeProject && cmd) {
+                const approved = await waitForTerminalCommandApproval(cmd);
+                if (!approved) {
+                  setTerminalOutput((prev) => [
+                    ...prev,
+                    lang === "ja"
+                      ? `Agent: コマンドはユーザーが拒否しました: ${cmd}`
+                      : `Agent: Command skipped (user declined): ${cmd}`,
+                  ]);
+                  resultLines.push(
+                    lang === "ja" ? `・コマンド（拒否） ${cmd}` : `・Command (declined) ${cmd}`,
                   );
-                  const code = res.data.exitCode;
-                  if (typeof code === "number" && code !== 0) {
-                    setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
+                } else {
+                  try {
+                    const res = await axios.post(projectApi(activeProject, "terminal"), { command: cmd });
+                    setTerminalOutput((prev) =>
+                      [...prev, `Agent: Ran ${cmd}`, res.data.stdout, res.data.stderr].filter(Boolean),
+                    );
+                    const code = res.data.exitCode;
+                    if (typeof code === "number" && code !== 0) {
+                      setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
+                    }
+                    const mirror: string[] = [];
+                    if (res.data.stdout) mirror.push(String(res.data.stdout));
+                    if (res.data.stderr) mirror.push(String(res.data.stderr));
+                    if (typeof code === "number") mirror.push(`[exit ${code}]`);
+                    if (mirror.length) workspacePtyRef.current?.appendExternalOutput(mirror.join("\n"));
+                    resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
+                  } catch {
+                    setTerminalOutput((prev) => [...prev, `Agent: Failed to run ${cmd}`]);
                   }
-                  resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
-                } catch {
-                  setTerminalOutput((prev) => [...prev, `Agent: Failed to run ${step.command}`]);
                 }
+              } else if (!cmd) {
+                setTerminalOutput((prev) => [
+                  ...prev,
+                  lang === "ja" ? "Agent: run_command に空のコマンドがありました。" : "Agent: run_command had an empty command.",
+                ]);
               } else {
-                setTerminalOutput((prev) => [...prev, `Agent: ${step.command} (backend not configured)`]);
+                setTerminalOutput((prev) => [...prev, `Agent: ${cmdRaw} (backend not configured)`]);
               }
             } else if (step.action === "read_file" || step.action === "list_dir" || step.action === "list_directory") {
               const p = typeof step.path === "string" ? step.path : "";
@@ -5964,8 +6003,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             </div>
 
             {/* Terminal */}
-            <div className="h-32 md:h-48 border-t border-[#1A1A1A] bg-[#0A0A0A] flex flex-col">
-              <div className="flex items-center gap-2 px-4 py-1.5 border-b border-[#1A1A1A] bg-[#0F0F0F]">
+            <div className="min-h-[200px] h-48 md:h-64 border-t border-[#1A1A1A] bg-[#0A0A0A] flex flex-col">
+              <div className="flex items-center gap-2 px-4 py-1.5 border-b border-[#1A1A1A] bg-[#0F0F0F] shrink-0">
                 <TerminalIcon className="w-3.5 h-3.5 text-[#8E9299]" />
                 <span className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">Terminal</span>
                 {projectType !== "static" && (
@@ -5996,41 +6035,43 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   </div>
                 )}
               </div>
-              <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-1 min-h-0">
-                {terminalOutput.map((line, i) => (
-                  <div key={i} className={cn(
-                    line.startsWith(">") ? "text-[#38BDF8]" : 
-                    line.startsWith("Error:") ? "text-red-400" : "text-[#8E9299]"
-                  )}>
-                    {line}
+              <div className="flex-1 flex flex-col min-h-0">
+                {BACKEND_URL && activeProject ? (
+                  <div className="flex-1 min-h-[120px] border-b border-[#1A1A1A]">
+                    <WorkspacePtyTerminal
+                      ref={workspacePtyRef}
+                      backendOrigin={BACKEND_URL}
+                      projectId={activeProject}
+                      getIdToken={getWorkspaceIdToken}
+                      disabled={!uid}
+                    />
                   </div>
-                ))}
-                <div ref={terminalEndRef} />
+                ) : (
+                  <div className="flex-1 min-h-[72px] flex items-center justify-center px-3 text-[11px] text-[#52525B] border-b border-[#1A1A1A]">
+                    {BACKEND_URL
+                      ? language === "ja"
+                        ? "プロジェクトを開くとワークスペースシェルに接続します。"
+                        : "Open a project to connect the workspace shell."
+                      : language === "ja"
+                        ? "VITE_BACKEND_URL を設定するとターミナルが使えます。"
+                        : "Set VITE_BACKEND_URL to enable the workspace terminal."}
+                  </div>
+                )}
+                <div className="shrink-0 max-h-[5.5rem] overflow-y-auto px-3 py-1.5 font-mono text-[10px] space-y-0.5 bg-[#080808] border-t border-[#141414]">
+                  <div className="text-[#52525B] uppercase tracking-wide text-[9px] mb-0.5">{t.terminalActivityLog}</div>
+                  {terminalOutput.map((line, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        line.startsWith(">") ? "text-[#38BDF8]" : line.startsWith("Error:") ? "text-red-400" : "text-[#8E9299]",
+                      )}
+                    >
+                      {line}
+                    </div>
+                  ))}
+                  <div ref={terminalEndRef} />
+                </div>
               </div>
-              {BACKEND_URL && activeProject && (
-                <form
-                  className="flex items-center gap-2 px-3 py-2 border-t border-[#1A1A1A] bg-[#0F0F0F] shrink-0"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const cmd = terminalInput.trim();
-                    if (!cmd || !activeProject) return;
-                    setTerminalInput("");
-                    void runCommand(cmd);
-                  }}
-                >
-                  <span className="text-[#38BDF8] shrink-0 select-none">$</span>
-                  <input
-                    type="text"
-                    value={terminalInput}
-                    onChange={(e) => setTerminalInput(e.target.value)}
-                    placeholder={t.terminalRunHint}
-                    disabled={!BACKEND_URL}
-                    className="flex-1 min-w-0 bg-[#0A0A0A] border border-[#252525] rounded px-2 py-1.5 text-[11px] text-[#E4E3E0] placeholder:text-[#52525B] focus:outline-none focus:border-[#38BDF8]/50"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </form>
-              )}
             </div>
           </Tabs.Root>
         </div>
@@ -7325,6 +7366,42 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             </Dialog.Portal>
           </Dialog.Root>
         )}
+
+        <Dialog.Root
+          open={terminalRunApprovalCommand !== null}
+          onOpenChange={(open) => {
+            if (!open) finishTerminalCommandApproval(false);
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(32rem,calc(100vw-2rem))] max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain bg-[#0D0D0D] border border-[#1A1A1A] rounded-2xl p-4 sm:p-6 shadow-2xl z-[101] outline-none">
+              <Dialog.Title className="text-xl font-bold text-white mb-2">{t.terminalApproveTitle}</Dialog.Title>
+              <Dialog.Description className="text-[#8E9299] mb-4 text-sm leading-relaxed">
+                {t.terminalApproveDescription}
+              </Dialog.Description>
+              <pre className="mb-6 p-3 rounded-lg bg-[#0A0A0A] border border-[#252525] text-[11px] text-[#E4E3E0] whitespace-pre-wrap break-all font-mono overflow-x-auto max-h-40">
+                {terminalRunApprovalCommand ?? ""}
+              </pre>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => finishTerminalCommandApproval(false)}
+                  className="px-4 py-2 text-sm font-medium text-[#8E9299] hover:text-white transition-colors"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => finishTerminalCommandApproval(true)}
+                  className="px-4 py-2 bg-[#38BDF8] text-black rounded-lg font-bold text-sm hover:bg-[#0EA5E9] transition-colors"
+                >
+                  {t.confirm}
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         {confirmDialog && (
           <Dialog.Root open={confirmDialog.isOpen} onOpenChange={(open) => !open && setConfirmDialog(null)}>
