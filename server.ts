@@ -14,7 +14,6 @@ import bodyParser from "body-parser";
 import { fileURLToPath } from "url";
 import * as esbuild from "esbuild";
 import dotenv from "dotenv";
-import http from "http";
 import crypto from "crypto";
 import admin from "firebase-admin";
 
@@ -3406,49 +3405,51 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
   });
 
   const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ noServer: true });
-  // `wss.handleUpgrade()` MUST run synchronously inside this listener; awaiting Firebase
-  // before upgrade breaks the handshake (often reported as WebSocket 404 in browsers).
-  httpServer.on("upgrade", (req, socket, head) => {
-    try {
-      if (!firebaseAuth) {
-        socket.destroy();
-        return;
-      }
-      const host = req.headers.host || "localhost";
-      const url = new URL(req.url || "/", `http://${host}`);
-      if (url.pathname !== "/api/ws/terminal") {
-        socket.destroy();
-        return;
-      }
-      const token = url.searchParams.get("token");
-      const project = url.searchParams.get("project");
-      if (!token || !project || !isValidName(project)) {
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        void (async () => {
-          try {
-            const decoded = await firebaseAuth.verifyIdToken(token);
-            attachProjectPtyWebSocket(ws, decoded.uid, project);
-          } catch {
-            try {
-              ws.send(JSON.stringify({ type: "error", data: "Unauthorized" }));
-            } catch {
-              /* ignore */
-            }
-            try {
-              ws.close(4001, "Unauthorized");
-            } catch {
-              /* ignore */
-            }
+  /** Session keyed by the same `IncomingMessage` passed to `verifyClient` and `connection`. */
+  const terminalWsAuth = new WeakMap<http.IncomingMessage, { uid: string; project: string }>();
+  // Bind WebSocket to the HTTP server (ws-managed `upgrade` listener). Manual `noServer`
+  // + `handleUpgrade` has seen spurious 404 handshakes behind Railway; this path matches
+  // the library’s intended integration and defers the 101 until `verifyClient` approves.
+  const terminalWss = new WebSocketServer({
+    server: httpServer,
+    path: "/api/ws/terminal",
+    verifyClient: (info, cb) => {
+      void (async () => {
+        try {
+          if (!firebaseAuth) {
+            cb(false, 503, "Service Unavailable");
+            return;
           }
-        })();
-      });
-    } catch {
-      socket.destroy();
+          const req = info.req;
+          const host = req.headers.host || "localhost";
+          const url = new URL(req.url || "/", `http://${host}`);
+          const token = url.searchParams.get("token");
+          const project = url.searchParams.get("project");
+          if (!token || !project || !isValidName(project)) {
+            cb(false, 401, "Unauthorized");
+            return;
+          }
+          const decoded = await firebaseAuth.verifyIdToken(token);
+          terminalWsAuth.set(req, { uid: decoded.uid, project });
+          cb(true);
+        } catch {
+          cb(false, 401, "Unauthorized");
+        }
+      })();
+    },
+  });
+  terminalWss.on("connection", (ws, req) => {
+    const sess = terminalWsAuth.get(req);
+    terminalWsAuth.delete(req);
+    if (!sess) {
+      try {
+        ws.close(4001, "Unauthorized");
+      } catch {
+        /* ignore */
+      }
+      return;
     }
+    attachProjectPtyWebSocket(ws, sess.uid, sess.project);
   });
 
   httpServer.listen(PORT, "0.0.0.0", () => {
