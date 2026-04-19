@@ -1922,6 +1922,42 @@ async function startServer() {
     return FRONTEND_TOOLS.some(tool => script.includes(tool));
   }
 
+  async function pathExists(projectPath: string, ...segments: string[]): Promise<boolean> {
+    try {
+      await fs.access(path.join(projectPath, ...segments));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** True if any *.dart exists under project lib/ (recursive). */
+  async function libTreeHasDartFile(projectPath: string): Promise<boolean> {
+    const libRoot = path.join(projectPath, "lib");
+    if (!(await pathExists(projectPath, "lib"))) return false;
+    const walk = async (dir: string): Promise<boolean> => {
+      let entries: Awaited<ReturnType<typeof fs.readdir>>;
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return false;
+      }
+      for (const e of entries) {
+        if (e.name.startsWith(".")) continue;
+        const full = path.join(dir, e.name);
+        if (e.isFile() && e.name.endsWith(".dart")) return true;
+        if (e.isDirectory() && (await walk(full))) return true;
+      }
+      return false;
+    };
+    return walk(libRoot);
+  }
+
+  /** pubspec.yaml declares the Flutter SDK (app or plugin), not only a random yaml key. */
+  function pubspecDeclaresFlutterSdk(pubspecRaw: string): boolean {
+    return /\bflutter:\s*\n[ \t]*sdk:\s*flutter\b/m.test(pubspecRaw);
+  }
+
   async function detectProjectType(projectPath: string): Promise<ProjectType | null> {
     // Python first (no ambiguity with frontend tools)
     try {
@@ -1955,10 +1991,13 @@ async function startServer() {
       return { type: "rust", command: "cargo", args: ["run"], portEnvVar: "PORT" };
     } catch {}
 
-    // Flutter — `flutter run -d web-server` for hot reload / live preview (SDK required on host)
+    // Flutter — pubspec + Flutter SDK + any Dart under lib/ (main.dart recommended; do not require only lib/main.dart)
     try {
-      await fs.access(path.join(projectPath, "pubspec.yaml"));
-      await fs.access(path.join(projectPath, "lib", "main.dart"));
+      if (!(await pathExists(projectPath, "pubspec.yaml"))) throw new Error("skip");
+      const pubspecRaw = await fs.readFile(path.join(projectPath, "pubspec.yaml"), "utf8");
+      if (!pubspecDeclaresFlutterSdk(pubspecRaw)) throw new Error("skip");
+      const hasEntry = (await pathExists(projectPath, "lib", "main.dart")) || (await libTreeHasDartFile(projectPath));
+      if (!hasEntry) throw new Error("skip");
       const flutterCmd = process.env.FLUTTER_BIN || "flutter";
       return {
         type: "flutter-web",
@@ -2055,7 +2094,25 @@ async function startServer() {
     }
 
     const ptype = await detectProjectType(projectPath);
-    if (!ptype) return res.json({ status: "static", message: "No backend detected" });
+    if (!ptype) {
+      let message = "No backend detected";
+      try {
+        if (await pathExists(projectPath, "pubspec.yaml")) {
+          const raw = await fs.readFile(path.join(projectPath, "pubspec.yaml"), "utf8");
+          if (pubspecDeclaresFlutterSdk(raw)) {
+            const hasDart =
+              (await pathExists(projectPath, "lib", "main.dart")) || (await libTreeHasDartFile(projectPath));
+            if (!hasDart) {
+              message =
+                "Flutter pubspec on server, but lib/ has no .dart files. Sync from cloud (open Preview) or upload lib/.";
+            }
+          }
+        }
+      } catch {
+        /* keep default message */
+      }
+      return res.json({ status: "static", message });
+    }
 
     const port = nextPort++;
     const env = { ...process.env, PORT: String(port) };

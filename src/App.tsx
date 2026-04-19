@@ -3292,11 +3292,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const isFlutterProject = () => {
-    const hasFile = (name: string): boolean => {
-      const check = (nodes: FileNode[]): boolean => nodes.some(n => n.name === name || (n.children && check(n.children)));
-      return check(files);
+    /** Match project-relative path (any folder depth), not only basename on a shallow tree. */
+    const hasProjectPath = (suffix: string): boolean => {
+      const norm = suffix.replace(/^\/+/, "");
+      const walk = (nodes: FileNode[]): boolean =>
+        nodes.some((n) => {
+          if (n.type === "file" && (n.path === norm || n.path.endsWith("/" + norm))) return true;
+          return n.children ? walk(n.children) : false;
+        });
+      return walk(files);
     };
-    return hasFile("pubspec.yaml");
+    return hasProjectPath("pubspec.yaml");
   };
 
   const pollBuildStatus = (project: string): Promise<boolean> => {
