@@ -454,6 +454,107 @@ async function startServer() {
     }
   });
 
+  /** OpenRouter from the browser can 401 when the key's allowed referrers do not match the user's origin. Proxy uses a stable Referer. */
+  const OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1";
+  function allowedOpenRouterProxyHost(hostname: string): boolean {
+    const h = hostname.toLowerCase();
+    if (h === "openrouter.ai" || h.endsWith(".openrouter.ai")) return true;
+    const extra = (process.env.OPENROUTER_PROXY_ALLOWED_HOSTS || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    return extra.includes(h);
+  }
+  function openRouterChatCompletionsUrlFromBase(apiBaseRaw: string): string | null {
+    const raw = apiBaseRaw.trim().replace(/\/+$/, "");
+    if (!raw) return null;
+    try {
+      const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      const u = new URL(withProto);
+      if (u.protocol !== "https:") return null;
+      if (!allowedOpenRouterProxyHost(u.hostname)) return null;
+      const base = `${u.origin}${(u.pathname || "").replace(/\/+$/, "")}`;
+      if (/\/v1\/chat\/completions$/i.test(base)) return base;
+      if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
+      return `${base}/v1/chat/completions`;
+    } catch {
+      return null;
+    }
+  }
+  function openRouterModelsUrlFromBase(apiBaseRaw: string): string | null {
+    const raw = apiBaseRaw.trim().replace(/\/+$/, "");
+    if (!raw) return null;
+    try {
+      const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      const u = new URL(withProto);
+      if (u.protocol !== "https:") return null;
+      if (!allowedOpenRouterProxyHost(u.hostname)) return null;
+      const base = `${u.origin}${(u.pathname || "").replace(/\/+$/, "")}`;
+      if (/\/v1\/models$/i.test(base)) return base;
+      if (/\/v1$/i.test(base)) return `${base}/models`;
+      return `${base}/v1/models`;
+    } catch {
+      return null;
+    }
+  }
+
+  app.post("/api/ai/openrouter/chat-completions", async (req, res) => {
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const orKeyRaw = req.headers["x-sooner-openrouter-key"];
+    const orKey = typeof orKeyRaw === "string" ? orKeyRaw.trim() : "";
+    if (!orKey) return res.status(400).json({ error: "Missing X-Sooner-OpenRouter-Key" });
+    const body = req.body && typeof req.body === "object" ? ({ ...req.body } as Record<string, unknown>) : {};
+    const baseOverride =
+      typeof body.openrouterBase === "string" && body.openrouterBase.trim() ? body.openrouterBase.trim() : OPENROUTER_DEFAULT_BASE;
+    delete body.openrouterBase;
+    const url = openRouterChatCompletionsUrlFromBase(baseOverride);
+    if (!url) return res.status(400).json({ error: "Invalid or disallowed OpenRouter API base" });
+    const referer = (process.env.OPENROUTER_HTTP_REFERER || "https://sooner.sh").trim() || "https://sooner.sh";
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${orKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": referer,
+          "X-OpenRouter-Title": "Sooner",
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await r.text();
+      res.status(r.status).set("Content-Type", r.headers.get("content-type") || "application/json").send(text);
+    } catch (e: any) {
+      res.status(502).json({ error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/ai/openrouter/models", async (req, res) => {
+    const uid = await extractUid(req);
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    const orKeyRaw = req.headers["x-sooner-openrouter-key"];
+    const orKey = typeof orKeyRaw === "string" ? orKeyRaw.trim() : "";
+    if (!orKey) return res.status(400).json({ error: "Missing X-Sooner-OpenRouter-Key" });
+    const base =
+      typeof req.query.base === "string" && req.query.base.trim() ? req.query.base.trim() : OPENROUTER_DEFAULT_BASE;
+    const modelsUrl = openRouterModelsUrlFromBase(base);
+    if (!modelsUrl) return res.status(400).json({ error: "Invalid or disallowed OpenRouter API base" });
+    const referer = (process.env.OPENROUTER_HTTP_REFERER || "https://sooner.sh").trim() || "https://sooner.sh";
+    try {
+      const r = await fetch(modelsUrl, {
+        headers: {
+          Authorization: `Bearer ${orKey}`,
+          "HTTP-Referer": referer,
+          "X-OpenRouter-Title": "Sooner",
+        },
+      });
+      const text = await r.text();
+      res.status(r.status).set("Content-Type", r.headers.get("content-type") || "application/json").send(text);
+    } catch (e: any) {
+      res.status(502).json({ error: String(e?.message || e) });
+    }
+  });
+
   const PROJECTS_ROOT = path.resolve(process.cwd(), "projects");
 
   try {

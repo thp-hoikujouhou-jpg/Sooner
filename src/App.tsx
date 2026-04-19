@@ -2253,7 +2253,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       providerOpenRouter: "OpenRouter",
       openRouterApiKey: "OpenRouter API Key",
       openRouterKeyHint:
-        "Uses https://openrouter.ai/api/v1 (not api.openai.com). Override with VITE_OPENROUTER_API_BASE or VITE_CUSTOM_OPENAI_API_BASE at build time if needed.",
+        "Uses https://openrouter.ai/api/v1. With VITE_BACKEND_URL, requests are proxied (stable Referer). Without it, browser calls OpenRouter directly — key referrer allowlist must include this origin.",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2455,7 +2455,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       providerOpenRouter: "OpenRouter",
       openRouterApiKey: "OpenRouter API キー",
       openRouterKeyHint:
-        "接続先は https://openrouter.ai/api/v1（api.openai.com は使いません）。別エンドポイントはビルド時の VITE_OPENROUTER_API_BASE または VITE_CUSTOM_OPENAI_API_BASE で指定できます。",
+        "接続先は https://openrouter.ai/api/v1。VITE_BACKEND_URL がある場合は API 経由でプロキシされます。ない場合はブラウザから直接呼び出すため、OpenRouter キーのリファラー許可にこのオリジンを含めてください。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -3967,6 +3967,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return typeof m === "string" && m.trim() ? m.trim() : "";
   }
 
+  /** Workspace API returns `{ error: \"Unauthorized\" }` when Firebase token is missing/invalid. */
+  function isWorkspaceApiUnauthorized(e: unknown): boolean {
+    const d = (e as { response?: { data?: { error?: unknown } } }).response?.data;
+    if (!d || typeof d !== "object") return false;
+    const er = (d as { error?: unknown }).error;
+    return er === "Unauthorized" || er === "unauthorized";
+  }
+
   async function customOpenAiChatCompletion(params: {
     model: string;
     messages: { role: "system" | "user" | "assistant"; content: string | unknown }[];
@@ -3974,10 +3982,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     maxTokens?: number;
   }): Promise<string> {
     const baseRaw = customOpenAiRoot();
-    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
-    if (!url) throw new Error("Invalid custom API base URL");
     const key = getActiveApiKey();
-    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     const body: Record<string, unknown> = {
       model: params.model,
       messages: params.messages,
@@ -3987,6 +3992,49 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (typeof params.maxTokens === "number" && params.maxTokens > 0) {
       body.max_tokens = params.maxTokens;
     }
+
+    const throwOpenRouter401 = (detail: string) => {
+      const isOr = baseRaw.toLowerCase().includes("openrouter.ai");
+      if (!isOr) {
+        throw new Error(detail || "Unauthorized");
+      }
+      const hint =
+        language === "ja"
+          ? "OpenRouter が 401 を返しました。キー（sk-or-v1-…）を再確認してください。OpenRouter のキーで「許可する HTTP リファラー」を使っている場合は、このサイトのオリジンを追加するか、VITE_BACKEND_URL を設定してワークスペース API 経由で呼び出してください（サーバ側で Referer を固定）。"
+          : "OpenRouter returned 401. Re-check your sk-or-v1-… key. If the key uses allowed HTTP referrers, add this site's origin or set VITE_BACKEND_URL so requests go through your workspace API (stable Referer).";
+      throw new Error(detail ? `${hint} ${detail}` : hint);
+    };
+
+    if (BACKEND_URL && apiProvider === "custom") {
+      try {
+        const res = await axios.post(apiUrl("/api/ai/openrouter/chat-completions"), { ...body, openrouterBase: baseRaw }, {
+          headers: { "X-Sooner-OpenRouter-Key": key },
+        });
+        const text = res.data?.choices?.[0]?.message?.content;
+        if (typeof text !== "string") throw new Error("Empty AI response");
+        return text;
+      } catch (e: unknown) {
+        const ax = e as { response?: { status?: number } };
+        const st = ax.response?.status;
+        const detail = openAiHttpErrorDetail(e);
+        if (st === 401) {
+          if (isWorkspaceApiUnauthorized(e)) {
+            throw new Error(
+              language === "ja"
+                ? "ワークスペース API に接続できません。サインインし直すか、VITE_BACKEND_URL を確認してください。"
+                : "Workspace API rejected the session. Sign in again or check VITE_BACKEND_URL.",
+            );
+          }
+          throwOpenRouter401(detail);
+        }
+        const msg = detail || (e instanceof Error ? e.message : String(e));
+        throw new Error(msg || "OpenAI-compatible request failed");
+      }
+    }
+
+    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
+    if (!url) throw new Error("Invalid custom API base URL");
+    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     try {
       const res = await axios.post(url, body, { headers });
       const text = res.data?.choices?.[0]?.message?.content;
@@ -3996,13 +4044,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const ax = e as { response?: { status?: number } };
       const st = ax.response?.status;
       const detail = openAiHttpErrorDetail(e);
-      if (st === 401 && customOpenAiRoot().toLowerCase().includes("openrouter.ai")) {
-        const hint =
-          language === "ja"
-            ? "OpenRouter が 401 を返しました。キーが無効・失効しているか、コピー時に引用符や「Bearer 」が二重になっていないか確認してください（設定のキーは生の sk-or-… のみ）。"
-            : "OpenRouter returned 401 (unauthorized). Re-enter your raw sk-or-… key — no quotes, no extra spaces, and do not prefix with Bearer (the app adds it).";
-        throw new Error(detail ? `${hint} ${detail}` : hint);
-      }
+      if (st === 401) throwOpenRouter401(detail);
       const msg = detail || (e instanceof Error ? e.message : String(e));
       throw new Error(msg || "OpenAI-compatible request failed");
     }
@@ -4014,10 +4056,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     imageBase64: string;
   }): Promise<string> {
     const baseRaw = customOpenAiRoot();
-    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
-    if (!url) throw new Error("Invalid custom API base URL");
     const key = getActiveApiKey();
-    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     const body = {
       model: params.model,
       messages: [
@@ -4032,6 +4071,35 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       temperature: 0.3,
       stream: false,
     };
+
+    if (BACKEND_URL && apiProvider === "custom") {
+      try {
+        const res = await axios.post(
+          apiUrl("/api/ai/openrouter/chat-completions"),
+          { ...body, openrouterBase: baseRaw },
+          { headers: { "X-Sooner-OpenRouter-Key": key } },
+        );
+        const text = res.data?.choices?.[0]?.message?.content;
+        if (typeof text !== "string") throw new Error("Empty AI response");
+        return text;
+      } catch (e: unknown) {
+        const ax = e as { response?: { status?: number } };
+        const st = ax.response?.status;
+        const detail = openAiHttpErrorDetail(e);
+        if (st === 401 && baseRaw.toLowerCase().includes("openrouter.ai")) {
+          const hint =
+            language === "ja"
+              ? "OpenRouter が 401 を返しました。キーと（該当する場合）リファラー制限を確認するか、VITE_BACKEND_URL 経由を利用してください。"
+              : "OpenRouter returned 401. Check the key and referrer restrictions, or use VITE_BACKEND_URL.";
+          throw new Error(detail ? `${hint} ${detail}` : hint);
+        }
+        throw new Error(detail || (e instanceof Error ? e.message : String(e)) || "Vision request failed");
+      }
+    }
+
+    const url = openAiCompatibleChatCompletionsUrl(baseRaw);
+    if (!url) throw new Error("Invalid custom API base URL");
+    const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     try {
       const res = await axios.post(url, body, { headers });
       const text = res.data?.choices?.[0]?.message?.content;
@@ -4041,7 +4109,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const ax = e as { response?: { status?: number } };
       const st = ax.response?.status;
       const detail = openAiHttpErrorDetail(e);
-      if (st === 401 && customOpenAiRoot().toLowerCase().includes("openrouter.ai")) {
+      if (st === 401 && baseRaw.toLowerCase().includes("openrouter.ai")) {
         const hint =
           language === "ja"
             ? "OpenRouter が 401 を返しました。APIキーを確認してください。"
@@ -4286,11 +4354,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
       } else if (apiProvider === "custom" && customKey.trim()) {
         const base = customOpenAiRoot();
-        const modelsUrl = openAiCompatibleModelsListUrl(base);
         try {
-          const res = await axios.get(modelsUrl, {
-            headers: customOpenAiHeaders(base, key),
-          });
+          const res = BACKEND_URL
+            ? await axios.get(apiUrl("/api/ai/openrouter/models"), {
+                params: { base },
+                headers: { "X-Sooner-OpenRouter-Key": key },
+              })
+            : await axios.get(openAiCompatibleModelsListUrl(base), {
+                headers: customOpenAiHeaders(base, key),
+              });
           const modelNames = parseOpenAiCompatibleModelsResponse(res.data);
           commitModels(modelNames.length > 0 ? modelNames : fallback);
         } catch {
@@ -4328,10 +4400,16 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
       } else if (apiProvider === "custom" && customKey.trim()) {
         const base = customOpenAiRoot();
-        const modelsUrl = openAiCompatibleModelsListUrl(base);
-        await axios.get(modelsUrl, { headers: customOpenAiHeaders(base, key) });
+        if (BACKEND_URL) {
+          await axios.get(apiUrl("/api/ai/openrouter/models"), {
+            params: { base },
+            headers: { "X-Sooner-OpenRouter-Key": key },
+          });
+        } else {
+          await axios.get(openAiCompatibleModelsListUrl(base), { headers: customOpenAiHeaders(base, key) });
+        }
         await customOpenAiChatCompletion({
-          model: selectedModel.trim() || "gpt-4o-mini",
+          model: selectedModel.trim() || "openai/gpt-4o-mini",
           messages: [{ role: "user", content: "Hi" }],
           temperature: 0.2,
         });
