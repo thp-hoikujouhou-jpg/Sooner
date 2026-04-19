@@ -3963,6 +3963,51 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return typeof m === "string" && m.trim() ? m.trim() : "";
   }
 
+  /** @google/genai throws `ApiError` with `message` = JSON.stringify(body) on HTTP errors — unpack for UI. */
+  function humanizeCaughtAiError(e: unknown): string {
+    const fromAxios = openAiHttpErrorDetail(e);
+    if (fromAxios) return fromAxios;
+    if (!(e instanceof Error)) return typeof e === "string" ? e : String(e);
+    const ex = e as unknown as { status?: number };
+    const status = typeof ex.status === "number" ? ex.status : undefined;
+    const rawMsg = e.message?.trim() || "";
+    if (rawMsg.startsWith("{")) {
+      try {
+        const j = JSON.parse(rawMsg) as Record<string, unknown>;
+        const nested = j.error;
+        if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+          const err = nested as Record<string, unknown>;
+          const parts: string[] = [];
+          if (typeof err.message === "string" && err.message.trim()) parts.push(err.message.trim());
+          if (typeof err.status === "string" && err.status.trim()) {
+            const st = err.status.trim();
+            if (!parts.some((p) => p.includes(st))) parts.push(`(${st})`);
+          }
+          if (typeof err.code === "number" && err.code && !parts.join(" ").includes(String(err.code))) {
+            parts.push(`code ${err.code}`);
+          }
+          if (parts.length) {
+            const body = parts.join(" ");
+            return status != null && !body.includes(`HTTP ${status}`) ? `${body} [HTTP ${status}]` : body;
+          }
+        }
+        if (typeof j.message === "string" && j.message.trim()) {
+          const body = j.message.trim();
+          return status != null ? `${body} [HTTP ${status}]` : body;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (rawMsg.length > 800) {
+        return language === "ja"
+          ? "API がエラーを返しました（本文が長いため省略。コンソールの Network / Console を確認してください）。"
+          : "The API returned an error (body omitted here—check the browser console or Network tab).";
+      }
+    }
+    if (rawMsg && status != null && !rawMsg.includes(`HTTP ${status}`)) return `${rawMsg} [HTTP ${status}]`;
+    return rawMsg || (status != null ? `Request failed [HTTP ${status}]` : "Unknown error");
+  }
+
   /** Workspace API returns `{ error: \"Unauthorized\" }` when Firebase token is missing/invalid. */
   function isWorkspaceApiUnauthorized(e: unknown): boolean {
     const d = (e as { response?: { data?: { error?: unknown } } }).response?.data;
@@ -5262,8 +5307,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
       }
     } catch (error: any) {
+      const humane = humanizeCaughtAiError(error);
+      const humaneLower = humane.toLowerCase();
       console.error(error);
-      if (error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("API key not valid") || error.message?.includes("quota")) {
+      if (
+        humane.includes("429") ||
+        humaneLower.includes("resource_exhausted") ||
+        humaneLower.includes("api key not valid") ||
+        humaneLower.includes("quota")
+      ) {
         updateLastStep("failed", "Paused.");
         if (!abortControllerRef.current?.signal.aborted) {
           setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIの制限に達しました。しばらくしてから再試行してください。" : "API rate limit reached. Please try again shortly." }]);
@@ -5271,9 +5323,22 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         return; 
       }
       
-      let errorMsg = "Error occurred.";
-      if (error.message?.includes("INVALID_ARGUMENT") || error.message?.includes("token count exceeds")) {
-        errorMsg = "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
+      let errorMsg: string;
+      if (humane.includes("INVALID_ARGUMENT") || humaneLower.includes("token count exceeds")) {
+        errorMsg =
+          language === "ja"
+            ? "会話や添付が長すぎてモデル上限を超えています。Clear で履歴を消すか、短いメッセージで試してください。"
+            : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
+      } else if (humaneLower.includes("provider returned error")) {
+        errorMsg =
+          humane +
+          (language === "ja"
+            ? " 別モデルへの切り替え・Clear・短いプロンプト、または Google AI Studio の利用枠を確認してください。"
+            : " Try another model, Clear chat, shorten the prompt, or check Google AI Studio quota/billing.");
+      } else {
+        errorMsg =
+          humane.trim() ||
+          (language === "ja" ? "エラーが発生しました。" : "An error occurred.");
       }
       updateLastStep("failed", "Execution failed.");
       if (!abortControllerRef.current?.signal.aborted) {
