@@ -113,6 +113,12 @@ import {
   parseOpenAiCompatibleModelsResponse,
 } from "./openAiModels";
 import { geminiStreamGenerateContent, listGeminiGenerateContentModelIds } from "./geminiModels";
+import {
+  buildPlanFileSnippets,
+  computeAgentPlanCharBudget,
+  stringifyFileTreeForAgent,
+  truncateAgentHistory,
+} from "./agentModelBudget";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
@@ -4609,6 +4615,17 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           language === "ja" ? "プロジェクトファイルを読み取り中…" : "Reading project files…",
         );
 
+        const planModelId =
+          apiProvider === "vercel-ai-gateway" || isCustomOpenAiChatBase()
+            ? selectedModel
+            : modelIdForGeminiRequest(selectedModel);
+        const planBudget = computeAgentPlanCharBudget(planModelId);
+        appendTrace(
+          language === "ja"
+            ? `モデル想定コンテキスト: 約 ${planBudget.contextTokens.toLocaleString()} トークン → プラン用にファイル抜粋上限 ~${planBudget.maxCharsForFiles.toLocaleString()} 文字、履歴 ~${planBudget.maxHistoryChars.toLocaleString()} 文字`
+            : `Model budget (~${planBudget.contextTokens.toLocaleString()} tokens): file excerpts ~${planBudget.maxCharsForFiles.toLocaleString()} chars, history ~${planBudget.maxHistoryChars.toLocaleString()} chars`,
+        );
+
         const flattenSourcePaths = (nodes: FileNode[]): string[] => {
           const out: string[] = [];
           const walk = (list: FileNode[]) => {
@@ -4628,14 +4645,22 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         };
 
         const paths = flattenSourcePaths(files);
+        const maxPathsToRead = Math.min(paths.length, Math.max(120, planBudget.maxFiles * 5));
+        if (paths.length > maxPathsToRead) {
+          appendTrace(
+            language === "ja"
+              ? `読み取りパスを ${maxPathsToRead}/${paths.length} に制限（モデル用コンテキストと速度のため）`
+              : `Reading ${maxPathsToRead} of ${paths.length} paths (model context & speed cap)`,
+          );
+        }
         const existingCode: { path: string; content: string }[] = [];
-        for (let i = 0; i < paths.length; i++) {
+        for (let i = 0; i < maxPathsToRead; i++) {
           const p = paths[i];
           if (abortControllerRef.current?.signal.aborted) break;
           const c = uid && activeProject ? await storageDownloadFile(uid, activeProject, p) : null;
           if (c === null) continue;
           existingCode.push({ path: p, content: c });
-          appendTrace(`${i + 1}/${paths.length}  ${p}  (${c.length} chars)`);
+          appendTrace(`${i + 1}/${maxPathsToRead}  ${p}  (${c.length} chars)`);
           updateReadLabel(language === "ja" ? `読み取り: ${p}` : `Read: ${p}`);
         }
         updateLastStep(
@@ -4645,10 +4670,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             : `Loaded ${existingCode.length} file(s)`,
         );
 
-        const planModelLabel =
-          apiProvider === "vercel-ai-gateway" || isCustomOpenAiChatBase()
-            ? selectedModel
-            : modelIdForGeminiRequest(selectedModel);
+        const planModelLabel = planModelId;
         appendTrace(
           language === "ja"
             ? `AI にプランを依頼しています（${planModelLabel}）…`
@@ -4656,22 +4678,22 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         );
         addStep("plan", language === "ja" ? "プラン生成中…" : "Generating plan…");
 
-        const existingFilesSummary = existingCode.length > 0
-          ? existingCode.map(f => `--- ${f.path} ---\n${f.content.slice(0, 6000)}${f.content.length > 6000 ? "\n... (truncated)" : ""}`).join("\n\n")
-          : "(empty project)";
+        const planHistoryContext = truncateAgentHistory(historyContext, planBudget.maxHistoryChars, language);
+        const treeForPlan = stringifyFileTreeForAgent(files, planBudget.maxTreeChars);
+        const existingFilesSummary = buildPlanFileSnippets(existingCode, planBudget, language);
 
         const planPrompt = `
         You are an expert developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
         You MUST follow the conversation history and the user's request to determine the correct language/framework.
         
         CONVERSATION HISTORY:
-        ${historyContext}
+        ${planHistoryContext}
 
         CURRENT REQUEST: ${modelUserPayload}
  
         CURRENT PROJECT STATE:
         Active Project: ${activeProject}
-        File tree: ${JSON.stringify(files)}
+        File tree: ${treeForPlan}
 
         EXISTING FILE CONTENTS (read these carefully before generating):
         ${existingFilesSummary}
