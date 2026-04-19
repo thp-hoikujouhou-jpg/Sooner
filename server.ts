@@ -3407,38 +3407,48 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
 
   const httpServer = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
+  // `wss.handleUpgrade()` MUST run synchronously inside this listener; awaiting Firebase
+  // before upgrade breaks the handshake (often reported as WebSocket 404 in browsers).
   httpServer.on("upgrade", (req, socket, head) => {
-    void (async () => {
-      try {
-        if (!firebaseAuth) {
-          socket.destroy();
-          return;
-        }
-        const host = req.headers.host || "localhost";
-        const url = new URL(req.url || "/", `http://${host}`);
-        if (url.pathname !== "/api/ws/terminal") {
-          socket.destroy();
-          return;
-        }
-        const token = url.searchParams.get("token");
-        const project = url.searchParams.get("project");
-        if (!token || !project) {
-          socket.destroy();
-          return;
-        }
-        const decoded = await firebaseAuth.verifyIdToken(token);
-        const uid = decoded.uid;
-        if (!isValidName(project)) {
-          socket.destroy();
-          return;
-        }
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          attachProjectPtyWebSocket(ws, uid, project);
-        });
-      } catch {
+    try {
+      if (!firebaseAuth) {
         socket.destroy();
+        return;
       }
-    })();
+      const host = req.headers.host || "localhost";
+      const url = new URL(req.url || "/", `http://${host}`);
+      if (url.pathname !== "/api/ws/terminal") {
+        socket.destroy();
+        return;
+      }
+      const token = url.searchParams.get("token");
+      const project = url.searchParams.get("project");
+      if (!token || !project || !isValidName(project)) {
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        void (async () => {
+          try {
+            const decoded = await firebaseAuth.verifyIdToken(token);
+            attachProjectPtyWebSocket(ws, decoded.uid, project);
+          } catch {
+            try {
+              ws.send(JSON.stringify({ type: "error", data: "Unauthorized" }));
+            } catch {
+              /* ignore */
+            }
+            try {
+              ws.close(4001, "Unauthorized");
+            } catch {
+              /* ignore */
+            }
+          }
+        })();
+      });
+    } catch {
+      socket.destroy();
+    }
   });
 
   httpServer.listen(PORT, "0.0.0.0", () => {
