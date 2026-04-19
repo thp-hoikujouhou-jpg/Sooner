@@ -362,8 +362,8 @@ const landingI18n = {
 
 /** Vercel AI Gateway OpenAI root (server proxy only; no per-user URL in Settings). */
 const DEFAULT_VERCEL_GATEWAY_OPENAI_ROOT = "https://ai-gateway.vercel.sh/v1";
-/** Custom provider: OpenAI-compatible Chat Completions root (API key only in UI). */
-const DEFAULT_CUSTOM_OPENAI_ROOT = "https://api.openai.com/v1";
+/** OpenRouter (OpenAI-compatible) API root — Custom provider is OpenRouter-only in the UI. */
+const DEFAULT_OPENROUTER_API_ROOT = "https://openrouter.ai/api/v1";
 
 /** GitHub repo name: letters, digits, `.`, `-`, `_` only (max 100). */
 function sanitizeGithubRepoName(raw: string): string {
@@ -1728,6 +1728,23 @@ function projectApi(projectId: string, resource: string): string {
   return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/${tail}`);
 }
 
+/** Strip markdown / preamble so the first `[` starts a JSON array (models often wrap output in ```json … ``` or prose). */
+function stripAgentPlanMarkdown(raw: string): string {
+  let t = raw.trim();
+  if (t.includes("```")) {
+    const fence = /```(?:json)?\s*/i.exec(t);
+    if (fence && fence.index !== undefined) {
+      t = t.slice(fence.index + fence[0].length);
+      const close = t.indexOf("```");
+      if (close !== -1) t = t.slice(0, close);
+    }
+  }
+  t = t.trim();
+  const b = t.indexOf("[");
+  if (b === -1) throw new Error("No JSON array found in model output");
+  return t.slice(b).trimEnd();
+}
+
 /** First top-level `[`…`]` slice; respects JSON double-quoted strings (so triple-backtick fences inside string values do not confuse bracket matching). */
 function extractFirstJsonArray(text: string): string | null {
   const t = text.trim();
@@ -1763,15 +1780,11 @@ function extractFirstJsonArray(text: string): string | null {
   return null;
 }
 
-/** Parse model JSON array; avoids splitting on inner ``` fences in write_file content. */
+/** Parse model JSON array; tolerates markdown fences and leading prose. */
 function parseAgentPlanJson(raw: string | undefined): any[] {
   if (!raw?.trim()) throw new Error("empty plan");
-  let t = raw.trim();
-  if (t.startsWith("```")) {
-    t = t.replace(/^```(?:json)?\s*\r?\n?/i, "");
-    t = t.replace(/\r?\n?```\s*$/i, "").trim();
-  }
-  const slice = extractFirstJsonArray(t) ?? t;
+  const stripped = stripAgentPlanMarkdown(raw);
+  const slice = extractFirstJsonArray(stripped) ?? stripped;
   const plan = JSON.parse(slice);
   if (!Array.isArray(plan)) throw new Error("AI plan is not an array");
   return plan;
@@ -2080,7 +2093,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       missingKey: "Missing Key",
       apiKeyIntroTitle: "Set your API key",
       apiKeyIntroBody:
-        "To use AI features, open Settings and enter your API key (Gemini, Vercel AI Gateway, or custom). You can dismiss this reminder and configure it later.",
+        "To use AI features, open Settings and enter your API key (Gemini, Vercel AI Gateway, or OpenRouter). You can dismiss this reminder and configure it later.",
       apiKeyIntroOpenSettings: "Open Settings",
       apiKeyIntroLater: "Later",
       download: "Download Project",
@@ -2094,6 +2107,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       confirmDeleteFolder: "Delete folder \"{name}\" and all its contents?",
       deleteFolder: "Delete Folder",
       refreshFiles: "Refresh file list",
+      refreshProjects: "Reload project list",
       uploadProject: "Upload project (ZIP)",
       uploadProjectFolder: "Upload project folder",
       editMode: "Edit Mode",
@@ -2105,8 +2119,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "Settings Key",
       usingEnvKey: "Env Key",
       apiProvider: "API Provider",
-      customOpenAiHint:
-        "Custom uses OpenAI-compatible Chat Completions at https://api.openai.com/v1 (API key only).",
+      providerOpenRouter: "OpenRouter",
+      openRouterApiKey: "OpenRouter API Key",
+      openRouterKeyHint:
+        "Uses https://openrouter.ai/api/v1 (not api.openai.com). Override with VITE_OPENROUTER_API_BASE or VITE_CUSTOM_OPENAI_API_BASE at build time if needed.",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2274,7 +2290,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       missingKey: "キーがありません",
       apiKeyIntroTitle: "APIキーをセットしてください",
       apiKeyIntroBody:
-        "AI機能を使うには、設定を開き、APIキー（Gemini、Vercel AI Gateway、またはカスタム）を入力してください。このダイアログを閉じて後から設定することもできます。",
+        "AI機能を使うには、設定を開き、APIキー（Gemini、Vercel AI Gateway、または OpenRouter）を入力してください。このダイアログを閉じて後から設定することもできます。",
       apiKeyIntroOpenSettings: "設定を開く",
       apiKeyIntroLater: "後で",
       download: "プロジェクトをダウンロード",
@@ -2288,6 +2304,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       confirmDeleteFolder: "フォルダ「{name}」と、その中のすべてのファイルを削除してもよろしいですか？",
       deleteFolder: "フォルダを削除",
       refreshFiles: "ファイル一覧を再読み込み",
+      refreshProjects: "プロジェクト一覧を再読み込み",
       uploadProject: "プロジェクトをアップロード (ZIP)",
       uploadProjectFolder: "フォルダーをプロジェクトとしてアップロード",
       editMode: "編集モード",
@@ -2299,8 +2316,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "設定キー使用中",
       usingEnvKey: "環境変数キー使用中",
       apiProvider: "APIプロバイダー",
-      customOpenAiHint:
-        "カスタムは https://api.openai.com/v1 の OpenAI 互換チャット（API キーのみ）です。",
+      providerOpenRouter: "OpenRouter",
+      openRouterApiKey: "OpenRouter API キー",
+      openRouterKeyHint:
+        "接続先は https://openrouter.ai/api/v1（api.openai.com は使いません）。別エンドポイントはビルド時の VITE_OPENROUTER_API_BASE または VITE_CUSTOM_OPENAI_API_BASE で指定できます。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -2787,6 +2806,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           if (uid) setIssuedPreviewUrl(previewProjectUrl(pid, uid));
         }
       }
+      if (activeProjectRef.current === pid) void fetchFiles(pid);
     } catch (e) {
       console.warn("sync-from-storage", e);
     }
@@ -3635,7 +3655,15 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   /** OpenAI-compatible root for gateway proxy (fixed; browser uses VITE_BACKEND_URL). */
   const vercelGatewayOpenAiRoot = (): string => DEFAULT_VERCEL_GATEWAY_OPENAI_ROOT;
 
-  const customOpenAiRoot = (): string => DEFAULT_CUSTOM_OPENAI_ROOT;
+  const customOpenAiRoot = (): string => {
+    const fromEnv = String(
+      import.meta.env.VITE_OPENROUTER_API_BASE || import.meta.env.VITE_CUSTOM_OPENAI_API_BASE || "",
+    )
+      .trim()
+      .replace(/\/+$/, "");
+    if (fromEnv) return fromEnv;
+    return DEFAULT_OPENROUTER_API_ROOT;
+  };
 
   /** Gateway chat uses provider/model ids (e.g. google/gemini-2.5-flash). */
   const gatewayOpenAiModelId = (model: string): string => {
@@ -3753,7 +3781,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return new GoogleGenAI({ apiKey: activeKey });
   };
 
-  /** Custom = OpenAI-compatible Chat Completions at api.openai.com (key only in Settings). */
+  /** OpenRouter (stored as provider id "custom"): OpenAI-compatible Chat Completions at openrouter.ai/api/v1 by default. */
   const isCustomOpenAiChatBase = (): boolean => apiProvider === "custom" && !!customKey.trim();
 
   function customOpenAiHeaders(baseRaw: string, key: string): Record<string, string> {
@@ -3769,22 +3797,23 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     model: string;
     messages: { role: "system" | "user" | "assistant"; content: string | unknown }[];
     temperature?: number;
+    maxTokens?: number;
   }): Promise<string> {
     const baseRaw = customOpenAiRoot();
     const url = openAiCompatibleChatCompletionsUrl(baseRaw);
     if (!url) throw new Error("Invalid custom API base URL");
     const key = getActiveApiKey();
     const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
-    const res = await axios.post(
-      url,
-      {
-        model: params.model,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.7,
-        stream: false,
-      },
-      { headers },
-    );
+    const body: Record<string, unknown> = {
+      model: params.model,
+      messages: params.messages,
+      temperature: params.temperature ?? 0.7,
+      stream: false,
+    };
+    if (typeof params.maxTokens === "number" && params.maxTokens > 0) {
+      body.max_tokens = params.maxTokens;
+    }
+    const res = await axios.post(url, body, { headers });
     const text = res.data?.choices?.[0]?.message?.content;
     if (typeof text !== "string") throw new Error("Empty AI response");
     return text;
@@ -4705,6 +4734,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         - If the user asks to "improve" or "add a feature", merge it into the existing code.
         
         MODE: ${agentMode}
+        ${
+          agentMode === "plan"
+            ? `
+        PLAN MODE — COMPACT JSON (MANDATORY):
+        - The entire response must be one JSON array only: the first character you output must be "[". No markdown, no code fences (no \`\`\`), no text before or after the array.
+        - For every "write_file" in plan mode: set "content" to "" or one short placeholder line (e.g. "(full file in Code mode)"). Put ALL specification detail in "description" (outline, components, UX, libraries). NEVER embed full HTML/CSS/JS or long markdown documents inside JSON strings — responses are token-limited and truncated JSON causes parse errors.
+        `
+            : ""
+        }
         
         FRAMEWORK DETECTION:
         - Detect the framework/language from the user's request and existing project files.
@@ -4729,7 +4767,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         - For Flutter web: create web/index.html as the entry point.
         ${backendServerSection}
         INSTRUCTIONS FOR MODES:
-        - 'plan': Use concrete descriptions (what file/command, why). Same JSON schema as code — you may include write_file with full content if you want the user to see exact diffs in plan mode, or only run_command/delete_file descriptions.
+        - 'plan': Same JSON schema as code; use concrete "description" text (what file/command, why). In plan mode keep every write_file "content" empty or a one-line placeholder — never full sources (see PLAN MODE rules).
         - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
         - 'fix': Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. Diagnose errors and return minimal targeted write_file / delete_file fixes (do not rewrite unrelated files).
         - AGENT TOOLS: You may use delete_file to remove obsolete/conflicting files; use run_command for installs, tests, flutter pub get, flutter build web, etc. Do not delete .sooner_* / .aether_* / .sooner_project paths.
@@ -4766,6 +4804,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 { role: "user", content: planPrompt },
               ],
               temperature: 0.3,
+              maxTokens: 16384,
             }),
           };
         } else {
@@ -5047,9 +5086,29 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
           {/* Project Selector */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between px-2 gap-2">
-              <label className="text-[10px] uppercase tracking-widest text-[#8E9299]">{t.projects}</label>
-              <div className="flex items-center gap-0.5 shrink-0">
+            <div className="flex items-center justify-between px-2 gap-2 min-w-0">
+              <label className="text-[10px] uppercase tracking-widest text-[#8E9299] shrink-0">{t.projects}</label>
+              <div className="flex items-center gap-0.5 shrink-0 flex-wrap justify-end">
+                <button
+                  type="button"
+                  onClick={() => void fetchProjects()}
+                  className="p-1 hover:bg-[#1A1A1A] rounded text-[#8E9299]"
+                  title={t.refreshProjects}
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  disabled={!BACKEND_URL || !activeProject}
+                  onClick={() => void syncWorkspaceFromCloud()}
+                  className={cn(
+                    "p-1 rounded text-[#8E9299]",
+                    BACKEND_URL && activeProject ? "hover:bg-[#1A1A1A]" : "opacity-40 cursor-not-allowed"
+                  )}
+                  title={t.syncCloudWorkspace}
+                >
+                  <CloudDownload className="w-3 h-3" />
+                </button>
                 <button 
                   type="button"
                   onClick={() => document.getElementById("project-upload")?.click()}
@@ -5089,12 +5148,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     setRenameInput(p);
                   }}
                   className={cn(
-                    "w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-center gap-2 pr-16",
+                    "w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-start gap-2 pr-[5.5rem]",
                     activeProject === p ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
                   )}
                 >
-                  <Folder className="w-4 h-4" />
-                  <span className="truncate">{p}</span>
+                  <Folder className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="flex-1 min-w-0 leading-snug break-words line-clamp-2 text-left">{p}</span>
                 </button>
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
@@ -5103,6 +5162,21 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                     title={t.downloadProjectZip}
                   >
                     <Download className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!BACKEND_URL}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void syncWorkspaceFromCloud(p);
+                    }}
+                    className={cn(
+                      "p-1 rounded text-[#8E9299]",
+                      BACKEND_URL ? "hover:bg-[#252525]" : "opacity-40 cursor-not-allowed"
+                    )}
+                    title={t.syncCloudWorkspace}
+                  >
+                    <CloudDownload className="w-3 h-3" />
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); deleteProject(p); }}
@@ -5256,15 +5330,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               <Menu className="w-4 h-4 md:hidden" />
               <FolderTree className="w-4 h-4 hidden md:block" />
             </button>
-            <div className="hidden sm:flex items-center gap-2 text-xs text-[#8E9299]">
-              <span className="opacity-50 truncate max-w-[120px]">{activeProject || "No Project"}</span>
+            <div className="hidden sm:flex items-start gap-2 text-xs text-[#8E9299] min-w-0 max-w-[min(280px,42vw)]">
+              <span className="opacity-50 line-clamp-2 break-words leading-snug min-w-0">{activeProject || "No Project"}</span>
               {activeFile && (
                 <>
-                  <ChevronRight className="w-3 h-3 opacity-30 shrink-0" />
-                  <span className="text-[#E4E3E0] truncate max-w-[150px] flex items-center gap-1.5">
-                    {activeFile}
+                  <ChevronRight className="w-3 h-3 opacity-30 shrink-0 mt-0.5" />
+                  <span className="text-[#E4E3E0] line-clamp-2 break-words leading-snug min-w-0 flex items-start gap-1.5" title={activeFile}>
+                    <span className="min-w-0">{activeFile}</span>
                     {dirtyPaths[activeFile] ? (
-                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" title={language === "ja" ? "未保存" : "Unsaved"} aria-hidden />
+                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400 mt-1" title={language === "ja" ? "未保存" : "Unsaved"} aria-hidden />
                     ) : null}
                   </span>
                 </>
@@ -5601,10 +5675,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                       <Loader2 className="w-3 h-3 animate-spin" />
                       {t.pipeline}
                     </label>
-                    <div className="space-y-2 border-l border-[#1A1A1A] pl-4">
+                    <div className="space-y-2 border-l border-[#1A1A1A] pl-4 min-w-0">
                       {agentSteps.map((step) => (
-                        <div key={step.id} className="flex items-start gap-3 group">
-                          <div className="mt-1">
+                        <div key={step.id} className="flex items-start gap-3 group min-w-0">
+                          <div className="mt-1 shrink-0">
                             {step.status === "running" ? (
                               <Loader2 className="w-3 h-3 text-[#38BDF8] animate-spin" />
                             ) : step.status === "completed" ? (
@@ -5615,7 +5689,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                               <Circle className="w-3 h-3 text-[#1A1A1A]" />
                             )}
                           </div>
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <div className="text-[10px] uppercase tracking-wider text-[#52525B] mb-0.5">
                               {step.type === "read"
                                 ? language === "ja"
@@ -5627,7 +5701,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                                     : "Plan"
                                   : step.type}
                             </div>
-                            <div className="text-[11px] font-medium text-[#E4E3E0]">{step.message}</div>
+                            <div
+                              className="text-[11px] font-medium text-[#E4E3E0] leading-snug break-words whitespace-normal line-clamp-2"
+                              title={step.message}
+                            >
+                              {step.message}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -5641,7 +5720,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           </div>
                         ) : null}
                         {agentTrace ? (
-                          <pre className="text-[10px] leading-snug text-[#8E9299] whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+                          <pre className="text-[10px] leading-snug text-[#8E9299] whitespace-pre-wrap break-words font-mono max-h-40 overflow-y-auto min-w-0">
                             {agentTrace}
                           </pre>
                         ) : null}
@@ -5932,7 +6011,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                             apiProvider === p ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]"
                           )}
                         >
-                          {p === "gemini" ? "Gemini" : p === "vercel-ai-gateway" ? "Vercel AI" : "Custom"}
+                          {p === "gemini" ? "Gemini" : p === "vercel-ai-gateway" ? "Vercel AI" : t.providerOpenRouter}
                         </button>
                       ))}
                     </div>
@@ -5942,7 +6021,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold uppercase tracking-widest text-[#8E9299]">
-                        {apiProvider === "gemini" ? "Gemini API Key" : apiProvider === "vercel-ai-gateway" ? "Vercel AI Gateway API Key" : "Custom API Key"}
+                        {apiProvider === "gemini" ? "Gemini API Key" : apiProvider === "vercel-ai-gateway" ? "Vercel AI Gateway API Key" : t.openRouterApiKey}
                       </label>
                       <button 
                         onClick={testApiKey}
@@ -5977,13 +6056,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                           type="password"
                           value={customKey}
                           onChange={(e) => setCustomKey(e.target.value)}
-                          placeholder="Enter API Key"
+                          placeholder={language === "ja" ? "OpenRouter の API キー" : "OpenRouter API key"}
                           className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#38BDF8]"
                         />
                       )}
                     </div>
                     {apiProvider === "custom" && (
-                      <p className="text-[10px] text-[#555] leading-snug">{t.customOpenAiHint}</p>
+                      <p className="text-[10px] text-[#555] leading-snug">{t.openRouterKeyHint}</p>
                     )}
                   </div>
 
@@ -6856,14 +6935,14 @@ function FileTreeNode({
               onRenamePath(node.path, true);
             }}
             className={cn(
-              "w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-center gap-2",
+              "w-full text-left px-2 py-1 hover:bg-[#151515] rounded text-sm text-[#8E9299] flex items-start gap-2",
               hasActions ? "pr-16" : "pr-2"
             )}
             style={{ paddingLeft: `${level * 12 + 8}px` }}
           >
-            {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            <Folder className="w-4 h-4 text-[#38BDF8]" />
-            <span className="truncate">{node.name}</span>
+            {isOpen ? <ChevronDown className="w-3 h-3 shrink-0 mt-0.5" /> : <ChevronRight className="w-3 h-3 shrink-0 mt-0.5" />}
+            <Folder className="w-4 h-4 text-[#38BDF8] shrink-0 mt-0.5" />
+            <span className="flex-1 min-w-0 leading-snug break-words line-clamp-2 text-left">{node.name}</span>
           </button>
           {hasActions && (
             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -6924,16 +7003,16 @@ function FileTreeNode({
           onRenamePath(node.path, false);
         }}
         className={cn(
-          "w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-colors pr-16",
+          "w-full text-left px-2 py-1 rounded text-sm flex items-start gap-2 transition-colors pr-16",
           activeFile === node.path ? "bg-[#1A1A1A] text-[#38BDF8]" : "hover:bg-[#151515] text-[#8E9299]"
         )}
         style={{ paddingLeft: `${level * 12 + 20}px` }}
       >
-        <FileCode className="w-4 h-4 shrink-0" />
-        <span className="truncate flex-1 min-w-0 text-left">{node.name}</span>
+        <FileCode className="w-4 h-4 shrink-0 mt-0.5" />
+        <span className="flex-1 min-w-0 text-left leading-snug break-words line-clamp-2">{node.name}</span>
         {dirtyPaths?.[node.path] ? (
           <span
-            className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400"
+            className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400 mt-0.5"
             title={language === "ja" ? "未保存の変更" : "Unsaved changes"}
             aria-hidden
           />

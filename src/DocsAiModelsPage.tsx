@@ -5,6 +5,7 @@ import { writeStoredLanguage } from "./language";
 
 const OPENAI_MODELS_SPEC = "https://platform.openai.com/docs/api-reference/models/list";
 const VERCEL_GATEWAY = "https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-compat";
+const OPENROUTER_DOCS = "https://openrouter.ai/docs/api/reference/overview";
 
 export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }) {
   const [lang, setLang] = useState<"en" | "ja">(pathLang);
@@ -68,11 +69,12 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
                   <code className="text-[#38BDF8]">/api/ai/gateway/chat-completions</code> として中継します（ヘッダー <code className="text-[#38BDF8]">X-Sooner-Gateway-Key</code>）。
                 </li>
                 <li>
-                  <strong className="text-white">カスタム + API Base URL</strong>: Base が OpenAI 互換のときは、同じく{" "}
-                  <code className="text-[#38BDF8]">/v1/models</code>（または Base が <code className="text-[#38BDF8]">/v1</code> 終わりなら{" "}
-                  <code className="text-[#38BDF8]">/models</code>）を自動で叩きます。Base を空にした場合は{" "}
-                  <strong className="text-white">Google Gemini の一覧 API</strong>（<code className="text-[#38BDF8]">models.list</code>
-                  ）にフォールバックします。
+                  <strong className="text-white">OpenRouter</strong>（設定の OpenRouter プロバイダー）: 既定ベースは{" "}
+                  <code className="text-[#38BDF8]">https://openrouter.ai/api/v1</code>。モデル一覧は{" "}
+                  <code className="text-[#38BDF8]">GET /v1/models</code>、チャットは <code className="text-[#38BDF8]">POST /v1/chat/completions</code>{" "}
+                  （OpenAI 互換）。別ミラーにしたい場合はビルド時に <code className="text-[#38BDF8]">VITE_OPENROUTER_API_BASE</code> または{" "}
+                  <code className="text-[#38BDF8]">VITE_CUSTOM_OPENAI_API_BASE</code> を指定します。ブラウザ直叩きは{" "}
+                  <strong className="text-white">CORS</strong> 次第です。
                 </li>
                 <li>
                   <strong className="text-white">注意</strong>: ブラウザから任意のオリジンへ直接叩くと{" "}
@@ -103,6 +105,11 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
                     OpenAI Models API リファレンス <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </li>
+                <li>
+                  <a href={OPENROUTER_DOCS} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#38BDF8] hover:underline">
+                    OpenRouter API 概要 <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </li>
               </ul>
             </section>
           </>
@@ -127,10 +134,11 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
                   <code className="text-[#38BDF8]">/api/ai/gateway/chat-completions</code> with header <code className="text-[#38BDF8]">X-Sooner-Gateway-Key</code>.
                 </li>
                 <li>
-                  <strong className="text-white">Custom + API Base URL</strong>: if you set an OpenAI-compatible base URL, Sooner calls{" "}
-                  <code className="text-[#38BDF8]">/v1/models</code> (or <code className="text-[#38BDF8]">/models</code> after <code className="text-[#38BDF8]">/v1</code>
-                  ). If Base URL is empty, Sooner falls back to <strong className="text-white">Google Gemini</strong>{" "}
-                  <code className="text-[#38BDF8]">models.list</code> for discovery (Gemini-native deployments).
+                  <strong className="text-white">OpenRouter</strong> (OpenRouter provider in Settings): default base is{" "}
+                  <code className="text-[#38BDF8]">https://openrouter.ai/api/v1</code> for <code className="text-[#38BDF8]">GET /v1/models</code> and{" "}
+                  <code className="text-[#38BDF8]">POST /v1/chat/completions</code>. Override at build time with{" "}
+                  <code className="text-[#38BDF8]">VITE_OPENROUTER_API_BASE</code> or <code className="text-[#38BDF8]">VITE_CUSTOM_OPENAI_API_BASE</code>{" "}
+                  for a compatible mirror. Browser calls may still fail with <strong className="text-white">CORS</strong> depending on the host.
                 </li>
                 <li>
                   <strong className="text-white">Note</strong>: browser calls to arbitrary origins may fail with <strong className="text-white">CORS</strong>
@@ -159,6 +167,11 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
                 <li>
                   <a href={OPENAI_MODELS_SPEC} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#38BDF8] hover:underline">
                     OpenAI Models API reference <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </li>
+                <li>
+                  <a href={OPENROUTER_DOCS} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#38BDF8] hover:underline">
+                    OpenRouter API overview <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </li>
               </ul>

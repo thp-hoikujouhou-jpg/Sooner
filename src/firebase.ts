@@ -147,16 +147,41 @@ export async function storageDeleteProject(uid: string, project: string): Promis
   try { await deleteObject(ref(storage, `${prefix}/.sooner_project`)); } catch {}
 }
 
+/** Firebase Storage string uploads can fail with 400 if the object is too large; keep chat JSON under a safe size. */
+const MAX_CHAT_JSON_CHARS = 3_400_000;
+
+function trimMessagesForStorage(messages: unknown[]): unknown[] {
+  let list = messages;
+  let json = JSON.stringify(list);
+  let guard = 0;
+  while (json.length > MAX_CHAT_JSON_CHARS && list.length > 1 && guard < 40) {
+    const drop = Math.max(1, Math.floor(list.length * 0.25));
+    list = list.slice(drop);
+    json = JSON.stringify(list);
+    guard++;
+  }
+  if (json.length > MAX_CHAT_JSON_CHARS) {
+    return list.slice(-30);
+  }
+  return list;
+}
+
 export async function storageSaveChatHistory(uid: string, project: string, messages: unknown[]): Promise<void> {
   if (!storage) return;
   const fileRef = ref(storage, userStoragePath(uid, project, ".sooner_chat.json"));
-  await uploadString(fileRef, JSON.stringify(messages));
+  const toSave = trimMessagesForStorage(messages);
+  await uploadString(fileRef, JSON.stringify(toSave));
 }
 
 export async function storageLoadChatHistory(uid: string, project: string): Promise<unknown[]> {
   const content = await storageDownloadFile(uid, project, ".sooner_chat.json");
-  if (!content) return [];
-  try { return JSON.parse(content); } catch { return []; }
+  if (!content?.trim()) return [];
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /** New account: Firestore `users/{uid}` with legal consent facts (merge-safe). Requires Firestore rules allowing user to write own doc. */
