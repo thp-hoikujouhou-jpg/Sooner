@@ -18,7 +18,6 @@ import {
   Send,
   Loader2,
   X,
-  Globe,
   Upload,
   Key,
   History,
@@ -354,6 +353,11 @@ const landingI18n = {
     ],
   },
 };
+
+/** Vercel AI Gateway OpenAI root (server proxy only; no per-user URL in Settings). */
+const DEFAULT_VERCEL_GATEWAY_OPENAI_ROOT = "https://ai-gateway.vercel.sh/v1";
+/** Custom provider: OpenAI-compatible Chat Completions root (API key only in UI). */
+const DEFAULT_CUSTOM_OPENAI_ROOT = "https://api.openai.com/v1";
 
 /** GitHub repo name: letters, digits, `.`, `-`, `_` only (max 100). */
 function sanitizeGithubRepoName(raw: string): string {
@@ -1876,7 +1880,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [githubRepoSearch, setGithubRepoSearch] = useState("");
   const [githubUsername, setGithubUsername] = useState("");
   const [apiProvider, setApiProvider] = useState<"gemini" | "vercel-ai-gateway" | "custom">("gemini");
-  const [apiBaseUrl, setApiBaseUrl] = useState("");
+  /** Unsaved editor changes (path → true), cleared on cloud save or agent write. */
+  const [dirtyPaths, setDirtyPaths] = useState<Record<string, boolean>>({});
   const [vercelKey, setVercelKey] = useState("");
   const [customKey, setCustomKey] = useState("");
   const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
@@ -1978,7 +1983,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setGithubUsername(readScopedPref(null, "github_username") || "");
       const p = (readScopedPref(null, "aether_api_provider") as string) || "gemini";
       setApiProvider(p === "vercel-ai-gateway" || p === "custom" || p === "gemini" ? (p as "gemini" | "vercel-ai-gateway" | "custom") : "gemini");
-      setApiBaseUrl(readScopedPref(null, "aether_api_base_url") || "");
       setVercelKey(readScopedPref(null, "aether_vercel_key") || "");
       setCustomKey(readScopedPref(null, "aether_custom_key") || "");
       setSelectedModel(readScopedPref(null, "aether_selected_model") || "gemini-2.5-flash");
@@ -1990,7 +1994,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setGithubUsername(readScopedPref(uid, "github_username") || "");
       const p = (readScopedPref(uid, "aether_api_provider") as string) || "gemini";
       setApiProvider(p === "vercel-ai-gateway" || p === "custom" || p === "gemini" ? (p as "gemini" | "vercel-ai-gateway" | "custom") : "gemini");
-      setApiBaseUrl(readScopedPref(uid, "aether_api_base_url") || "");
       setVercelKey(readScopedPref(uid, "aether_vercel_key") || "");
       setCustomKey(readScopedPref(uid, "aether_custom_key") || "");
       setSelectedModel(readScopedPref(uid, "aether_selected_model") || "gemini-2.5-flash");
@@ -2000,6 +2003,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setProjects([]);
     setActiveFile(null);
     setFileContent("");
+    setDirtyPaths({});
     setFiles([]);
     setMessages([]);
     setContextAttachments([]);
@@ -2056,7 +2060,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "Describe a bug to fix...",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
-      thinkingLog: "Live trace",
+      thinkingLog: "Stream & activity",
       idle: "Idle",
       active: "Active",
       noProjects: "No projects found",
@@ -2095,13 +2099,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "Settings Key",
       usingEnvKey: "Env Key",
       apiProvider: "API Provider",
-      apiBaseUrl: "API Base URL (optional)",
-      apiBaseUrlPlaceholderVercel:
-        "Optional — gateway root for the server proxy only (default https://ai-gateway.vercel.sh/v1). Hostname must be ai-gateway.vercel.sh.",
-      apiBaseUrlPlaceholderCustom:
-        "Optional — leave empty to use Google Gemini API (generativelanguage.googleapis.com)",
-      vercelGatewayGenHint:
-        "With Vercel AI selected, your Sooner API server (VITE_BACKEND_URL) proxies requests to the gateway — the browser cannot call ai-gateway.vercel.sh directly (CORS). Use the same Firebase login; send the gateway key only in the X-Sooner-Gateway-Key header to your API. Model ids from the list (e.g. google/gemini-2.5-flash) are sent as-is; short names get a google/ prefix.",
+      customOpenAiHint:
+        "Custom uses OpenAI-compatible Chat Completions at https://api.openai.com/v1 (API key only).",
       model: "Model",
       fetchModels: "Fetch Models",
       fetchingModels: "Fetching...",
@@ -2155,6 +2154,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitCommit: "Commit all",
       gitPull: "Pull from origin",
       gitPush: "Push to origin",
+      gitAiCommitAssist: "Ask Chat to suggest a commit message →",
       gitNoBackend:
         "Git clone, commit, push/pull, and dev-server run need a workspace backend (self-hosted build with VITE_BACKEND_URL). On hosted Sooner, use ZIP upload and browser preview.",
       gitNoProject: "Select a project first.",
@@ -2254,7 +2254,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "バグを修正...",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
-      thinkingLog: "作業ログ",
+      thinkingLog: "ストリーム・作業ログ",
       idle: "待機中",
       active: "実行中",
       noProjects: "プロジェクトが見つかりません",
@@ -2293,13 +2293,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       usingSettingsKey: "設定キー使用中",
       usingEnvKey: "環境変数キー使用中",
       apiProvider: "APIプロバイダー",
-      apiBaseUrl: "APIベースURL（任意）",
-      apiBaseUrlPlaceholderVercel:
-        "任意 — API サーバー経由プロキシ用のゲートウェイルート（既定 https://ai-gateway.vercel.sh/v1）。ホストは ai-gateway.vercel.sh のみ。",
-      apiBaseUrlPlaceholderCustom:
-        "任意 — 空欄なら Google Gemini API（generativelanguage.googleapis.com）を使用",
-      vercelGatewayGenHint:
-        "「Vercel AI」では、ブラウザから ai-gateway.vercel.sh を直接呼べません（CORS）。VITE_BACKEND_URL の API がゲートウェイへ中継します。ゲートウェイのキーはログイン済みの自分の API へだけ送られます。モデル id（例: google/gemini-2.5-flash）はそのまま、短い名前は google/… に補完されます。",
+      customOpenAiHint:
+        "カスタムは https://api.openai.com/v1 の OpenAI 互換チャット（API キーのみ）です。",
       model: "モデル",
       fetchModels: "モデル取得",
       fetchingModels: "取得中...",
@@ -2353,6 +2348,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       gitCommit: "すべてコミット",
       gitPull: "origin からプル",
       gitPush: "origin にプッシュ",
+      gitAiCommitAssist: "チャットでコミットメッセージ案を出す →",
       gitNoBackend:
         "Git のクローン・コミット・プッシュ／プル、および開発サーバー起動にはワークスペース用バックエンド（VITE_BACKEND_URL を設定したセルフホストビルド）が必要です。ホスト版では ZIP アップロードとブラウザプレビューをご利用ください。",
       gitNoProject: "先にプロジェクトを選択してください。",
@@ -2561,9 +2557,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   }, [apiProvider, uid]);
 
   useEffect(() => {
-    writeScopedPref(uid, "aether_api_base_url", apiBaseUrl.trim() ? apiBaseUrl : null);
-  }, [apiBaseUrl, uid]);
-  useEffect(() => {
     writeScopedPref(uid, "aether_vercel_key", vercelKey.trim() ? vercelKey : null);
   }, [vercelKey, uid]);
   useEffect(() => {
@@ -2581,6 +2574,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   useEffect(() => {
     if (uid) void fetchProjects();
   }, [uid]);
+
+  useEffect(() => {
+    setDirtyPaths({});
+  }, [activeProject]);
 
   useEffect(() => {
     if (isGitOpen && activeProject) {
@@ -2901,6 +2898,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       setFileContent(content);
       setActiveFile(filePath);
       setActiveTab("editor");
+      setDirtyPaths((prev) => {
+        const next = { ...prev };
+        delete next[filePath];
+        return next;
+      });
     } catch (e) {
       console.error("Failed to open file", e);
       setEditorLoadError(t.editorLoadFailed);
@@ -2918,6 +2920,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           content,
         });
       }
+      setDirtyPaths((prev) => {
+        const next = { ...prev };
+        if (activeFile) delete next[activeFile];
+        return next;
+      });
       if (!opts?.silent) {
         setSaveState("saved");
         window.setTimeout(() => setSaveState("idle"), 2200);
@@ -3619,20 +3626,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setGitLoading(false);
   };
 
-  const getEffectiveBaseUrl = (): string | undefined => {
-    const trimmed = apiBaseUrl.trim();
-    if (apiProvider === "vercel-ai-gateway" && trimmed) return trimmed;
-    if (apiProvider === "custom" && trimmed) return trimmed;
-    return undefined;
-  };
+  /** OpenAI-compatible root for gateway proxy (fixed; browser uses VITE_BACKEND_URL). */
+  const vercelGatewayOpenAiRoot = (): string => DEFAULT_VERCEL_GATEWAY_OPENAI_ROOT;
 
-  /** OpenAI-compatible root (no trailing slash); default Vercel AI Gateway. */
-  const vercelGatewayOpenAiRoot = (): string => {
-    const raw = apiBaseUrl.trim().replace(/\/$/, "");
-    if (!raw) return "https://ai-gateway.vercel.sh/v1";
-    if (raw.endsWith("/chat/completions")) return raw.slice(0, -"/chat/completions".length);
-    return raw;
-  };
+  const customOpenAiRoot = (): string => DEFAULT_CUSTOM_OPENAI_ROOT;
 
   /** Gateway chat uses provider/model ids (e.g. google/gemini-2.5-flash). */
   const gatewayOpenAiModelId = (model: string): string => {
@@ -3740,27 +3737,18 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const getActiveApiKey = (): string => {
-    // Vercel AI Gateway: prefer the dedicated key; Gemini field can act as fallback Bearer when both are set.
-    if (apiProvider === "vercel-ai-gateway") return vercelKey.trim() || geminiKey.trim();
+    if (apiProvider === "vercel-ai-gateway") return vercelKey.trim();
     if (apiProvider === "custom") return customKey.trim();
     return geminiKey.trim() || (typeof process !== "undefined" ? String(process.env.GEMINI_API_KEY || "") : "");
   };
 
   const createAiClient = (key?: string) => {
     const activeKey = key || getActiveApiKey();
-    const baseUrl = getEffectiveBaseUrl();
-    return new GoogleGenAI(baseUrl ? { apiKey: activeKey, httpOptions: { baseUrl } } : { apiKey: activeKey });
+    return new GoogleGenAI({ apiKey: activeKey });
   };
 
-  /** Custom base that speaks OpenAI Chat Completions (e.g. OpenRouter), not Gemini REST. */
-  const isCustomOpenAiChatBase = (): boolean => {
-    if (apiProvider !== "custom") return false;
-    const b = getEffectiveBaseUrl()?.trim();
-    if (!b) return false;
-    const low = b.toLowerCase();
-    if (low.includes("generativelanguage.googleapis.com")) return false;
-    return true;
-  };
+  /** Custom = OpenAI-compatible Chat Completions at api.openai.com (key only in Settings). */
+  const isCustomOpenAiChatBase = (): boolean => apiProvider === "custom" && !!customKey.trim();
 
   function customOpenAiHeaders(baseRaw: string, key: string): Record<string, string> {
     const h: Record<string, string> = { Authorization: `Bearer ${key}` };
@@ -3776,7 +3764,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     messages: { role: "system" | "user" | "assistant"; content: string | unknown }[];
     temperature?: number;
   }): Promise<string> {
-    const baseRaw = getEffectiveBaseUrl()!.trim();
+    const baseRaw = customOpenAiRoot();
     const url = openAiCompatibleChatCompletionsUrl(baseRaw);
     if (!url) throw new Error("Invalid custom API base URL");
     const key = getActiveApiKey();
@@ -3801,7 +3789,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     prompt: string;
     imageBase64: string;
   }): Promise<string> {
-    const baseRaw = getEffectiveBaseUrl()!.trim();
+    const baseRaw = customOpenAiRoot();
     const url = openAiCompatibleChatCompletionsUrl(baseRaw);
     if (!url) throw new Error("Invalid custom API base URL");
     const key = getActiveApiKey();
@@ -3964,7 +3952,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       void tick();
     }, 1000);
     return () => window.clearInterval(id);
-  }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel, apiProvider, apiBaseUrl]);
+  }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel, apiProvider]);
 
   const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
 Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
@@ -3973,8 +3961,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
   const getOrCreatePromptCache = async (ai: InstanceType<typeof GoogleGenAI>, model: string): Promise<string | undefined> => {
     if (apiProvider === "vercel-ai-gateway") return undefined;
     if (isCustomOpenAiChatBase()) return undefined;
-    const baseUrl = getEffectiveBaseUrl();
-    if (baseUrl) return undefined;
     // Gemini explicit caches require ~1024+ tokens; our CODE_SYSTEM_INSTRUCTION is tiny — skip create() to avoid 400 INVALID_ARGUMENT.
     if (CODE_SYSTEM_INSTRUCTION.length < 4500) return undefined;
     try {
@@ -4016,9 +4002,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       setSelectedModel((prev) => (list.includes(prev) ? prev : list[0]));
     };
     const listGeminiModelsFiltered = async (): Promise<string[]> => {
-      const base = getEffectiveBaseUrl();
       try {
-        const ids = await listGeminiGenerateContentModelIds(key, base);
+        const ids = await listGeminiGenerateContentModelIds(key, undefined);
         if (ids.length > 0) return ids;
       } catch (e) {
         console.warn("Filtered Gemini model list failed:", e);
@@ -4061,8 +4046,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           modelNames.sort();
           commitModels(modelNames.length > 0 ? modelNames : fallback);
         }
-      } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
-        const base = getEffectiveBaseUrl()!;
+      } else if (apiProvider === "custom" && customKey.trim()) {
+        const base = customOpenAiRoot();
         const modelsUrl = openAiCompatibleModelsListUrl(base);
         try {
           const res = await axios.get(modelsUrl, {
@@ -4071,8 +4056,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           const modelNames = parseOpenAiCompatibleModelsResponse(res.data);
           commitModels(modelNames.length > 0 ? modelNames : fallback);
         } catch {
-          const modelNames = await listGeminiModelsFiltered();
-          commitModels(modelNames.length > 0 ? modelNames : fallback);
+          commitModels(fallback);
         }
       } else {
         const modelNames = await listGeminiModelsFiltered();
@@ -4104,27 +4088,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
           fetchModels();
         }
-      } else if (apiProvider === "custom" && getEffectiveBaseUrl()) {
-        const base = getEffectiveBaseUrl()!.trim();
+      } else if (apiProvider === "custom" && customKey.trim()) {
+        const base = customOpenAiRoot();
         const modelsUrl = openAiCompatibleModelsListUrl(base);
-        if (isCustomOpenAiChatBase()) {
-          await axios.get(modelsUrl, { headers: customOpenAiHeaders(base, key) });
-          await customOpenAiChatCompletion({
-            model: selectedModel.trim() || "openai/gpt-4o-mini",
-            messages: [{ role: "user", content: "Hi" }],
-            temperature: 0.2,
-          });
-        } else {
-          try {
-            await axios.get(modelsUrl, { headers: { Authorization: `Bearer ${key}` } });
-          } catch {
-            const testAi = createAiClient();
-            await testAi.models.generateContent({
-              model: modelIdForGeminiRequest(selectedModel || "gemini-2.5-flash"),
-              contents: "Hi",
-            });
-          }
-        }
+        await axios.get(modelsUrl, { headers: customOpenAiHeaders(base, key) });
+        await customOpenAiChatCompletion({
+          model: selectedModel.trim() || "gpt-4o-mini",
+          messages: [{ role: "user", content: "Hi" }],
+          temperature: 0.2,
+        });
         alert(language === "ja" ? "APIキーは有効です。" : "API Key is valid!");
         fetchModels();
       } else {
@@ -4464,8 +4436,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           if (apiProvider === "vercel-ai-gateway") {
             appendTrace(
               language === "ja"
-                ? `Vercel AI Gateway: ${selectedModel} へリクエスト中…`
-                : `Calling Vercel AI Gateway (${selectedModel})…`,
+                ? `Vercel AI Gateway: ${selectedModel} へリクエスト中…（ブラウザは VITE_BACKEND_URL 経由でプロキシ）`
+                : `Calling Vercel AI Gateway (${selectedModel})… (proxied via VITE_BACKEND_URL)`,
             );
             chatResponse = {
               text: await vercelGatewayChatCompletion({
@@ -4500,8 +4472,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           } else if (geminiNativeChat) {
             appendTrace(
               language === "ja"
-                ? `Gemini: ${modelIdForGeminiRequest(selectedModel)} でストリーミング応答…`
-                : `Gemini streaming (${modelIdForGeminiRequest(selectedModel)})…`,
+                ? `Gemini: ${modelIdForGeminiRequest(selectedModel)} でストリーミング応答…（モデル内部の思考テキストは API では提供されません）`
+                : `Gemini streaming (${modelIdForGeminiRequest(selectedModel)})… (internal chain-of-thought is not exposed by the API)`,
             );
             const contents = cappedMessages.map((m) => ({
               role: (m.role === "assistant" ? "model" : "user") as "model" | "user",
@@ -4510,7 +4482,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             try {
               const text = await geminiStreamGenerateContent({
                 apiKey: currentKey,
-                baseUrl: getEffectiveBaseUrl(),
+                baseUrl: undefined,
                 model: modelIdForGeminiRequest(selectedModel),
                 body: {
                   contents,
@@ -4629,14 +4601,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
         appendTrace(
           language === "ja"
-            ? "コードモード: プロジェクトのソースをエディタで順に開いて読み込みます。"
-            : "Code mode: opening project sources in the editor for review.",
+            ? `${agentMode === "plan" ? "プラン" : agentMode === "fix" ? "修正" : "コード"}モード: ストレージからソースを読み取ります（エディタは切り替えません）。`
+            : `${agentMode === "plan" ? "Plan" : agentMode === "fix" ? "Fix" : "Code"} mode: reading sources from storage (editor tab unchanged).`,
         );
         addStep(
           "read",
-          language === "ja" ? "エディタでファイルを開いています…" : "Opening files in the editor…",
+          language === "ja" ? "プロジェクトファイルを読み取り中…" : "Reading project files…",
         );
-        setActiveTab("editor");
 
         const flattenSourcePaths = (nodes: FileNode[]): string[] => {
           const out: string[] = [];
@@ -4658,7 +4629,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
         const paths = flattenSourcePaths(files);
         const existingCode: { path: string; content: string }[] = [];
-        const MAX_EDITOR_WALK = 40;
         for (let i = 0; i < paths.length; i++) {
           const p = paths[i];
           if (abortControllerRef.current?.signal.aborted) break;
@@ -4666,11 +4636,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           if (c === null) continue;
           existingCode.push({ path: p, content: c });
           appendTrace(`${i + 1}/${paths.length}  ${p}  (${c.length} chars)`);
-          updateReadLabel(language === "ja" ? `開いています: ${p}` : `Opening: ${p}`);
-          if (i < MAX_EDITOR_WALK) {
-            await openFile(p);
-            await new Promise((r) => setTimeout(r, 55));
-          }
+          updateReadLabel(language === "ja" ? `読み取り: ${p}` : `Read: ${p}`);
         }
         updateLastStep(
           "completed",
@@ -4844,6 +4810,11 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               if (BACKEND_URL && activeProject) {
                 await axios.post(projectApi(activeProject, "file"), { filePath: step.path, content: step.content }).catch(() => {});
               }
+              setDirtyPaths((prev) => {
+                const next = { ...prev };
+                delete next[typeof step.path === "string" ? step.path : ""];
+                return next;
+              });
               setTerminalOutput((prev) => [...prev, `Agent: Wrote ${step.path}`]);
               resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
             } else if (step.action === "delete_file") {
@@ -5181,7 +5152,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   key={node.path} 
                   node={node} 
                   onSelect={openFile} 
-                  activeFile={activeFile} 
+                  activeFile={activeFile}
+                  dirtyPaths={dirtyPaths}
                   onDelete={deleteFile}
                   onDeleteFolder={deleteFolder}
                   onDownload={downloadSingleFile}
@@ -5267,7 +5239,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               {activeFile && (
                 <>
                   <ChevronRight className="w-3 h-3 opacity-30 shrink-0" />
-                  <span className="text-[#E4E3E0] truncate max-w-[150px]">{activeFile}</span>
+                  <span className="text-[#E4E3E0] truncate max-w-[150px] flex items-center gap-1.5">
+                    {activeFile}
+                    {dirtyPaths[activeFile] ? (
+                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" title={language === "ja" ? "未保存" : "Unsaved"} aria-hidden />
+                    ) : null}
+                  </span>
                 </>
               )}
             </div>
@@ -5344,7 +5321,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   path={activeFile || "no-file-selected.txt"}
                   defaultLanguage="typescript"
                   defaultValue={activeFile ? fileContent : "// Select a file to start editing\n// Or ask Sooner to build something!"}
-                  onChange={(v) => setFileContent(v || "")}
+                  onChange={(v) => {
+                    setFileContent(v || "");
+                    if (activeFile) {
+                      setDirtyPaths((prev) => ({ ...prev, [activeFile]: true }));
+                    }
+                  }}
                   beforeMount={(monaco) => {
                     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
                       noSemanticValidation: true,
@@ -5978,23 +5960,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         />
                       )}
                     </div>
-                    {apiProvider === "vercel-ai-gateway" && (
-                      <p className="text-[10px] text-[#555] leading-snug">{t.vercelGatewayGenHint}</p>
-                    )}
-                    {apiProvider !== "gemini" && (
-                      <div className="space-y-1 mt-2">
-                        <label className="text-[10px] uppercase tracking-widest text-[#555]">{t.apiBaseUrl}</label>
-                        <div className="relative">
-                          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-                          <input 
-                            type="text"
-                            value={apiBaseUrl}
-                            onChange={(e) => setApiBaseUrl(e.target.value)}
-                            placeholder={apiProvider === "vercel-ai-gateway" ? t.apiBaseUrlPlaceholderVercel : t.apiBaseUrlPlaceholderCustom}
-                            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-1.5 pl-10 pr-4 text-xs text-[#E4E3E0] placeholder:text-[#555] focus:outline-none focus:border-[#38BDF8]"
-                          />
-                        </div>
-                      </div>
+                    {apiProvider === "custom" && (
+                      <p className="text-[10px] text-[#555] leading-snug">{t.customOpenAiHint}</p>
                     )}
                   </div>
 
@@ -6652,6 +6619,22 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         placeholder={t.gitCommitMsg}
                         className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-[#38BDF8]"
                       />
+                      <button
+                        type="button"
+                        className="text-[10px] text-[#38BDF8] hover:underline text-left w-full"
+                        onClick={() => {
+                          setIsGitOpen(false);
+                          setAgentMode("chat");
+                          setIsChatOpen(true);
+                          setInput(
+                            language === "ja"
+                              ? "未コミットの変更を要約し、適切な1行の git commit メッセージ案（英語推奨）を提案してください。"
+                              : "Summarize what should go in the next git commit and propose a concise one-line commit message (English preferred).",
+                          );
+                        }}
+                      >
+                        {t.gitAiCommitAssist}
+                      </button>
                       <div className="flex flex-wrap gap-2 justify-end">
                         <button
                           type="button"
@@ -6821,6 +6804,7 @@ function FileTreeNode({
   node,
   onSelect,
   activeFile,
+  dirtyPaths,
   level = 0,
   onDelete,
   onDeleteFolder,
@@ -6890,6 +6874,7 @@ function FileTreeNode({
             node={child}
             onSelect={onSelect}
             activeFile={activeFile}
+            dirtyPaths={dirtyPaths}
             level={level + 1}
             onDelete={onDelete}
             onDeleteFolder={onDeleteFolder}
@@ -6922,8 +6907,15 @@ function FileTreeNode({
         )}
         style={{ paddingLeft: `${level * 12 + 20}px` }}
       >
-        <FileCode className="w-4 h-4" />
-        <span className="truncate">{node.name}</span>
+        <FileCode className="w-4 h-4 shrink-0" />
+        <span className="truncate flex-1 min-w-0 text-left">{node.name}</span>
+        {dirtyPaths?.[node.path] ? (
+          <span
+            className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400"
+            title={language === "ja" ? "未保存の変更" : "Unsaved changes"}
+            aria-hidden
+          />
+        ) : null}
       </button>
       <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         {onDownload ? (

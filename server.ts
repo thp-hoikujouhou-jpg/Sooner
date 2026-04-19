@@ -1359,13 +1359,16 @@ async function startServer() {
     if (!token) {
       throw new Error("SQUARE_ACCESS_TOKEN is not set");
     }
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "Square-Version": "2024-11-20",
+    };
+    if (method !== "GET" && method !== "HEAD") {
+      headers["Content-Type"] = "application/json";
+    }
     const res = await fetch(`${squareBaseUrl()}/v2${path}`, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "Square-Version": "2024-11-20",
-      },
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const json = (await res.json()) as any;
@@ -1378,16 +1381,70 @@ async function startServer() {
     return json as T;
   }
 
+  type SquarePlanSummary = {
+    id: string;
+    name: string;
+    description?: string;
+    cadence?: string;
+    amountCents?: number;
+    currency?: string;
+  };
+
+  function parseMoney(m: unknown): { amountCents?: number; currency?: string } {
+    if (!m || typeof m !== "object") return {};
+    const o = m as { amount?: number | bigint; currency?: string };
+    if (o.amount == null) return {};
+    return { amountCents: Number(o.amount), currency: typeof o.currency === "string" ? o.currency : undefined };
+  }
+
+  function parseCatalogPlanVariationsPage(body: { objects?: unknown[] }): SquarePlanSummary[] {
+    const out: SquarePlanSummary[] = [];
+    const objects = Array.isArray(body.objects) ? body.objects : [];
+    for (const raw of objects) {
+      if (!raw || typeof raw !== "object") continue;
+      const o = raw as Record<string, unknown>;
+      if (o.type !== "SUBSCRIPTION_PLAN_VARIATION" || typeof o.id !== "string") continue;
+      const data = o.subscription_plan_variation_data as Record<string, unknown> | undefined;
+      const name = typeof data?.name === "string" && data.name.trim() ? data.name.trim() : o.id;
+      const description = typeof data?.description === "string" ? data.description.trim() : undefined;
+      let cadence: string | undefined;
+      let amountCents: number | undefined;
+      let currency: string | undefined;
+      const phases = Array.isArray(data?.phases) ? data.phases : [];
+      for (const ph of phases) {
+        if (!ph || typeof ph !== "object") continue;
+        const p = ph as Record<string, unknown>;
+        if (typeof p.cadence === "string") cadence = p.cadence;
+        const rpm = parseMoney(p.recurring_price_money);
+        if (rpm.amountCents != null) {
+          amountCents = rpm.amountCents;
+          currency = rpm.currency;
+          break;
+        }
+        const pricing = p.pricing as Record<string, unknown> | undefined;
+        if (pricing && typeof pricing === "object") {
+          const pm = parseMoney((pricing as { price_money?: unknown }).price_money);
+          if (pm.amountCents != null) {
+            amountCents = pm.amountCents;
+            currency = pm.currency;
+            break;
+          }
+        }
+      }
+      out.push({ id: o.id, name, description, cadence, amountCents, currency });
+    }
+    return out;
+  }
+
   app.get("/api/square/config", (_req, res) => {
     const applicationId = process.env.SQUARE_APPLICATION_ID?.trim();
     const locationId = process.env.SQUARE_LOCATION_ID?.trim();
     const accessToken = process.env.SQUARE_ACCESS_TOKEN?.trim();
-    const planVariationId = process.env.SQUARE_PLAN_VARIATION_ID?.trim();
+    const defaultPlanVariationId = process.env.SQUARE_PLAN_VARIATION_ID?.trim() || null;
     const missing: string[] = [];
     if (!applicationId) missing.push("SQUARE_APPLICATION_ID");
     if (!locationId) missing.push("SQUARE_LOCATION_ID");
     if (!accessToken) missing.push("SQUARE_ACCESS_TOKEN");
-    if (!planVariationId) missing.push("SQUARE_PLAN_VARIATION_ID");
     if (missing.length) {
       return res.status(503).json({
         error: "Square is not configured",
@@ -1400,15 +1457,49 @@ async function startServer() {
       applicationId,
       locationId,
       environment: process.env.SQUARE_ENVIRONMENT === "production" ? "production" : "sandbox",
+      defaultPlanVariationId,
     });
+  });
+
+  /** Catalog subscription plan variations (for /billing/square UI). */
+  app.get("/api/square/plans", async (_req, res) => {
+    try {
+      if (!process.env.SQUARE_ACCESS_TOKEN?.trim()) {
+        return res.status(503).json({ error: "Square is not configured", plans: [] });
+      }
+      const merged: SquarePlanSummary[] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      for (let page = 0; page < 12; page++) {
+        const qs = new URLSearchParams({ types: "SUBSCRIPTION_PLAN_VARIATION" });
+        if (cursor) qs.set("cursor", cursor);
+        const data = await squareApi<{ objects?: unknown[]; cursor?: string }>(`/catalog/list?${qs.toString()}`, "GET");
+        for (const p of parseCatalogPlanVariationsPage(data)) {
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push(p);
+        }
+        const next = typeof data.cursor === "string" && data.cursor.length > 0 ? data.cursor : undefined;
+        if (!next) break;
+        cursor = next;
+      }
+      res.json({ plans: merged });
+    } catch (e: any) {
+      console.error("square/plans", e);
+      res.status(500).json({ error: String(e?.message || e), plans: [] });
+    }
   });
 
   app.post("/api/square/subscribe", async (req, res) => {
     try {
       const locationId = process.env.SQUARE_LOCATION_ID?.trim();
-      const planVariationId = process.env.SQUARE_PLAN_VARIATION_ID?.trim();
+      const fromBody = typeof req.body?.planVariationId === "string" ? req.body.planVariationId.trim() : "";
+      const planVariationId = fromBody || process.env.SQUARE_PLAN_VARIATION_ID?.trim() || "";
       if (!locationId || !planVariationId) {
-        return res.status(503).json({ error: "SQUARE_LOCATION_ID and SQUARE_PLAN_VARIATION_ID are required" });
+        return res.status(400).json({
+          error: "Missing plan variation",
+          hint: "Choose a plan on the billing page or set SQUARE_PLAN_VARIATION_ID on the server.",
+        });
       }
 
       const sourceId = typeof req.body?.sourceId === "string" ? req.body.sourceId.trim() : "";
