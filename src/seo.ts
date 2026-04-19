@@ -136,10 +136,12 @@ function canonicalUrl(): string {
   const { protocol, hostname, pathname, search } = window.location;
   const path = pathname === "" ? "/" : pathname;
   const h = hostname.toLowerCase();
+  const soonerSecure = h === "sooner.sh" || h === "www.sooner.sh" || h.endsWith(".sooner.sh");
+  const origin = soonerSecure ? `https://${hostname}` : `${protocol}//${hostname}`;
   // Blog / LP: one canonical per pathname; language variants use hreflang (?lang=…). Avoids
   // Search Console treating https://blog.sooner.sh/?lang=en as the "canonical" tagged URL for duplicates.
   if (h.startsWith("blog.") || h.startsWith("lp.")) {
-    return `${protocol}//${hostname}${path}`;
+    return `${origin}${path}`;
   }
   // Main app: apex host + path only (no ?lang=) so / and /?lang=ja are not competing canonicals;
   // www → apex to fix "Google chose a different canonical than the user" duplicate clusters.
@@ -153,7 +155,7 @@ function canonicalUrl(): string {
   if ((h.startsWith("signin.") || h.startsWith("login.")) && h.endsWith(".sooner.sh")) {
     return `https://${appApex}/signin`;
   }
-  return `${protocol}//${hostname}${path}${search}`;
+  return `${origin}${path}${search}`;
 }
 
 function setMeta(attr: "name" | "property", key: string, content: string) {

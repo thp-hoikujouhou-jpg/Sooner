@@ -184,6 +184,45 @@ export async function storageLoadChatHistory(uid: string, project: string): Prom
   }
 }
 
+const MAX_TERMINAL_JSON_CHARS = 2_800_000;
+const MAX_TERMINAL_LINES = 8000;
+
+function trimTerminalLinesForStorage(lines: string[]): string[] {
+  let list = lines;
+  let json = JSON.stringify(list);
+  let guard = 0;
+  while (json.length > MAX_TERMINAL_JSON_CHARS && list.length > 50 && guard < 50) {
+    const drop = Math.max(1, Math.floor(list.length * 0.15));
+    list = list.slice(drop);
+    json = JSON.stringify(list);
+    guard++;
+  }
+  if (list.length > MAX_TERMINAL_LINES) {
+    list = list.slice(-MAX_TERMINAL_LINES);
+  }
+  return list;
+}
+
+/** Per-project terminal log (JSON array of lines), same storage layout as chat history. */
+export async function storageSaveTerminalLog(uid: string, project: string, lines: string[]): Promise<void> {
+  if (!storage) return;
+  const fileRef = ref(storage, userStoragePath(uid, project, ".sooner_terminal.json"));
+  const toSave = trimTerminalLinesForStorage(lines);
+  await uploadString(fileRef, JSON.stringify(toSave));
+}
+
+export async function storageLoadTerminalLog(uid: string, project: string): Promise<string[]> {
+  const content = await storageDownloadFile(uid, project, ".sooner_terminal.json");
+  if (!content?.trim()) return [];
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
 /** New account: Firestore `users/{uid}` with legal consent facts (merge-safe). Requires Firestore rules allowing user to write own doc. */
 export async function recordNewUserLegalProfile(
   uid: string,

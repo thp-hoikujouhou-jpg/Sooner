@@ -144,6 +144,8 @@ import {
   storageDeleteProject,
   storageSaveChatHistory,
   storageLoadChatHistory,
+  storageSaveTerminalLog,
+  storageLoadTerminalLog,
   recordNewUserLegalProfile,
   type User,
 } from "./firebase";
@@ -1862,18 +1864,50 @@ function formatPlanStepSummary(step: Record<string, unknown>, lang: "en" | "ja")
   const path = typeof step.path === "string" ? step.path : "";
   const cmd = typeof step.command === "string" ? step.command : "";
   if (action === "write_file" && path) {
-    return lang === "ja" ? `・書き込み \`${path}\` — ${desc}` : `・Write \`${path}\` — ${desc}`;
+    return lang === "ja" ? `・書き込み ${path} — ${desc}` : `・Write ${path} — ${desc}`;
   }
   if (action === "delete_file" && path) {
-    return lang === "ja" ? `・削除 \`${path}\` — ${desc}` : `・Delete \`${path}\` — ${desc}`;
+    return lang === "ja" ? `・削除 ${path} — ${desc}` : `・Delete ${path} — ${desc}`;
   }
   if (action === "run_command" && cmd) {
-    return lang === "ja" ? `・コマンド \`${cmd}\` — ${desc}` : `・Command \`${cmd}\` — ${desc}`;
+    return lang === "ja" ? `・コマンド ${cmd} — ${desc}` : `・Command ${cmd} — ${desc}`;
   }
   if ((action === "read_file" || action === "list_dir") && path) {
-    return lang === "ja" ? `・（無効）${action} \`${path}\` — ${desc}` : `・(ignored) ${action} \`${path}\` — ${desc}`;
+    return lang === "ja" ? `・（無効）${action} ${path} — ${desc}` : `・(ignored) ${action} ${path} — ${desc}`;
   }
   return lang === "ja" ? `・${action} — ${desc}` : `・${action} — ${desc}`;
+}
+
+/** Trim pasted keys and strip accidental quotes / duplicated "Bearer " (OpenRouter / OpenAI-compatible). */
+function sanitizeOpenRouterApiKey(raw: string): string {
+  let k = raw.trim();
+  const n = k.length;
+  if (n >= 2) {
+    const a = k[0];
+    const b = k[n - 1];
+    if ((a === '"' && b === '"') || (a === "'" && b === "'")) {
+      k = k.slice(1, -1).trim();
+    }
+  }
+  if (/^bearer\s+/i.test(k)) {
+    k = k.replace(/^bearer\s+/i, "").trim();
+  }
+  return k;
+}
+
+/** Merge persisted terminal lines with in-memory session when storage load finishes after new lines were appended. */
+function mergeTerminalSessionWithLoaded(cur: string[], loaded: string[]): string[] {
+  if (loaded.length === 0) return cur;
+  if (cur.length === 0) return loaded;
+  let samePrefix = 0;
+  const minL = Math.min(cur.length, loaded.length);
+  for (let i = 0; i < minL; i++) {
+    if (cur[i] !== loaded[i]) break;
+    samePrefix++;
+  }
+  if (samePrefix === 0) return cur.length >= loaded.length ? cur : loaded;
+  if (cur.length >= loaded.length) return cur;
+  return loaded;
 }
 
 function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
@@ -1953,6 +1987,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [agentTrace, setAgentTrace] = useState("");
   /** Streaming assistant text (Gemini SSE) while generating the latest reply. */
   const [streamingAssistant, setStreamingAssistant] = useState("");
+  /** Sticky summary after Code / Fix applies files (also duplicated in chat). */
+  const [lastAgentApplySummary, setLastAgentApplySummary] = useState<{
+    headline: string;
+    lines: string[];
+  } | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
   const [isChatOpen, setIsChatOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
@@ -2113,6 +2152,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setMessages([]);
     setContextAttachments([]);
     setAgentSteps([]);
+    setLastAgentApplySummary(null);
     setIssuedPreviewUrl(null);
     setTerminalMap({});
     setRunningPort(null);
@@ -2165,6 +2205,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "Describe a bug to fix...",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
+      lastApplySummaryTitle: "Last run — applied changes",
+      lastApplySummaryHint: "The same summary was added to the chat above.",
+      lastApplySummaryDismiss: "Hide this summary",
+      lastApplySummaryEmpty:
+        "No writes, deletes, or recorded shell commands ran. Check the chat reply and terminal for skipped steps.",
       thinkingLog: "Stream & activity",
       idle: "Idle",
       active: "Active",
@@ -2362,6 +2407,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderFix: "バグを修正...",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
+      lastApplySummaryTitle: "直近の実行 — 適用した変更",
+      lastApplySummaryHint: "同じ要約は上のチャットにも追加されています。",
+      lastApplySummaryDismiss: "この要約を閉じる",
+      lastApplySummaryEmpty:
+        "ファイルの書き込み・削除・記録されたコマンドはありません。スキップはチャットとターミナルを確認してください。",
       thinkingLog: "ストリーム・作業ログ",
       idle: "待機中",
       active: "実行中",
@@ -2608,6 +2658,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const clearChat = () => {
     setMessages([]);
+    setLastAgentApplySummary(null);
     setAgentTrace("");
     setStreamingAssistant("");
     if (activeProject && uid) {
@@ -2699,6 +2750,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   useEffect(() => {
     if (activeProject && uid) {
+      setLastAgentApplySummary(null);
       // Clear stale tree from the previous project so the user doesn't see old files while the new list loads.
       setFiles([]);
       setActiveFile(null);
@@ -2709,6 +2761,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       storageLoadChatHistory(uid, activeProject)
         .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
         .catch(() => setMessages([]));
+      void storageLoadTerminalLog(uid, pid)
+        .then((loaded) => {
+          setTerminalMap((prev) => ({
+            ...prev,
+            [pid]: mergeTerminalSessionWithLoaded(prev[pid] ?? [], loaded),
+          }));
+        })
+        .catch(() => {});
       if (BACKEND_URL) {
         axios.get(projectApi(activeProject, "detect-type"))
           .then(res => {
@@ -2726,6 +2786,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     } else {
       setFiles([]);
       setMessages([]);
+      setLastAgentApplySummary(null);
       setProjectType("static");
       setProjectRunning(false);
     }
@@ -2798,7 +2859,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, streamingAssistant, agentTrace]);
+  }, [messages, streamingAssistant, agentTrace, lastAgentApplySummary]);
 
   useEffect(() => {
     if (!activeProject || !uid || messages.length === 0) return;
@@ -2808,6 +2869,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }, 500);
     return () => clearTimeout(timer);
   }, [messages, activeProject, uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    const timer = setTimeout(() => {
+      for (const [project, lines] of Object.entries(terminalMap)) {
+        void storageSaveTerminalLog(uid, project, lines).catch(() => {});
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [terminalMap, uid]);
 
   useEffect(() => {
     if (terminalEndRef.current) {
@@ -3858,7 +3929,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const getActiveApiKey = (): string => {
     if (apiProvider === "vercel-ai-gateway") return vercelKey.trim();
-    if (apiProvider === "custom") return customKey.trim();
+    if (apiProvider === "custom") return sanitizeOpenRouterApiKey(customKey);
     return geminiKey.trim() || (typeof process !== "undefined" ? String(process.env.GEMINI_API_KEY || "") : "");
   };
 
@@ -3873,10 +3944,27 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   function customOpenAiHeaders(baseRaw: string, key: string): Record<string, string> {
     const h: Record<string, string> = { Authorization: `Bearer ${key}` };
     if (baseRaw.toLowerCase().includes("openrouter.ai")) {
-      h["HTTP-Referer"] = "https://sooner.sh";
-      h["X-Title"] = "Sooner";
+      const origin =
+        typeof window !== "undefined" && window.location?.origin
+          ? window.location.origin
+          : "https://sooner.sh";
+      h["HTTP-Referer"] = origin;
+      h["X-OpenRouter-Title"] = "Sooner";
     }
     return h;
+  }
+
+  function openAiHttpErrorDetail(e: unknown): string {
+    const ax = e as {
+      response?: { status?: number; data?: { error?: { message?: string } | string; message?: string } };
+    };
+    const d = ax.response?.data;
+    if (!d || typeof d !== "object") return "";
+    const er = (d as { error?: { message?: string } | string }).error;
+    if (typeof er === "string" && er.trim()) return er.trim();
+    if (er && typeof er === "object" && typeof er.message === "string" && er.message.trim()) return er.message.trim();
+    const m = (d as { message?: string }).message;
+    return typeof m === "string" && m.trim() ? m.trim() : "";
   }
 
   async function customOpenAiChatCompletion(params: {
@@ -3899,10 +3987,25 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (typeof params.maxTokens === "number" && params.maxTokens > 0) {
       body.max_tokens = params.maxTokens;
     }
-    const res = await axios.post(url, body, { headers });
-    const text = res.data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string") throw new Error("Empty AI response");
-    return text;
+    try {
+      const res = await axios.post(url, body, { headers });
+      const text = res.data?.choices?.[0]?.message?.content;
+      if (typeof text !== "string") throw new Error("Empty AI response");
+      return text;
+    } catch (e: unknown) {
+      const ax = e as { response?: { status?: number } };
+      const st = ax.response?.status;
+      const detail = openAiHttpErrorDetail(e);
+      if (st === 401 && customOpenAiRoot().toLowerCase().includes("openrouter.ai")) {
+        const hint =
+          language === "ja"
+            ? "OpenRouter が 401 を返しました。キーが無効・失効しているか、コピー時に引用符や「Bearer 」が二重になっていないか確認してください（設定のキーは生の sk-or-… のみ）。"
+            : "OpenRouter returned 401 (unauthorized). Re-enter your raw sk-or-… key — no quotes, no extra spaces, and do not prefix with Bearer (the app adds it).";
+        throw new Error(detail ? `${hint} ${detail}` : hint);
+      }
+      const msg = detail || (e instanceof Error ? e.message : String(e));
+      throw new Error(msg || "OpenAI-compatible request failed");
+    }
   }
 
   async function customOpenAiVisionCompletion(params: {
@@ -3929,10 +4032,24 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       temperature: 0.3,
       stream: false,
     };
-    const res = await axios.post(url, body, { headers });
-    const text = res.data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string") throw new Error("Empty AI response");
-    return text;
+    try {
+      const res = await axios.post(url, body, { headers });
+      const text = res.data?.choices?.[0]?.message?.content;
+      if (typeof text !== "string") throw new Error("Empty AI response");
+      return text;
+    } catch (e: unknown) {
+      const ax = e as { response?: { status?: number } };
+      const st = ax.response?.status;
+      const detail = openAiHttpErrorDetail(e);
+      if (st === 401 && customOpenAiRoot().toLowerCase().includes("openrouter.ai")) {
+        const hint =
+          language === "ja"
+            ? "OpenRouter が 401 を返しました。APIキーを確認してください。"
+            : "OpenRouter returned 401 (unauthorized). Check your API key.";
+        throw new Error(detail ? `${hint} ${detail}` : hint);
+      }
+      throw new Error(detail || (e instanceof Error ? e.message : String(e)) || "Vision request failed");
+    }
   }
 
   useEffect(() => {
@@ -4499,6 +4616,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     setAgentSteps([]);
     setAgentTrace("");
     setStreamingAssistant("");
+    setLastAgentApplySummary(null);
     abortControllerRef.current = new AbortController();
 
     const appendTrace = (line: string) => {
@@ -5049,6 +5167,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                 ? "\n\nエディタ・プレビュー・ターミナルで確認してください。"
                 : "\n\nCheck the editor, preview, and terminal.";
             setMessages((prev) => [...prev, { role: "assistant", content: `${head}${detail}${tail}` }]);
+            setLastAgentApplySummary({
+              headline: head,
+              lines: resultLines,
+            });
           }
         }
       }
@@ -5836,6 +5958,38 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             <div ref={chatEndRef} />
           </div>
         </div>
+
+        {lastAgentApplySummary && (
+          <div className="shrink-0 px-4 py-3 border-t border-[#252525] bg-[#0C0C0C] space-y-2 max-h-[40vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 space-y-1">
+                <div className="text-[10px] uppercase tracking-widest font-bold text-[#38BDF8]">
+                  {t.lastApplySummaryTitle}
+                </div>
+                <div className="text-[11px] font-semibold text-[#E4E3E0] leading-snug break-words">
+                  {lastAgentApplySummary.headline}
+                </div>
+                <p className="text-[10px] text-[#52525B] leading-snug">{t.lastApplySummaryHint}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLastAgentApplySummary(null)}
+                className="shrink-0 p-1 rounded hover:bg-[#1A1A1A] text-[#8E9299] hover:text-white"
+                title={t.lastApplySummaryDismiss}
+                aria-label={t.lastApplySummaryDismiss}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {lastAgentApplySummary.lines.length > 0 ? (
+              <div className="text-[11px] leading-relaxed text-[#C4C4C0] whitespace-pre-wrap break-words border-l-2 border-[#38BDF8]/35 pl-2.5">
+                {lastAgentApplySummary.lines.join("\n")}
+              </div>
+            ) : (
+              <p className="text-[11px] text-[#8E9299] leading-relaxed">{t.lastApplySummaryEmpty}</p>
+            )}
+          </div>
+        )}
 
         {/* Input */}
         <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A]">

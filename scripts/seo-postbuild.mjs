@@ -19,6 +19,7 @@ if (existsSync(distIndex)) {
   if (m) console.log(`  build-time: ${m[1]}`);
 }
 console.log("\n  Next steps:");
+console.log("  • After deploy: URL inspection uses live HTML — stale hashed /assets/* errors clear on next full crawl if index.html is fresh (short HTML cache + immutable chunks).");
 console.log("  • Submit sitemaps in Search Console (per property):");
 console.log("      https://lp.sooner.sh/sitemap.xml");
 console.log("      https://sooner.sh/sitemap.xml  (same file as /public/sitemap.xml on app host)");

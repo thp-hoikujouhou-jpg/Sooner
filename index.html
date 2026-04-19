@@ -8,13 +8,17 @@
       (function () {
         try {
           if (!location.protocol || location.protocol === "file:") return;
-          var proto = location.protocol;
           var hostname = location.hostname.toLowerCase();
           var path = location.pathname || "/";
           if (path === "") path = "/";
+          /** Always https for production *.sooner.sh so Search Console never sees http: canonicals. */
+          var secureOrigin =
+            hostname === "sooner.sh" || hostname === "www.sooner.sh" || hostname.endsWith(".sooner.sh")
+              ? "https://" + hostname
+              : location.protocol + "//" + hostname;
           var canon;
           if (hostname.startsWith("blog.") || hostname.startsWith("lp.")) {
-            canon = proto + "//" + hostname + path;
+            canon = secureOrigin + path;
           } else if (hostname === "sooner.sh" || hostname === "www.sooner.sh") {
             canon = "https://sooner.sh" + path;
           } else if (hostname.indexOf("signup.") === 0 && hostname.slice(-10) === ".sooner.sh") {
@@ -25,7 +29,7 @@
           ) {
             canon = "https://sooner.sh/signin";
           } else {
-            canon = proto + "//" + hostname + path + (location.search || "");
+            canon = secureOrigin + path + (location.search || "");
           }
           var link = document.createElement("link");
           link.setAttribute("rel", "canonical");
