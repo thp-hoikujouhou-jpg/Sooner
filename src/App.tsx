@@ -179,6 +179,8 @@ const landingI18n = {
     heroDesc: "Sooner is an AI-native IDE: the fastest way from idea to production. Describe what you want — AI builds, previews, and ships your code in seconds.",
     getStartedFree: "Get Started Free",
     tagline: "Build sooner, ship faster.",
+    /** Shown above H1 — include brand "Sooner" for consistency with WebSite / og:site_name (Google site names). */
+    heroEyebrow: "Sooner — The AI-native IDE",
     taglineSub: "The AI-native IDE.",
     feat1: { icon: "⚡", title: "Instant Generation", desc: "Describe your idea. AI writes production-ready code in seconds, not hours." },
     feat2: { icon: "🚀", title: "Real-time Preview", desc: "See your app come alive instantly. React, Vue, Flutter, Three.js — it just works." },
@@ -274,6 +276,7 @@ const landingI18n = {
     heroDesc: "SoonerはAIネイティブIDE。アイデアからプロダクションまで最速の道。作りたいものを伝えるだけ — AIがビルド、プレビュー、数秒でデプロイします。",
     getStartedFree: "無料で始める",
     tagline: "Build sooner, ship faster.",
+    heroEyebrow: "Sooner — AIネイティブIDE",
     taglineSub: "AIネイティブIDE。",
     feat1: { icon: "⚡", title: "瞬時にコード生成", desc: "アイデアを伝えるだけ。AIが本番品質のコードを数秒で書き上げます。" },
     feat2: { icon: "🚀", title: "リアルタイムプレビュー", desc: "アプリが即座に動く。React, Vue, Flutter, Three.js — すべて対応。" },
@@ -1072,7 +1075,7 @@ function LandingPage({ onSkip, initialMode }: { onSkip: () => void; initialMode?
                 className="flex flex-col items-center text-center pt-16 sm:pt-24 md:pt-32 pb-12 px-4"
               >
                 <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="text-[10px] uppercase tracking-[0.3em] text-[#38BDF8]/60 font-semibold mb-6">
-                  The AI-native IDE
+                  {t.heroEyebrow}
                 </motion.p>
                 <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.7 }} className="text-3xl sm:text-4xl md:text-6xl font-black tracking-tight leading-[1.1] mb-4">
                   <span className="text-white">Build </span>

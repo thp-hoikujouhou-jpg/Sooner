@@ -239,6 +239,7 @@ function buildJsonLd(key: string, lang: SeoLang): object[] {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "Sooner",
+    alternateName: ["Sooner IDE"],
     url: "https://sooner.sh/",
     description: (lang === "ja" ? ja : en).site.description,
     inLanguage: ["en", "ja"],
