@@ -5330,11 +5330,11 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             ? "会話や添付が長すぎてモデル上限を超えています。Clear で履歴を消すか、短いメッセージで試してください。"
             : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
       } else if (humaneLower.includes("provider returned error")) {
+        const base = humane.trim();
         errorMsg =
-          humane +
-          (language === "ja"
-            ? " 別モデルへの切り替え・Clear・短いプロンプト、または Google AI Studio の利用枠を確認してください。"
-            : " Try another model, Clear chat, shorten the prompt, or check Google AI Studio quota/billing.");
+          language === "ja"
+            ? `${base}\n\nGoogle 側の汎用エラーです（理由は返らないことがあります）。別モデル・Clear・短い入力、または Google AI Studio で利用枠・課金を確認してください。`
+            : `${base}\n\nGeneric error from Google (details are often omitted). Try another model, Clear chat, a shorter prompt, or check quota/billing in Google AI Studio.`;
       } else {
         errorMsg =
           humane.trim() ||
