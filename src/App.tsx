@@ -1895,6 +1895,35 @@ function sanitizeOpenRouterApiKey(raw: string): string {
   return k;
 }
 
+/**
+ * Some :free / congested models return long "try another model / credits" copy (sometimes mentioning Google AI Studio)
+ * instead of a real answer. Replace with a short factual note so users are not misled into thinking Sooner uses Gemini.
+ */
+function sanitizeOpenRouterBoilerplateAssistantReply(text: string, lang: "ja" | "en"): string {
+  const s = text.trim();
+  if (s.length < 100) return text;
+  const low = s.toLowerCase();
+  const hasOr = low.includes("openrouter.ai") || /\bopenrouter\b/i.test(s);
+  if (!hasOr) return text;
+  const hasCreditsPath = low.includes("/credits") || low.includes("settings/credits");
+  const hasCreditsWord = low.includes("credit") && (low.includes("upgrade") || low.includes("アップグレード") || s.includes("クレジット"));
+  const hasSwitchHint =
+    s.includes("別のモデル") ||
+    (low.includes("model") && (low.includes("switch") || low.includes("another") || low.includes("切り替")));
+  const mentionsGoogleStudio = low.includes("google ai studio") || s.includes("Google AI Studio");
+  if ((hasCreditsPath || hasCreditsWord) && (hasSwitchHint || mentionsGoogleStudio || s.includes("**"))) {
+    return lang === "ja"
+      ? "この応答は、OpenRouter またはモデル側が返した案内文の可能性が高いです（無料枠・混雑・レート制限など）。Google 専用のエラーではありません。モデル ID・時間帯・別モデル・openrouter.ai の残高を確認してください。"
+      : "This reply is likely boilerplate from OpenRouter or the model (free-tier limits, congestion, or rate limits)—not a Google-only error. Check the model slug, retry later, try another model, or credits at openrouter.ai.";
+  }
+  if (mentionsGoogleStudio && hasOr) {
+    return lang === "ja"
+      ? "OpenRouter 利用中に Google AI Studio への言及が出たのは、モデルが誤った定型文を返した可能性があります。実際の接続先は OpenRouter です。別モデル・残高・時間帯を確認してください。"
+      : "Mention of Google AI Studio while using OpenRouter is often model boilerplate, not where Sooner sends traffic. Try another model, check OpenRouter credits, or retry later.";
+  }
+  return text;
+}
+
 /** Merge persisted terminal lines with in-memory session when storage load finishes after new lines were appended. */
 function mergeTerminalSessionWithLoaded(cur: string[], loaded: string[]): string[] {
   if (loaded.length === 0) return cur;
@@ -4823,10 +4852,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               }),
             };
           } else if (isCustomOpenAiChatBase()) {
+            const orTrace = customOpenAiRoot().toLowerCase().includes("openrouter.ai");
             appendTrace(
               language === "ja"
-                ? `カスタム API（OpenAI 互換）: ${selectedModel} へリクエスト中…`
-                : `Calling custom OpenAI-compatible API (${selectedModel})…`,
+                ? orTrace
+                  ? `OpenRouter: ${selectedModel} へリクエスト中…`
+                  : `カスタム OpenAI 互換 API: ${selectedModel} へリクエスト中…`
+                : orTrace
+                  ? `Calling OpenRouter (${selectedModel})…`
+                  : `Calling custom OpenAI-compatible API (${selectedModel})…`,
             );
             chatResponse = {
               text: await customOpenAiChatCompletion({
@@ -4932,7 +4966,12 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           }
         }
         if (!abortControllerRef.current?.signal.aborted) {
-          setMessages(prev => [...prev, { role: "assistant", content: chatResponse.text || "" }]);
+          const rawAssistant = chatResponse.text || "";
+          const assistantOut =
+            isCustomOpenAiChatBase()
+              ? sanitizeOpenRouterBoilerplateAssistantReply(rawAssistant, language === "ja" ? "ja" : "en")
+              : rawAssistant;
+          setMessages(prev => [...prev, { role: "assistant", content: assistantOut }]);
           updateLastStep("completed", "Answered.");
         }
       } else {
@@ -5326,9 +5365,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       let errorMsg: string;
       if (humane.includes("INVALID_ARGUMENT") || humaneLower.includes("token count exceeds")) {
         errorMsg =
-          language === "ja"
-            ? "会話や添付が長すぎてモデル上限を超えています。Clear で履歴を消すか、短いメッセージで試してください。"
-            : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
+          apiProvider === "custom"
+            ? language === "ja"
+              ? "入力が長すぎるか、このモデルでは受け付けられません。Clear・短いメッセージ・別モデル（OpenRouter の表記）を試してください。"
+              : "The prompt may be too long or rejected by this model. Clear chat, shorten input, or try another OpenRouter model id."
+            : language === "ja"
+              ? "会話や添付が長すぎてモデル上限を超えています。Clear で履歴を消すか、短いメッセージで試してください。"
+              : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
       } else if (humaneLower.includes("provider returned error")) {
         const base = humane.trim();
         if (apiProvider === "custom") {
