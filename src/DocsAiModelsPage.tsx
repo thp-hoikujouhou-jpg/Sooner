@@ -21,8 +21,8 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
       title: lang === "ja" ? "モデル取得と AI プロバイダー | Sooner" : "Model discovery & AI providers | Sooner",
       description:
         lang === "ja"
-          ? "OpenAI 互換 /v1/models、Vercel AI Gateway、Sooner のカスタム（Gemini 形式と OpenAI 互換）の説明。"
-          : "How Sooner lists models: OpenAI-compatible /v1/models, Vercel AI Gateway, and Custom (Gemini vs OpenAI-compatible base URL).",
+          ? "Gemini、Vercel AI Gateway、OpenRouter のモデル一覧（/v1/models 等）の説明。"
+          : "How Sooner lists models: Gemini, Vercel AI Gateway, and OpenRouter (/v1/models pattern).",
       ogTitle: lang === "ja" ? "モデル取得と AI プロバイダー" : "Model discovery & AI providers",
       ogDescription:
         lang === "ja"
@@ -71,8 +71,8 @@ export default function DocsAiModelsPage({ pathLang }: { pathLang: "en" | "ja" }
                 <li>
                   <strong className="text-white">OpenRouter</strong>（設定の OpenRouter プロバイダー）: 既定ベースは{" "}
                   <code className="text-[#38BDF8]">https://openrouter.ai/api/v1</code>。モデル一覧は{" "}
-                  <code className="text-[#38BDF8]">GET /v1/models</code>、チャットは <code className="text-[#38BDF8]">POST /v1/chat/completions</code>{" "}
-                  （OpenAI 互換）。別ミラーにしたい場合はビルド時に <code className="text-[#38BDF8]">VITE_OPENROUTER_API_BASE</code> または{" "}
+                  <code className="text-[#38BDF8]">GET /v1/models</code>、チャットは <code className="text-[#38BDF8]">POST /v1/chat/completions</code>
+                  。別のベース URL にしたい場合はビルド時に <code className="text-[#38BDF8]">VITE_OPENROUTER_API_BASE</code> または{" "}
                   <code className="text-[#38BDF8]">VITE_CUSTOM_OPENAI_API_BASE</code> を指定します。ブラウザ直叩きは{" "}
                   <strong className="text-white">CORS</strong> 次第です。
                 </li>

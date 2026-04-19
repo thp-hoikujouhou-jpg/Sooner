@@ -29,11 +29,11 @@ export default function DocsHubPage({ pathLang }: { pathLang: "en" | "ja" }) {
   const links =
     lang === "ja"
       ? [
-          { href: "/docs/ai-models?lang=ja", label: "モデル取得と AI プロバイダー", desc: "Vercel AI Gateway、カスタム、OpenAI 互換 /v1/models の説明。" },
+          { href: "/docs/ai-models?lang=ja", label: "モデル取得と AI プロバイダー", desc: "Gemini、Vercel AI Gateway、OpenRouter（/v1/models 等）の説明。" },
           { href: "/docs/github-sso?lang=ja", label: "GitHub SAML SSO（組織向け）", desc: "403 や組織承認の手順。" },
         ]
       : [
-          { href: "/docs/ai-models?lang=en", label: "Model discovery & AI providers", desc: "Vercel AI Gateway, Custom, OpenAI-compatible /v1/models." },
+          { href: "/docs/ai-models?lang=en", label: "Model discovery & AI providers", desc: "Gemini, Vercel AI Gateway, OpenRouter (/v1/models pattern)." },
           { href: "/docs/github-sso?lang=en", label: "GitHub SAML SSO (organizations)", desc: "403 errors and authorization steps." },
         ];
 

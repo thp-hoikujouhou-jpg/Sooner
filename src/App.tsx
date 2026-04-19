@@ -367,7 +367,7 @@ const landingI18n = {
 
 /** Vercel AI Gateway OpenAI root (server proxy only; no per-user URL in Settings). */
 const DEFAULT_VERCEL_GATEWAY_OPENAI_ROOT = "https://ai-gateway.vercel.sh/v1";
-/** OpenRouter (OpenAI-compatible) API root — Custom provider is OpenRouter-only in the UI. */
+/** Default OpenRouter Chat Completions base (Settings → OpenRouter). */
 const DEFAULT_OPENROUTER_API_ROOT = "https://openrouter.ai/api/v1";
 
 /** GitHub repo name: letters, digits, `.`, `-`, `_` only (max 100). */
@@ -1878,7 +1878,7 @@ function formatPlanStepSummary(step: Record<string, unknown>, lang: "en" | "ja")
   return lang === "ja" ? `・${action} — ${desc}` : `・${action} — ${desc}`;
 }
 
-/** Trim pasted keys and strip accidental quotes / duplicated "Bearer " (OpenRouter / OpenAI-compatible). */
+/** Trim pasted keys and strip accidental quotes / duplicated "Bearer " (OpenRouter). */
 function sanitizeOpenRouterApiKey(raw: string): string {
   let k = raw.trim();
   const n = k.length;
@@ -3963,7 +3963,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return new GoogleGenAI({ apiKey: activeKey });
   };
 
-  /** OpenRouter (stored as provider id "custom"): OpenAI-compatible Chat Completions at openrouter.ai/api/v1 by default. */
+  /** OpenRouter in UI (internal id `custom`). */
   const isCustomOpenAiChatBase = (): boolean => apiProvider === "custom" && !!customKey.trim();
 
   function customOpenAiHeaders(baseRaw: string, key: string): Record<string, string> {
@@ -4107,12 +4107,12 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           throwOpenRouter401(detail);
         }
         const msg = detail || (e instanceof Error ? e.message : String(e));
-        throw new Error(msg || "OpenAI-compatible request failed");
+        throw new Error(msg || "OpenRouter request failed");
       }
     }
 
     const url = openAiCompatibleChatCompletionsUrl(baseRaw);
-    if (!url) throw new Error("Invalid custom API base URL");
+    if (!url) throw new Error("Invalid OpenRouter API base URL");
     const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     try {
       const res = await axios.post(url, body, { headers });
@@ -4125,7 +4125,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const detail = openAiHttpErrorDetail(e);
       if (st === 401) throwOpenRouter401(detail);
       const msg = detail || (e instanceof Error ? e.message : String(e));
-      throw new Error(msg || "OpenAI-compatible request failed");
+      throw new Error(msg || "OpenRouter request failed");
     }
   }
 
@@ -4180,7 +4180,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
 
     const url = openAiCompatibleChatCompletionsUrl(baseRaw);
-    if (!url) throw new Error("Invalid custom API base URL");
+    if (!url) throw new Error("Invalid OpenRouter API base URL");
     const headers = { ...customOpenAiHeaders(baseRaw, key), "Content-Type": "application/json" };
     try {
       const res = await axios.post(url, body, { headers });
@@ -4852,15 +4852,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
               }),
             };
           } else if (isCustomOpenAiChatBase()) {
-            const orTrace = customOpenAiRoot().toLowerCase().includes("openrouter.ai");
             appendTrace(
               language === "ja"
-                ? orTrace
-                  ? `OpenRouter: ${selectedModel} へリクエスト中…`
-                  : `カスタム OpenAI 互換 API: ${selectedModel} へリクエスト中…`
-                : orTrace
-                  ? `Calling OpenRouter (${selectedModel})…`
-                  : `Calling custom OpenAI-compatible API (${selectedModel})…`,
+                ? `OpenRouter: ${selectedModel} へリクエスト中…`
+                : `Calling OpenRouter (${selectedModel})…`,
             );
             chatResponse = {
               text: await customOpenAiChatCompletion({
