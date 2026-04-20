@@ -4,18 +4,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalRespons
 import type { UIMessage } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import {
-  AlertCircle,
-  CheckCircle2,
-  FileCode,
-  History,
-  Key,
-  Loader2,
-  Paperclip,
-  Send,
-  Square,
-  X,
-} from "lucide-react";
+import { FileCode, History, Loader2, Lock, Paperclip, Send, Square, X } from "lucide-react";
 import { chatMessagesToUi, formatWorkspaceToolPayload, uiMessagesToChat } from "./soonerAgentChatAdapters";
 import type { ChatMessage } from "./types";
 import { SoonerWorkspaceMcpStatus } from "./SoonerWorkspaceMcpStatus";
@@ -59,13 +48,9 @@ export type SoonerAiAgentPanelProps = {
     noApiKeyHint: string;
     deny: string;
     approveRun: string;
-    chatSecretsTitle: string;
-    chatSecretsHint: string;
-    providerGeminiBtn: string;
-    providerVercelAiBtn: string;
-    providerOpenRouter: string;
-    chatVercelKeyPlaceholder: string;
-    chatOpenRouterKeyPlaceholder: string;
+    ephemeralSecretsTitle: string;
+    ephemeralSecretsHint: string;
+    ephemeralSecretsPlaceholder: string;
     mcpTitle: string;
     mcpConnecting: string;
     mcpReadyPrefix: string;
@@ -77,11 +62,6 @@ export type SoonerAiAgentPanelProps = {
   /** When this counter changes, the draft textarea is filled with `draftPrefillText` (e.g. Git → chat assist). */
   draftPrefillSeq?: number;
   draftPrefillText?: string;
-  onGeminiKeyChange: (value: string) => void;
-  onVercelKeyChange: (value: string) => void;
-  onCustomKeyChange: (value: string) => void;
-  onApiProviderChange: (p: "gemini" | "vercel-ai-gateway" | "custom") => void;
-  geminiKeyPlaceholder?: string;
 };
 
 export type SoonerAiAgentPanelHandle = {
@@ -118,16 +98,14 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
   onBusyChange,
   draftPrefillSeq = 0,
   draftPrefillText = "",
-  onGeminiKeyChange,
-  onVercelKeyChange,
-  onCustomKeyChange,
-  onApiProviderChange,
-  geminiKeyPlaceholder = "AIza...",
 }: SoonerAiAgentPanelProps,
   ref,
 ) {
   const [draft, setDraft] = useState("");
-  const [secretsOpen, setSecretsOpen] = useState(false);
+  const [ephemeralOpen, setEphemeralOpen] = useState(false);
+  const [ephemeralDraft, setEphemeralDraft] = useState("");
+  /** Sent in HTTP body only; not part of UIMessage / persisted chat. Cleared in onFinish. */
+  const ephemeralForBodyRef = useRef("");
   const chatId = `${uid || "anon"}::${activeProject || "none"}`;
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -150,6 +128,7 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
           gatewayKey: apiProvider === "vercel-ai-gateway" ? vercelKey : "",
           customKey: apiProvider === "custom" ? customKey : "",
           openrouterBase: apiProvider === "custom" ? openrouterBase : "",
+          ephemeralSecrets: ephemeralForBodyRef.current,
         }),
       }),
     [
@@ -173,6 +152,7 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
       ? chatMessagesToUi(initialPersistedMessages)
       : []) as UIMessage[],
     onFinish: () => {
+      ephemeralForBodyRef.current = "";
       onWorkspaceChanged();
     },
     /** Required or `run_command` / `run_command_pipeline` stall after Approve — client must POST again with approval. */
@@ -217,13 +197,11 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
         ? !!vercelKey.trim()
         : !!customKey.trim();
 
-  useEffect(() => {
-    if (!hasApiKey) setSecretsOpen(true);
-  }, [hasApiKey]);
-
   const submit = useCallback(async () => {
     const text = draft.trim();
     if ((!text && contextAttachments.length === 0) || !activeProject || !backendUrl || !hasApiKey) return;
+    ephemeralForBodyRef.current = ephemeralDraft.trim();
+    setEphemeralDraft("");
     const attachBlock =
       contextAttachments.length === 0
         ? ""
@@ -235,6 +213,7 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
     await sendMessage({ text: (text || (language === "ja" ? "（添付のみ）" : "(Attachments only)")) + attachBlock });
   }, [
     draft,
+    ephemeralDraft,
     contextAttachments,
     activeProject,
     backendUrl,
@@ -248,6 +227,8 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
     setMessages([]);
     onPersistMessages([]);
     setDraft("");
+    setEphemeralDraft("");
+    ephemeralForBodyRef.current = "";
     onSetContextAttachments([]);
   }, [setMessages, onPersistMessages, onSetContextAttachments]);
 
@@ -422,72 +403,27 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
         <div className="rounded-lg border border-[#252525] bg-[#080808] overflow-hidden mb-3">
           <button
             type="button"
-            onClick={() => setSecretsOpen((o) => !o)}
+            onClick={() => setEphemeralOpen((o) => !o)}
             className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-[#8E9299] hover:bg-[#141414] hover:text-[#E4E3E0]"
           >
-            <Key className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
-            {t.chatSecretsTitle}
+            <Lock className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+            {t.ephemeralSecretsTitle}
             <span className="ml-auto text-[9px] opacity-80" aria-hidden>
-              {secretsOpen ? "▼" : "▶"}
+              {ephemeralOpen ? "▼" : "▶"}
             </span>
           </button>
-          {secretsOpen && (
+          {ephemeralOpen && (
             <div className="px-3 pb-3 space-y-2 border-t border-[#1A1A1A] pt-2">
-              <div className="grid grid-cols-1 min-[340px]:grid-cols-3 gap-1">
-                {(["gemini", "vercel-ai-gateway", "custom"] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => onApiProviderChange(p)}
-                    className={cn(
-                      "py-1.5 rounded-lg text-[9px] font-bold border transition-all truncate px-1",
-                      apiProvider === p
-                        ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]"
-                        : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]",
-                    )}
-                  >
-                    {p === "gemini"
-                      ? t.providerGeminiBtn
-                      : p === "vercel-ai-gateway"
-                        ? t.providerVercelAiBtn
-                        : t.providerOpenRouter}
-                  </button>
-                ))}
-              </div>
-              <div className="relative">
-                <Key className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 w-3.5 h-3.5 text-[#8E9299]" />
-                {apiProvider === "gemini" && (
-                  <input
-                    type="password"
-                    value={geminiKey}
-                    onChange={(e) => onGeminiKeyChange(e.target.value)}
-                    placeholder={geminiKeyPlaceholder}
-                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
-                    autoComplete="off"
-                  />
-                )}
-                {apiProvider === "vercel-ai-gateway" && (
-                  <input
-                    type="password"
-                    value={vercelKey}
-                    onChange={(e) => onVercelKeyChange(e.target.value)}
-                    placeholder={t.chatVercelKeyPlaceholder}
-                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
-                    autoComplete="off"
-                  />
-                )}
-                {apiProvider === "custom" && (
-                  <input
-                    type="password"
-                    value={customKey}
-                    onChange={(e) => onCustomKeyChange(e.target.value)}
-                    placeholder={t.chatOpenRouterKeyPlaceholder}
-                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
-                    autoComplete="off"
-                  />
-                )}
-              </div>
-              <p className="text-[9px] text-[#52525B] leading-snug">{t.chatSecretsHint}</p>
+              <textarea
+                value={ephemeralDraft}
+                onChange={(e) => setEphemeralDraft(e.target.value)}
+                placeholder={t.ephemeralSecretsPlaceholder}
+                spellCheck={false}
+                autoComplete="off"
+                rows={4}
+                className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg p-2 text-xs font-mono text-[#E4E3E0] focus:outline-none focus:border-[#38BDF8] resize-y min-h-[5rem] max-h-40"
+              />
+              <p className="text-[9px] text-[#52525B] leading-snug">{t.ephemeralSecretsHint}</p>
             </div>
           )}
         </div>

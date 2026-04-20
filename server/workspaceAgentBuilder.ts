@@ -24,6 +24,8 @@ export function isAgentDeletablePath(filePath: string): boolean {
   return true;
 }
 
+const EPHEMERAL_SECRETS_MAX = 48_000;
+
 function systemPrompt(language: "en" | "ja"): string {
   const lang = language === "ja" ? "日本語で簡潔に答えてください。" : "Respond concisely in English.";
   const mcpHint =
@@ -37,6 +39,15 @@ For run_command and run_command_pipeline, the user must approve in the UI before
 Never delete or overwrite paths under .sooner_, .aether_, or the file .sooner_project.
 ${mcpHint}
 Return helpful natural language in addition to tool use when explaining.`;
+}
+
+/** User-supplied secrets for one request only (not stored in chat); appended to instructions. */
+function ephemeralSecretsBlock(language: "en" | "ja", raw: string): string {
+  const intro =
+    language === "ja"
+      ? "【このリクエスト専用の機密（チャット履歴や会話欄のユーザー本文には含まれない）】\n次のブロックのみを参照し、必要最小限で利用してください。応答に全文をそのまま貼り付けないでください。"
+      : "[Ephemeral user-provided secrets for this request only — not stored in chat or in the visible user message]\nUse only as needed; never paste the full block verbatim into your reply.";
+  return `\n\n${intro}\n<<<USER_EPHEMERAL_SECRETS>>>\n${raw}\n<<<END_USER_EPHEMERAL_SECRETS>>>`;
 }
 
 /** Shared by the workspace agent and the MCP HTTP bridge. */
@@ -73,12 +84,19 @@ export async function buildSoonerWorkspaceAgent(
   model: LanguageModel,
   ctx: WorkspaceAgentContext,
   language: "en" | "ja",
+  opts?: { ephemeralSecrets?: string },
 ): Promise<{ agent: ToolLoopAgent; dispose: () => Promise<void> }> {
   const { tools: mcpTools, dispose } = await buildMcpConfigToolMap(ctx);
+  const rawEphemeral = String(opts?.ephemeralSecrets || "").trim();
+  const clipped =
+    rawEphemeral.length > EPHEMERAL_SECRETS_MAX
+      ? `${rawEphemeral.slice(0, EPHEMERAL_SECRETS_MAX)}\n… [truncated at ${EPHEMERAL_SECRETS_MAX} chars]`
+      : rawEphemeral;
+  const instructions = systemPrompt(language) + (clipped ? ephemeralSecretsBlock(language, clipped) : "");
   const agent = new ToolLoopAgent({
     id: "sooner-workspace",
     model,
-    instructions: systemPrompt(language),
+    instructions,
     stopWhen: stepCountIs(36),
     tools: {
       read_file: tool({

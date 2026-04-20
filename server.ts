@@ -412,6 +412,12 @@ async function startServer() {
         "X-Sooner-OpenRouter-Key",
         "X-Requested-With",
         "X-Sooner-Project",
+        // MCP Streamable HTTP (browser use-mcp / @modelcontextprotocol/sdk client)
+        "Accept",
+        "mcp-protocol-version",
+        "mcp-session-id",
+        "Mcp-Session-Id",
+        "Last-Event-ID",
       ],
     }),
   );
@@ -3364,6 +3370,8 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       gatewayKey?: string;
       customKey?: string;
       openrouterBase?: string;
+      /** Non-API secrets for this request only; merged into server-side instructions, not chat history. */
+      ephemeralSecrets?: string;
     };
     const projectId = typeof body.projectId === "string" ? body.projectId : "";
     if (!projectId || !isValidName(projectId)) {
@@ -3444,7 +3452,11 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       deleteFromStorage: (relPath: string) => storageDelete(uid, projectId, relPath),
     };
     const lang = body.language === "ja" ? "ja" : "en";
-    const { agent, dispose } = await buildSoonerWorkspaceAgent(model, ctx, lang);
+    const ephemeralSecrets =
+      typeof body.ephemeralSecrets === "string" ? body.ephemeralSecrets : "";
+    const { agent, dispose } = await buildSoonerWorkspaceAgent(model, ctx, lang, {
+      ephemeralSecrets,
+    });
     try {
       await pipeAgentUIStreamToResponse({
         response: res as unknown as import("http").ServerResponse,

@@ -2246,7 +2246,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       agentNoProject:
         "Open a project in the sidebar. The workspace agent reads and edits files in that project on the server.",
       agentNoApiKey:
-        "Add an API key here or in Settings (Gemini, Vercel AI Gateway, or OpenRouter) to use the agent.",
+        "Add an API key in Settings (Gemini, Vercel AI Gateway, or OpenRouter) to use the agent.",
       agentNoBackendChat:
         "The streaming workspace agent needs VITE_BACKEND_URL (Sooner API). You can still edit files and use Download here.",
       idle: "Idle",
@@ -2294,10 +2294,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       providerGeminiBtn: "Gemini",
       providerVercelAiBtn: "Vercel AI",
       providerOpenRouter: "OpenRouter",
-      chatSecretsTitle: "API key",
-      chatSecretsHint: "Same as Settings — stored in your browser for this account.",
-      chatVercelKeyPlaceholder: "Enter Vercel AI Gateway API Key",
-      chatOpenRouterKeyPlaceholder: "OpenRouter API key",
+      ephemeralSecretsTitle: "Secrets (not in chat)",
+      ephemeralSecretsHint:
+        "Sent only in this request’s API body. Not added to the visible message, not saved in chat history, and cleared when the run finishes. Use for one-off tokens or passwords. LLM API keys belong in Settings.",
+      ephemeralSecretsPlaceholder: "Tokens, passwords, private notes for this turn only…",
       mcpTitle: "Workspace MCP",
       mcpConnecting: "Connecting…",
       mcpReadyPrefix: "Tools on /api/mcp",
@@ -2473,7 +2473,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       agentNoProject:
         "サイドバーでプロジェクトを開いてください。エージェントはサーバー上のそのプロジェクト内のファイルを読み書きします。",
       agentNoApiKey:
-        "エージェントを使うには、下の欄または設定で API キー（Gemini / Vercel AI Gateway / OpenRouter）を入力してください。",
+        "エージェントを使うには、設定で API キー（Gemini / Vercel AI Gateway / OpenRouter）を入力してください。",
       agentNoBackendChat:
         "ストリーミングのワークスペースエージェントには VITE_BACKEND_URL（Sooner API）が必要です。この環境ではファイル編集とダウンロードは利用できます。",
       idle: "待機中",
@@ -2521,10 +2521,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       providerGeminiBtn: "Gemini",
       providerVercelAiBtn: "Vercel AI",
       providerOpenRouter: "OpenRouter",
-      chatSecretsTitle: "APIキー",
-      chatSecretsHint: "設定と同じです。このアカウント向けにブラウザに保存されます。",
-      chatVercelKeyPlaceholder: "Vercel AI Gateway の API キー",
-      chatOpenRouterKeyPlaceholder: "OpenRouter の API キー",
+      ephemeralSecretsTitle: "シークレット（会話欄に出ない）",
+      ephemeralSecretsHint:
+        "このリクエストの API ボディでのみ送信されます。チャットの本文には載らず、履歴にも保存されず、実行完了時に破棄されます。一回限りのトークンやパスワード用。LLM の API キーは設定へ。",
+      ephemeralSecretsPlaceholder: "このターンだけモデルに渡したいトークン・パスワードなど…",
       mcpTitle: "ワークスペース MCP",
       mcpConnecting: "接続中…",
       mcpReadyPrefix: "/api/mcp のツール",
@@ -5287,17 +5287,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               draftPrefillSeq={agentDraftPrefillSeq}
               draftPrefillText={agentDraftPrefillText}
               onBusyChange={setIsAgentRunning}
-              onGeminiKeyChange={setGeminiKey}
-              onVercelKeyChange={setVercelKey}
-              onCustomKeyChange={setCustomKey}
-              onApiProviderChange={setApiProvider}
-              geminiKeyPlaceholder={
-                typeof process !== "undefined" && process.env.GEMINI_API_KEY
-                  ? language === "ja"
-                    ? "環境変数のキーを使用中"
-                    : "Using key from Environment"
-                  : "AIza..."
-              }
               translations={{
                 placeholderUnified: t.placeholderUnified,
                 attachFiles: t.attachFiles,
@@ -5312,13 +5301,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 noApiKeyHint: t.agentNoApiKey,
                 deny: t.agentPanelDeny,
                 approveRun: t.agentPanelApproveRun,
-                chatSecretsTitle: t.chatSecretsTitle,
-                chatSecretsHint: t.chatSecretsHint,
-                providerGeminiBtn: t.providerGeminiBtn,
-                providerVercelAiBtn: t.providerVercelAiBtn,
-                providerOpenRouter: t.providerOpenRouter,
-                chatVercelKeyPlaceholder: t.chatVercelKeyPlaceholder,
-                chatOpenRouterKeyPlaceholder: t.chatOpenRouterKeyPlaceholder,
+                ephemeralSecretsTitle: t.ephemeralSecretsTitle,
+                ephemeralSecretsHint: t.ephemeralSecretsHint,
+                ephemeralSecretsPlaceholder: t.ephemeralSecretsPlaceholder,
                 mcpTitle: t.mcpTitle,
                 mcpConnecting: t.mcpConnecting,
                 mcpReadyPrefix: t.mcpReadyPrefix,
