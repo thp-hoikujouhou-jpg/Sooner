@@ -2239,8 +2239,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderPlan: "Describe a feature to plan...",
       placeholderCode: "Describe code to write...",
       placeholderFix: "Describe a bug to fix...",
-      placeholderUnified:
-        "Ask anything — with a project open, the assistant can edit files, run approved shell commands, and use the workspace terminal (xterm + node-pty on the server).",
+      placeholderUnified: "Ask a question...",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
       lastApplySummaryTitle: "Last run — applied changes",
@@ -2455,8 +2454,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderPlan: "機能を計画...",
       placeholderCode: "コードを生成...",
       placeholderFix: "バグを修正...",
-      placeholderUnified:
-        "何でもどうぞ — プロジェクトを開いているときはファイル編集・承認済みシェル・ワークスペース端末（ブラウザは xterm、サーバーは node-pty）まで一貫して扱います。",
+      placeholderUnified: "質問を入力...",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
       lastApplySummaryTitle: "直近の実行 — 適用した変更",

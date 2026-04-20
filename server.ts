@@ -4,6 +4,7 @@ import multer from "multer";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs/promises";
+import { mkdirSync } from "node:fs";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import pty from "node-pty";
@@ -692,6 +693,16 @@ async function startServer() {
     const rows = 24;
     let ptyProc: pty.IPty;
     try {
+      try {
+        mkdirSync(projectPath, { recursive: true });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        try {
+          ws.send(JSON.stringify({ type: "error", data: `Cannot create project directory: ${msg}` }));
+        } catch {}
+        ws.close();
+        return;
+      }
       ptyProc = pty.spawn(shell, shellArgs, {
         name: "xterm-256color",
         cols,
@@ -3363,6 +3374,12 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       return;
     }
     await ensureUserSandbox(uid);
+    try {
+      await fs.mkdir(root, { recursive: true });
+    } catch (e: unknown) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
 
     const mapGem = (m: string) => {
       if (!m) return "gemini-2.5-flash";
