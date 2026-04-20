@@ -1,5 +1,6 @@
 # Railway / any host: git is required for POST /api/projects/clone and git push/pull.
-FROM node:20-bookworm-slim
+# Node 22: matches package engines and @react-three/drei → camera-controls peer requirement.
+FROM node:22-bookworm-slim
 
 # node-pty compiles via node-gyp: needs Python + a C++ toolchain (prebuilds are not always present).
 RUN apt-get update \
