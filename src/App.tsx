@@ -2130,7 +2130,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [newProjectName, setNewProjectName] = useState("");
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
-  const [agentMode, setAgentMode] = useState<"chat" | "plan" | "code" | "fix">("chat");
+  /** Next send acts as chat-only (no plan/execute), e.g. Git "AI commit message" assist. */
+  const nextSubmitChatOnlyRef = useRef(false);
   const [language, setLanguage] = useState<"en" | "ja">(() => {
     const paramLang = new URLSearchParams(window.location.search).get("lang");
     if (paramLang === "ja" || paramLang === "en") {
@@ -2260,6 +2261,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderPlan: "Describe a feature to plan...",
       placeholderCode: "Describe code to write...",
       placeholderFix: "Describe a bug to fix...",
+      placeholderUnified:
+        "Ask anything — with a project open, the assistant can edit files, run approved shell commands, and use the workspace terminal (xterm + node-pty on the server).",
       agentTitle: "AI Developer Agent",
       pipeline: "Execution Pipeline",
       lastApplySummaryTitle: "Last run — applied changes",
@@ -2464,6 +2467,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       placeholderPlan: "機能を計画...",
       placeholderCode: "コードを生成...",
       placeholderFix: "バグを修正...",
+      placeholderUnified:
+        "何でもどうぞ — プロジェクトを開いているときはファイル編集・承認済みシェル・ワークスペース端末（ブラウザは xterm、サーバーは node-pty）まで一貫して扱います。",
       agentTitle: "AI開発エージェント",
       pipeline: "実行パイプライン",
       lastApplySummaryTitle: "直近の実行 — 適用した変更",
@@ -4832,17 +4837,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     const langInstruction = language === "ja" ? "回答は日本語で行ってください。ただし技術用語やコード内のコメントは英語でも構いません。" : "Respond in English.";
 
     try {
-      // 1. Decide: Chat or Code?
+      // 1. Decide: chat-only vs workspace (plan + execute)
       addStep("plan", "Analyzing request and history...");
-      
-      let decisionType = agentMode === "chat" ? "chat" : "code";
 
-      if (decisionType === "chat" || !activeProject) {
-        if (decisionType === "code" && !activeProject) {
-          setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "アクティブなプロジェクトがありません。プロジェクトを作成または選択してください。" : "I can't modify code without an active project. Please create or select a project first." }]);
-          updateLastStep("failed", "No active project.");
-          return;
-        }
+      const chatOnlyThisSend = nextSubmitChatOnlyRef.current;
+      if (nextSubmitChatOnlyRef.current) nextSubmitChatOnlyRef.current = false;
+      const preferChat = !activeProject || chatOnlyThisSend;
+      const decisionType: "chat" | "code" = preferChat ? "chat" : "code";
+
+      if (decisionType === "chat") {
 
         updateLastStep("completed", "Generating response...");
         const chatSystemInstruction = `You are Sooner. You are helpful, technical, and concise. 
@@ -4991,7 +4994,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
       } else {
         // 2. Plan for Code
-        updateLastStep("completed", `Creating execution plan (${agentMode} mode)...`);
+        updateLastStep("completed", "Creating execution plan…");
         let planResponse;
 
         const backendServerSection = BACKEND_URL
@@ -5026,8 +5029,8 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
         appendTrace(
           language === "ja"
-            ? `${agentMode === "plan" ? "プラン" : agentMode === "fix" ? "修正" : "コード"}モード: ストレージからソースを読み取ります（エディタは切り替えません）。`
-            : `${agentMode === "plan" ? "Plan" : agentMode === "fix" ? "Fix" : "Code"} mode: reading sources from storage (editor tab unchanged).`,
+            ? "ワークスペース: ストレージからソースを読み取ります（エディタタブは切り替えません）。"
+            : "Workspace: reading sources from storage (editor tab unchanged).",
         );
         addStep(
           "read",
@@ -5123,16 +5126,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         - Only create new files when they don't already exist.
         - If the user asks to "improve" or "add a feature", merge it into the existing code.
         
-        MODE: ${agentMode}
-        ${
-          agentMode === "plan"
-            ? `
-        PLAN MODE — COMPACT JSON (MANDATORY):
+        UNIFIED WORKSPACE MODE:
         - The entire response must be one JSON array only: the first character you output must be "[". No markdown, no code fences (no \`\`\`), no text before or after the array.
-        - For every "write_file" in plan mode: set "content" to "" or one short placeholder line (e.g. "(full file in Code mode)"). Put ALL specification detail in "description" (outline, components, UX, libraries). NEVER embed full HTML/CSS/JS or long markdown documents inside JSON strings — responses are token-limited and truncated JSON causes parse errors.
-        `
-            : ""
-        }
+        - Use full, production-ready file contents in every "write_file" "content" string unless the user explicitly asked for a high-level outline only.
+        - Prefer minimal, targeted edits when the user is fixing a bug or small error; avoid rewriting unrelated files.
         
         FRAMEWORK DETECTION:
         - Detect the framework/language from the user's request and existing project files.
@@ -5156,16 +5153,15 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         - Always use RELATIVE paths (e.g., './src/main.tsx', not '/src/main.tsx').
         - For Flutter web: create web/index.html as the entry point.
         ${backendServerSection}
-        INSTRUCTIONS FOR MODES:
-        - 'plan': Same JSON schema as code; use concrete "description" text (what file/command, why). In plan mode keep every write_file "content" empty or a one-line placeholder — never full sources (see PLAN MODE rules).
-        - 'code': Provide full, production-ready code in 'content' for 'write_file' actions.
-        - 'fix': Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. Diagnose errors and return minimal targeted write_file / delete_file fixes (do not rewrite unrelated files).
+        INSTRUCTIONS:
+        - Provide full, production-ready code in 'content' for 'write_file' when creating or substantially changing files.
+        - Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. For bugfixes, return minimal targeted write_file / delete_file steps (do not rewrite unrelated files).
         - AGENT TOOLS: You may use delete_file to remove obsolete/conflicting files; use run_command for installs, tests, flutter pub get, flutter build web, etc. Do not delete .sooner_* / .aether_* / .sooner_project paths.
         
         IMPORTANT: 
         ${depsInstruction}
         2. Check existing files for missing dependencies or imports and fix them.
-        3. If the user previously discussed a plan in 'Chat' or 'Plan' mode, EXECUTE that plan now.
+        3. If the user previously discussed a plan in conversation (without applying it yet), EXECUTE that plan now when they ask to apply or build it.
         4. Use the language/framework the user explicitly requests. NEVER force React if not asked.
         5. JSON ONLY: In every write_file "content" string, escape double-quotes as \\". Never put markdown code fences (triple backticks) inside JSON — use plain indented text in README strings instead.
  
@@ -5235,20 +5231,25 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
         }
         updateLastStep("completed", "Plan generated based on history.");
 
-        if (agentMode === "plan") {
+        const lang = language === "ja" ? "ja" : "en";
+        if (plan.length === 0) {
           if (!abortControllerRef.current?.signal.aborted) {
-            const lang = language === "ja" ? "ja" : "en";
-            const header =
-              lang === "ja"
-                ? `プラン（${plan.length} ステップ）。Code モードで実行できます。`
-                : `Plan (${plan.length} step(s)). Switch to Code mode to apply.`;
-            const body = plan.map((s: Record<string, unknown>) => formatPlanStepSummary(s, lang)).join("\n");
-            setMessages((prev) => [...prev, { role: "assistant", content: `${header}\n\n${body}` }]);
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content:
+                  lang === "ja"
+                    ? "ワークスペース向けのステップが 0 件でした（モデルが [] を返した可能性があります）。ファイルやコマンドを明示するか、説明だけならプロジェクトを閉じるか、Git の「AI コミット案」から開いたチャットのように次の 1 回だけ会話モードになる操作を使ってください。"
+                    : "The model returned no workspace steps (possibly an empty JSON array []). Be explicit about files or commands; for pure Q&A, work without an active project, or use flows that mark the next send as chat-only.",
+              },
+            ]);
           }
+          updateLastStep("completed", "No workspace actions.");
+          fetchFiles();
         } else {
-          // 3. Execute
+          // 3. Execute plan
           const resultLines: string[] = [];
-          const lang = language === "ja" ? "ja" : "en";
           for (const step of plan) {
             if (abortControllerRef.current?.signal.aborted) break;
             const act = step.action as string;
@@ -5358,20 +5359,10 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           fetchFiles();
 
           if (!abortControllerRef.current?.signal.aborted) {
-            const modeLabel =
-              agentMode === "fix"
-                ? lang === "ja"
-                  ? "修正"
-                  : "Fix"
-                : agentMode === "code"
-                  ? lang === "ja"
-                    ? "コード"
-                    : "Code"
-                  : agentMode;
             const head =
               lang === "ja"
-                ? `【${modeLabel}】実行結果（${resultLines.length} 件）`
-                : `【${modeLabel}】Done (${resultLines.length} action(s))`;
+                ? `【ワークスペース】実行結果（${resultLines.length} 件）`
+                : `【Workspace】Done (${resultLines.length} action(s))`;
             const detail = resultLines.length ? `\n\n${resultLines.join("\n")}` : "";
             const tail =
               lang === "ja"
@@ -6247,28 +6238,9 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
 
         {/* Input */}
         <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A]">
-          <div className="flex flex-wrap gap-1 mb-3">
-            {[
-              { id: "chat", label: t.chat, icon: MessageSquare },
-              { id: "plan", label: t.plan, icon: FolderTree },
-              { id: "code", label: t.code, icon: CodeIcon },
-              { id: "fix", label: t.fix, icon: AlertCircle },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => setAgentMode(mode.id as "chat" | "plan" | "code" | "fix")}
-                className={cn(
-                  "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-all border",
-                  agentMode === mode.id 
-                    ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]" 
-                    : "bg-[#1A1A1A] border-[#252525] text-[#8E9299] hover:border-[#333]"
-                )}
-              >
-                <mode.icon className="w-3 h-3" />
-                {mode.label}
-              </button>
-            ))}
-            <button 
+          <div className="flex flex-wrap gap-1 mb-3 items-center">
+            <button
+              type="button"
               onClick={clearChat}
               className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold text-[#8E9299] hover:text-white transition-colors"
             >
@@ -6330,12 +6302,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                   handleAgentAction();
                 }
               }}
-              placeholder={
-                agentMode === "chat" ? t.placeholderChat :
-                agentMode === "plan" ? t.placeholderPlan :
-                agentMode === "code" ? t.placeholderCode :
-                t.placeholderFix
-              }
+              placeholder={t.placeholderUnified}
               className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl p-3 pr-12 text-sm focus:outline-none focus:border-[#38BDF8] transition-colors resize-none h-24"
             />
             <button 
@@ -7232,7 +7199,7 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         className="text-[10px] text-[#38BDF8] hover:underline text-left w-full"
                         onClick={() => {
                           setIsGitOpen(false);
-                          setAgentMode("chat");
+                          nextSubmitChatOnlyRef.current = true;
                           setIsChatOpen(true);
                           setInput(
                             language === "ja"
