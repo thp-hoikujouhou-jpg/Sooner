@@ -9,14 +9,16 @@ import {
   CheckCircle2,
   FileCode,
   History,
+  Key,
   Loader2,
   Paperclip,
   Send,
   Square,
   X,
 } from "lucide-react";
-import { chatMessagesToUi, uiMessagesToChat } from "./soonerAgentChatAdapters";
+import { chatMessagesToUi, formatWorkspaceToolPayload, uiMessagesToChat } from "./soonerAgentChatAdapters";
 import type { ChatMessage } from "./types";
+import { SoonerWorkspaceMcpStatus } from "./SoonerWorkspaceMcpStatus";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -57,11 +59,29 @@ export type SoonerAiAgentPanelProps = {
     noApiKeyHint: string;
     deny: string;
     approveRun: string;
+    chatSecretsTitle: string;
+    chatSecretsHint: string;
+    providerGeminiBtn: string;
+    providerVercelAiBtn: string;
+    providerOpenRouter: string;
+    chatVercelKeyPlaceholder: string;
+    chatOpenRouterKeyPlaceholder: string;
+    mcpTitle: string;
+    mcpConnecting: string;
+    mcpReadyPrefix: string;
+    mcpFailed: string;
+    mcpHint: string;
+    mcpAwaitingAuth: string;
   };
   onBusyChange?: (busy: boolean) => void;
   /** When this counter changes, the draft textarea is filled with `draftPrefillText` (e.g. Git → chat assist). */
   draftPrefillSeq?: number;
   draftPrefillText?: string;
+  onGeminiKeyChange: (value: string) => void;
+  onVercelKeyChange: (value: string) => void;
+  onCustomKeyChange: (value: string) => void;
+  onApiProviderChange: (p: "gemini" | "vercel-ai-gateway" | "custom") => void;
+  geminiKeyPlaceholder?: string;
 };
 
 export type SoonerAiAgentPanelHandle = {
@@ -98,10 +118,16 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
   onBusyChange,
   draftPrefillSeq = 0,
   draftPrefillText = "",
+  onGeminiKeyChange,
+  onVercelKeyChange,
+  onCustomKeyChange,
+  onApiProviderChange,
+  geminiKeyPlaceholder = "AIza...",
 }: SoonerAiAgentPanelProps,
   ref,
 ) {
   const [draft, setDraft] = useState("");
+  const [secretsOpen, setSecretsOpen] = useState(false);
   const chatId = `${uid || "anon"}::${activeProject || "none"}`;
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -190,6 +216,10 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
       : apiProvider === "vercel-ai-gateway"
         ? !!vercelKey.trim()
         : !!customKey.trim();
+
+  useEffect(() => {
+    if (!hasApiKey) setSecretsOpen(true);
+  }, [hasApiKey]);
 
   const submit = useCallback(async () => {
     const text = draft.trim();
@@ -300,15 +330,42 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
               : [o.stdout, o.stderr].filter(Boolean).join("\n");
           if (block && onTerminalMirror) onTerminalMirror(block);
         }
+        const body =
+          tool.output != null || tool.errorText
+            ? formatWorkspaceToolPayload(
+                {
+                  type: tool.type,
+                  state: tool.state,
+                  input: tool.input,
+                  output: tool.output,
+                  errorText: tool.errorText,
+                },
+                "display",
+              )
+            : "";
+        const long = body.length > 4000;
         return (
           <div key={idx} className="mt-2 rounded border border-[#252525] bg-[#0A0A0A] p-2 text-[10px] font-mono text-[#8E9299]">
             <div className="text-[#38BDF8] mb-1">{name}</div>
             <div className="text-[#52525B]">{tool.state}</div>
-            {tool.errorText ? <div className="text-red-400 mt-1">{tool.errorText}</div> : null}
-            {tool.output != null ? (
-              <pre className="mt-1 max-h-40 overflow-auto text-[#C4C4C0] whitespace-pre-wrap break-words">
-                {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2).slice(0, 4000)}
-              </pre>
+            {body ? (
+              long ? (
+                <details className="mt-1 group">
+                  <summary className="cursor-pointer text-[#71717A] text-[10px] py-1 hover:text-[#A1A1AA] list-none [&::-webkit-details-marker]:hidden flex items-center gap-1">
+                    <span className="text-[#52525B] group-open:rotate-90 transition-transform">▸</span>
+                    {language === "ja"
+                      ? `ツール出力を展開（${body.length.toLocaleString()} 文字）`
+                      : `Expand tool output (${body.length.toLocaleString()} chars)`}
+                  </summary>
+                  <pre className="mt-1 max-h-80 overflow-auto text-[#C4C4C0] whitespace-pre-wrap break-words border-t border-[#1A1A1A] pt-2">
+                    {body}
+                  </pre>
+                </details>
+              ) : (
+                <pre className="mt-1 max-h-80 overflow-auto text-[#C4C4C0] whitespace-pre-wrap break-words">
+                  {body}
+                </pre>
+              )
             ) : null}
           </div>
         );
@@ -362,6 +419,92 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
       </div>
 
       <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A] shrink-0">
+        <div className="rounded-lg border border-[#252525] bg-[#080808] overflow-hidden mb-3">
+          <button
+            type="button"
+            onClick={() => setSecretsOpen((o) => !o)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-[#8E9299] hover:bg-[#141414] hover:text-[#E4E3E0]"
+          >
+            <Key className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+            {t.chatSecretsTitle}
+            <span className="ml-auto text-[9px] opacity-80" aria-hidden>
+              {secretsOpen ? "▼" : "▶"}
+            </span>
+          </button>
+          {secretsOpen && (
+            <div className="px-3 pb-3 space-y-2 border-t border-[#1A1A1A] pt-2">
+              <div className="grid grid-cols-1 min-[340px]:grid-cols-3 gap-1">
+                {(["gemini", "vercel-ai-gateway", "custom"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => onApiProviderChange(p)}
+                    className={cn(
+                      "py-1.5 rounded-lg text-[9px] font-bold border transition-all truncate px-1",
+                      apiProvider === p
+                        ? "bg-[#38BDF8]/10 border-[#38BDF8] text-[#38BDF8]"
+                        : "bg-[#1A1A1A] border-[#252525] text-[#8E9299]",
+                    )}
+                  >
+                    {p === "gemini"
+                      ? t.providerGeminiBtn
+                      : p === "vercel-ai-gateway"
+                        ? t.providerVercelAiBtn
+                        : t.providerOpenRouter}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Key className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 w-3.5 h-3.5 text-[#8E9299]" />
+                {apiProvider === "gemini" && (
+                  <input
+                    type="password"
+                    value={geminiKey}
+                    onChange={(e) => onGeminiKeyChange(e.target.value)}
+                    placeholder={geminiKeyPlaceholder}
+                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
+                    autoComplete="off"
+                  />
+                )}
+                {apiProvider === "vercel-ai-gateway" && (
+                  <input
+                    type="password"
+                    value={vercelKey}
+                    onChange={(e) => onVercelKeyChange(e.target.value)}
+                    placeholder={t.chatVercelKeyPlaceholder}
+                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
+                    autoComplete="off"
+                  />
+                )}
+                {apiProvider === "custom" && (
+                  <input
+                    type="password"
+                    value={customKey}
+                    onChange={(e) => onCustomKeyChange(e.target.value)}
+                    placeholder={t.chatOpenRouterKeyPlaceholder}
+                    className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:border-[#38BDF8]"
+                    autoComplete="off"
+                  />
+                )}
+              </div>
+              <p className="text-[9px] text-[#52525B] leading-snug">{t.chatSecretsHint}</p>
+            </div>
+          )}
+        </div>
+        {uid && activeProject ? (
+          <SoonerWorkspaceMcpStatus
+            backendUrl={backendUrl}
+            activeProject={activeProject}
+            getIdToken={getIdToken}
+            language={language}
+            mcpTitle={t.mcpTitle}
+            mcpConnecting={t.mcpConnecting}
+            mcpReadyPrefix={t.mcpReadyPrefix}
+            mcpFailed={t.mcpFailed}
+            mcpHint={t.mcpHint}
+            mcpAwaitingAuth={t.mcpAwaitingAuth}
+          />
+        ) : null}
         <div className="flex flex-wrap gap-1 mb-3 items-center">
           <button
             type="button"

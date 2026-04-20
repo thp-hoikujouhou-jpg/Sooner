@@ -6,10 +6,14 @@ import { ToolLoopAgent, tool, zodSchema, stepCountIs } from "ai";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 import { terminalCommandBlockedReason } from "./terminalSafety";
+import type { WorkspaceAgentContext } from "./workspaceAgentContext";
+import { buildMcpConfigToolMap } from "./workspaceMcpClients";
 
 const execAsync = promisify(exec);
 
 const READ_FILE_MAX_BYTES = 800_000;
+
+export type { WorkspaceAgentContext } from "./workspaceAgentContext";
 
 export function isAgentDeletablePath(filePath: string): boolean {
   if (!filePath || typeof filePath !== "string") return false;
@@ -20,22 +24,18 @@ export function isAgentDeletablePath(filePath: string): boolean {
   return true;
 }
 
-export type WorkspaceAgentContext = {
-  projectRoot: string;
-  uid: string;
-  projectId: string;
-  safeResolveRel: (rel: string) => string | null;
-  uploadToStorage: (relPath: string, content: string) => Promise<void>;
-  deleteFromStorage: (relPath: string) => Promise<void>;
-};
-
 function systemPrompt(language: "en" | "ja"): string {
   const lang = language === "ja" ? "日本語で簡潔に答えてください。" : "Respond concisely in English.";
+  const mcpHint =
+    language === "ja"
+      ? "プロジェクト直下の mcp-config.json で宣言された外部 MCP サーバーのツールは、名前が mcp__ で始まります（必要なときだけ使ってください）。"
+      : "Tools from external MCP servers declared in mcp-config.json at the project root have names starting with mcp__ (use them when they help the task).";
   return `You are Sooner, an AI-native IDE assistant with direct access to the user's active project on the workspace server.
 ${lang}
 Use tools to inspect (read_file, list_directory), edit files, and run shell commands when needed. Prefer small, targeted edits for bugfixes.
 For run_command and run_command_pipeline, the user must approve in the UI before execution (one approval per tool call; pipeline runs multiple commands in order after a single approval).
 Never delete or overwrite paths under .sooner_, .aether_, or the file .sooner_project.
+${mcpHint}
 Return helpful natural language in addition to tool use when explaining.`;
 }
 
@@ -69,12 +69,13 @@ export async function runWorkspaceShellCommand(
   }
 }
 
-export function buildSoonerWorkspaceAgent(
+export async function buildSoonerWorkspaceAgent(
   model: LanguageModel,
   ctx: WorkspaceAgentContext,
   language: "en" | "ja",
-): ToolLoopAgent {
-  return new ToolLoopAgent({
+): Promise<{ agent: ToolLoopAgent; dispose: () => Promise<void> }> {
+  const { tools: mcpTools, dispose } = await buildMcpConfigToolMap(ctx);
+  const agent = new ToolLoopAgent({
     id: "sooner-workspace",
     model,
     instructions: systemPrompt(language),
@@ -203,6 +204,8 @@ export function buildSoonerWorkspaceAgent(
           return { steps };
         },
       }),
+      ...mcpTools,
     },
   }) as ToolLoopAgent;
+  return { agent, dispose };
 }

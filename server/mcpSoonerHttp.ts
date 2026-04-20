@@ -4,7 +4,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
-import { isAgentDeletablePath, runWorkspaceShellCommand, type WorkspaceAgentContext } from "./workspaceAgentBuilder";
+import { isAgentDeletablePath, runWorkspaceShellCommand } from "./workspaceAgentBuilder";
+import type { WorkspaceAgentContext } from "./workspaceAgentContext";
 
 const READ_MAX_BYTES = 800_000;
 

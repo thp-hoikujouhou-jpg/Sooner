@@ -3444,7 +3444,7 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       deleteFromStorage: (relPath: string) => storageDelete(uid, projectId, relPath),
     };
     const lang = body.language === "ja" ? "ja" : "en";
-    const agent = buildSoonerWorkspaceAgent(model, ctx, lang);
+    const { agent, dispose } = await buildSoonerWorkspaceAgent(model, ctx, lang);
     try {
       await pipeAgentUIStreamToResponse({
         response: res as unknown as import("http").ServerResponse,
@@ -3456,6 +3456,8 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
       if (!res.headersSent) {
         res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
       }
+    } finally {
+      await dispose();
     }
   });
 

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "remote-example",
+      "transport": "http",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_ME"
+      }
+    },
+    {
+      "id": "stdio-example",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "cwd": "."
+    }
+  ]
+}
