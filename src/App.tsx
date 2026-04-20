@@ -1979,6 +1979,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const activeProjectRef = useRef<string | null>(activeProject);
   /** Only the latest `storageListFiles` result may call `setFiles` (avoids empty/stale list overwriting after clone). */
   const fetchFilesRequestId = useRef(0);
+  /** While deleting a project, skip chat/terminal persistence so saves do not race Firebase delete (429 / ghost files). */
+  const deletingProjectNameRef = useRef<string | null>(null);
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
@@ -2895,6 +2897,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!uid) return;
     const timer = setTimeout(() => {
       for (const [project, lines] of Object.entries(terminalMap)) {
+        if (deletingProjectNameRef.current === project) continue;
         void storageSaveTerminalLog(uid, project, lines).catch(() => {});
       }
     }, 600);
@@ -4554,7 +4557,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       title: t.deleteProject,
       message: t.confirmDeleteProject,
       onConfirm: async () => {
+        deletingProjectNameRef.current = projectName;
         try {
+          await new Promise<void>((r) => setTimeout(r, 120));
           if (uid) {
             if (BACKEND_URL) {
               await axios.delete(apiUrl(`/api/projects/${encodeURIComponent(projectName)}`));
@@ -4562,15 +4567,28 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               await storageDeleteProject(uid, projectName);
             }
           }
-          await fetchProjects();
-          if (activeProject === projectName) {
+          setTerminalMap((prev) => {
+            if (!(projectName in prev)) return prev;
+            const next = { ...prev };
+            delete next[projectName];
+            return next;
+          });
+          const wasActive = activeProjectRef.current === projectName;
+          if (wasActive) {
             setActiveProject(null);
             setFiles([]);
+            setActiveFile(null);
+            setFileContent("");
+            setMessages([]);
+            setAiChatMountKey((k) => k + 1);
           }
+          await fetchProjects();
         } catch (e) {
           console.error("Failed to delete project", e);
+        } finally {
+          deletingProjectNameRef.current = null;
         }
-      }
+      },
     });
   };
 
@@ -5308,7 +5326,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               initialPersistedMessages={messages}
               onPersistMessages={(m) => {
                 setMessages(m);
-                if (uid && activeProject) void storageSaveChatHistory(uid, activeProject, m);
+                if (!uid || !activeProject) return;
+                if (deletingProjectNameRef.current === activeProject) return;
+                void storageSaveChatHistory(uid, activeProject, m);
               }}
               onWorkspaceChanged={() => {
                 void fetchFiles().then(async () => {
