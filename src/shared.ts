@@ -6,8 +6,15 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** API base (CMS, workspace). Trimmed; no trailing slash. Set `VITE_BACKEND_URL` at build time for production. */
-export const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+/** API base (CMS, workspace). Trimmed; no trailing slash. Set `VITE_BACKEND_URL` for production; dev falls back to same origin. */
+export const BACKEND_BASE = (() => {
+  const env = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+  if (env) return env;
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  return "";
+})();
 
 export type BlogPost = {
   id: string;

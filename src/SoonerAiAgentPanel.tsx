@@ -238,17 +238,31 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
           approval?: { id: string };
         };
         const name = tool.type.replace(/^tool-/, "");
-        if (tool.state === "approval-requested" && tool.approval?.id && name === "run_command") {
+        const needsShellApproval =
+          tool.state === "approval-requested" &&
+          tool.approval?.id &&
+          (name === "run_command" || name === "run_command_pipeline");
+        if (needsShellApproval) {
+          const preview =
+            name === "run_command_pipeline"
+              ? (Array.isArray(tool.input?.commands) ? tool.input!.commands! : []).join("\n")
+              : String(tool.input?.command || "");
           return (
             <div
               key={idx}
               className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2 text-[11px]"
             >
               <div className="text-amber-200 font-semibold">
-                {language === "ja" ? "シェルコマンドの承認" : "Approve shell command"}
+                {language === "ja"
+                  ? name === "run_command_pipeline"
+                    ? "シェルパイプラインの承認（複数コマンド）"
+                    : "シェルコマンドの承認"
+                  : name === "run_command_pipeline"
+                    ? "Approve shell pipeline (multiple commands)"
+                    : "Approve shell command"}
               </div>
-              <pre className="text-[10px] text-[#FDE68A] whitespace-pre-wrap break-all font-mono max-h-32 overflow-y-auto">
-                {String(tool.input?.command || "")}
+              <pre className="text-[10px] text-[#FDE68A] whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
+                {preview}
               </pre>
               <div className="flex gap-2">
                 <button
@@ -269,9 +283,16 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
             </div>
           );
         }
-        if (name === "run_command" && tool.output && typeof tool.output === "object") {
-          const o = tool.output as { stdout?: string; stderr?: string; ok?: boolean; exitCode?: number };
-          const block = [o.stdout, o.stderr].filter(Boolean).join("\n");
+        if (
+          (name === "run_command" || name === "run_command_pipeline") &&
+          tool.output &&
+          typeof tool.output === "object"
+        ) {
+          const o = tool.output as { stdout?: string; stderr?: string; ok?: boolean; exitCode?: number; steps?: unknown };
+          const block =
+            name === "run_command_pipeline" && Array.isArray(o.steps)
+              ? JSON.stringify(o.steps, null, 0)
+              : [o.stdout, o.stderr].filter(Boolean).join("\n");
           if (block && onTerminalMirror) onTerminalMirror(block);
         }
         return (

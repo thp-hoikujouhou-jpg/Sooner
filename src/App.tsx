@@ -135,8 +135,6 @@ import {
   storageDeleteProject,
   storageSaveChatHistory,
   storageLoadChatHistory,
-  storageSaveTerminalLog,
-  storageLoadTerminalLog,
   recordNewUserLegalProfile,
   type User,
 } from "./firebase";
@@ -1684,7 +1682,15 @@ export default function App() {
   return <Sooner user={authUser} onSignOut={() => { if (auth) firebaseSignOut(auth); setSkipAuth(false); }} />;
 }
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+/** Workspace API (terminal WS, agent, preview proxy). In dev, default to same origin so `npm run dev` works without `.env`. */
+const BACKEND_URL = (() => {
+  const env = (import.meta.env.VITE_BACKEND_URL || "").trim().replace(/\/$/, "");
+  if (env) return env;
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  return "";
+})();
 
 /** Per-Firebase-uid localStorage so switching accounts does not reuse another user's keys. */
 function userScopedStorageKey(uid: string, key: string): string {
@@ -1863,8 +1869,17 @@ function formatPlanStepSummary(step: Record<string, unknown>, lang: "en" | "ja")
   if (action === "run_command" && cmd) {
     return lang === "ja" ? `・コマンド ${cmd} — ${desc}` : `・Command ${cmd} — ${desc}`;
   }
-  if ((action === "read_file" || action === "list_dir") && path) {
-    return lang === "ja" ? `・（無効）${action} ${path} — ${desc}` : `・(ignored) ${action} ${path} — ${desc}`;
+  if (action === "run_command_pipeline") {
+    const cmds = Array.isArray((step as { commands?: unknown }).commands)
+      ? (step as { commands: string[] }).commands.join(" → ")
+      : "";
+    return lang === "ja" ? `・パイプライン ${cmds} — ${desc}` : `・Pipeline ${cmds} — ${desc}`;
+  }
+  if (action === "read_file" && path) {
+    return lang === "ja" ? `・読む ${path} — ${desc}` : `・Read ${path} — ${desc}`;
+  }
+  if ((action === "list_directory" || action === "list_dir") && path) {
+    return lang === "ja" ? `・一覧 ${path} — ${desc}` : `・List ${path} — ${desc}`;
   }
   return lang === "ja" ? `・${action} — ${desc}` : `・${action} — ${desc}`;
 }
@@ -1913,21 +1928,6 @@ function sanitizeOpenRouterBoilerplateAssistantReply(text: string, lang: "ja" | 
       : "Mention of Google AI Studio while using OpenRouter is often model boilerplate, not where Sooner sends traffic. Try another model, check OpenRouter credits, or retry later.";
   }
   return text;
-}
-
-/** Merge persisted terminal lines with in-memory session when storage load finishes after new lines were appended. */
-function mergeTerminalSessionWithLoaded(cur: string[], loaded: string[]): string[] {
-  if (loaded.length === 0) return cur;
-  if (cur.length === 0) return loaded;
-  let samePrefix = 0;
-  const minL = Math.min(cur.length, loaded.length);
-  for (let i = 0; i < minL; i++) {
-    if (cur[i] !== loaded[i]) break;
-    samePrefix++;
-  }
-  if (samePrefix === 0) return cur.length >= loaded.length ? cur : loaded;
-  if (cur.length >= loaded.length) return cur;
-  return loaded;
 }
 
 function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
@@ -1979,7 +1979,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const activeProjectRef = useRef<string | null>(activeProject);
   /** Only the latest `storageListFiles` result may call `setFiles` (avoids empty/stale list overwriting after clone). */
   const fetchFilesRequestId = useRef(0);
-  /** While deleting a project, skip chat/terminal persistence so saves do not race Firebase delete (429 / ghost files). */
+  /** While deleting a project, skip chat persistence so saves do not race Firebase delete (429 / ghost files). */
   const deletingProjectNameRef = useRef<string | null>(null);
   useEffect(() => {
     activeProjectRef.current = activeProject;
@@ -1987,16 +1987,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [files, setFiles] = useState<FileNode[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
-  const [terminalMap, setTerminalMap] = useState<Record<string, string[]>>({});
-  const terminalOutput = activeProject ? (terminalMap[activeProject] || []) : [];
-  const setTerminalOutput = (updater: string[] | ((prev: string[]) => string[])) => {
-    if (!activeProject) return;
-    setTerminalMap(prev => {
-      const current = prev[activeProject] || [];
-      const next = typeof updater === "function" ? updater(current) : updater;
-      return { ...prev, [activeProject]: next };
-    });
-  };
   const workspacePtyRef = useRef<WorkspacePtyTerminalHandle | null>(null);
   const terminalRunApprovalResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const [terminalRunApprovalCommand, setTerminalRunApprovalCommand] = useState<string | null>(null);
@@ -2192,7 +2182,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setContextAttachments([]);
     setAiChatMountKey((k) => k + 1);
     setIssuedPreviewUrl(null);
-    setTerminalMap({});
     setRunningPort(null);
     setProjectRunning(false);
     setEditorLoadError(null);
@@ -2294,7 +2283,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       suggestions: "Suggestions",
       executionComplete: "Execution complete.",
       terminalRunHint: "Run shell commands in the project folder (Enter).",
-      terminalActivityLog: "Activity log",
       terminalApproveTitle: "Approve shell command",
       terminalApproveDescription:
         "The AI wants to run this command on the workspace server in your project folder. Approve only if you trust it.",
@@ -2509,7 +2497,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       suggestions: "提案",
       executionComplete: "実行が完了しました。",
       terminalRunHint: "プロジェクト直下でシェルコマンドを実行できます（Enter）。",
-      terminalActivityLog: "アクティビティログ",
       terminalApproveTitle: "シェルコマンドの実行を許可しますか？",
       terminalApproveDescription:
         "AI がプロジェクトフォルダ上で次のコマンドをワークスペースサーバー上で実行しようとしています。内容を確認のうえ、信頼できる場合のみ許可してください。",
@@ -2716,7 +2703,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setAccountDeleteBusy(false);
   };
 
-  const terminalEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ATTACHMENT_TOTAL_BUDGET = 200_000;
@@ -2799,14 +2785,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           setMessages([]);
           setAiChatMountKey((k) => k + 1);
         });
-      void storageLoadTerminalLog(uid, pid)
-        .then((loaded) => {
-          setTerminalMap((prev) => ({
-            ...prev,
-            [pid]: mergeTerminalSessionWithLoaded(prev[pid] ?? [], loaded),
-          }));
-        })
-        .catch(() => {});
       if (BACKEND_URL) {
         axios.get(projectApi(activeProject, "detect-type"))
           .then(res => {
@@ -2845,14 +2823,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
         else setRunningPort(null);
 
         if (res.data.detected === "flutter-web" && !res.data.running) {
-          setTerminalOutput(prev => [...prev, language === "ja"
-            ? "> Flutter: flutter pub get のあと flutter run -d web-server でライブプレビューを起動します（flutter build web は不要）…"
-            : "> Flutter: after pub get, starting flutter run -d web-server (no flutter build web required)…"]);
           await startProject();
         } else if ((res.data.detected === "devserver" || res.data.detected === "node") && !res.data.running) {
-          setTerminalOutput(prev => [...prev, language === "ja"
-            ? "> 依存関係のインストール・サーバー起動中..."
-            : "> Installing dependencies & starting server..."]);
           await startProject();
         }
       } catch {}
@@ -2892,23 +2864,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cancelled = true;
     };
   }, [BACKEND_URL, activeProject, uid]);
-
-  useEffect(() => {
-    if (!uid) return;
-    const timer = setTimeout(() => {
-      for (const [project, lines] of Object.entries(terminalMap)) {
-        if (deletingProjectNameRef.current === project) continue;
-        void storageSaveTerminalLog(uid, project, lines).catch(() => {});
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [terminalMap, uid]);
-
-  useEffect(() => {
-    if (terminalEndRef.current) {
-      terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [terminalOutput]);
 
   // Re-fetch the file list when the tab becomes visible again.
   // This handles cases like: a clone finishing while the tab was backgrounded, or a flaky
@@ -3216,29 +3171,20 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   const startProject = async () => {
     if (!activeProject) return;
-    if (!BACKEND_URL) {
-      setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドが設定されていません。" : "Backend not configured."]);
-      return;
-    }
-    setTerminalOutput(prev => [...prev, `> Starting ${projectType} server...`]);
+    if (!BACKEND_URL) return;
     try {
       const res = await axios.post(projectApi(activeProject, "run"));
       if (res.data.status === "install-failed") {
-        setTerminalOutput(prev => [...prev, ...(res.data.lines || []), "npm install failed."]);
         return;
       }
       if (res.data.status === "started" || res.data.status === "already-running" || res.data.status === "installing") {
         setProjectRunning(true);
         if (res.data.port) setRunningPort(res.data.port);
-        setTerminalOutput(prev => [...prev, `Server running on port ${res.data.port} (${res.data.type})`]);
         let seen = 0;
         const poll = async () => {
           if (!activeProject) return;
           try {
             const logRes = await axios.get(projectApi(activeProject, `run-logs?since=${seen}`));
-            if (logRes.data.lines?.length > 0) {
-              setTerminalOutput(prev => [...prev, ...logRes.data.lines]);
-            }
             seen = logRes.data.total || seen;
             if (logRes.data.status === "running") {
               setTimeout(poll, 2000);
@@ -3248,11 +3194,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
           } catch {}
         };
         setTimeout(poll, 1000);
-      } else if (res.data.status === "static") {
-        setTerminalOutput(prev => [...prev, language === "ja" ? "バックエンドは検出されませんでした。" : "No backend detected."]);
       }
-    } catch (e) {
-      setTerminalOutput(prev => [...prev, "Failed to start project server."]);
+    } catch {
+      /* ignore */
     }
   };
 
@@ -3262,9 +3206,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       await axios.post(projectApi(activeProject, "stop"));
       setProjectRunning(false);
       setRunningPort(null);
-      setTerminalOutput(prev => [...prev, language === "ja" ? "サーバーを停止しました。" : "Server stopped."]);
     } catch {
-      setTerminalOutput(prev => [...prev, "Failed to stop server."]);
+      /* ignore */
     }
   };
 
@@ -3288,10 +3231,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const poll = async () => {
         try {
           const res = await axios.get(projectApi(project, `build-status?since=${seen}`));
-          const { status, lines, total } = res.data;
-          if (lines && lines.length > 0) {
-            setTerminalOutput(prev => [...prev, ...lines]);
-          }
+          const { status, total } = res.data;
           seen = total || seen;
           if (status === "success") { resolve(true); return; }
           if (status === "failed") { resolve(false); return; }
@@ -3308,16 +3248,13 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     if (!activeProject || !BACKEND_URL) return true;
     if (!isFlutterProject()) return true;
 
-    setTerminalOutput(prev => [...prev, "> Flutter project detected. Checking static web build..."]);
     try {
       const res = await axios.post(projectApi(activeProject, "build-preview"));
       const { status } = res.data;
       if (status === "already-built") {
-        setTerminalOutput(prev => [...prev, "Flutter: Build exists, loading preview..."]);
         return true;
       }
       if (status === "build-started" || status === "building") {
-        setTerminalOutput(prev => [...prev, "Flutter: Building... (this may take a minute)"]);
         return await pollBuildStatus(activeProject);
       }
       return true;
@@ -3335,7 +3272,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       try {
         if (uid && activeProject) await storageUploadFile(uid, activeProject, file.name, content);
         fetchFiles();
-        setTerminalOutput(prev => [...prev, `Uploaded file: ${file.name}`]);
       } catch (e) {
         alert("Upload failed");
       }
@@ -3428,25 +3364,17 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setIsLoadingRepos(false);
   };
 
-  const appendToProjectTerminal = (project: string, lines: string[]) => {
-    setTerminalMap(prev => ({ ...prev, [project]: [...(prev[project] || []), ...lines] }));
-  };
-
   const handleCloneFromGitHub = async (repo: { clone_url: string; name: string }) => {
     const projectName = repo.name;
     if (!BACKEND_URL) {
-      setTerminalOutput(prev => [...prev, language === "ja" ? "Git cloneにはバックエンドが必要です。" : "Git clone requires a backend server."]);
       setIsCloneOpen(false);
       return;
     }
-    // Seed the new project's terminal and switch to it so the user sees live status no matter where they navigate.
-    appendToProjectTerminal(projectName, [t.cloneTerminalRunning.replace("{url}", repo.clone_url)]);
     setActiveProject(projectName);
     setIsCloneOpen(false);
     try {
       await axios.post(apiUrl("/api/projects/clone"), { repoUrl: repo.clone_url, name: projectName, token: githubToken });
       await fetchProjects();
-      appendToProjectTerminal(projectName, [t.cloneTerminalDone.replace("{name}", projectName)]);
       // Clone handler's `fetchFiles` must use `projectName` explicitly (async closure can still see a stale `activeProject`).
       // Storage sync from the server may lag slightly — retry with backoff until we see files or cap attempts.
       let listed = await fetchFiles(projectName);
@@ -3457,8 +3385,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       }
     } catch (e: any) {
       const d = e.response?.data?.details;
-      const errLine = `${t.cloneTerminalFailed} ${e.response?.data?.error || e.message}${typeof d === "string" && d ? ` — ${d}` : ""}`;
-      appendToProjectTerminal(projectName, [errLine]);
       alert(
         `Clone failed: ${e.response?.data?.error || e.message}${typeof d === "string" && d ? `\n\n${d}` : ""}`
       );
@@ -4567,12 +4493,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               await storageDeleteProject(uid, projectName);
             }
           }
-          setTerminalMap((prev) => {
-            if (!(projectName in prev)) return prev;
-            const next = { ...prev };
-            delete next[projectName];
-            return next;
-          });
           const wasActive = activeProjectRef.current === projectName;
           if (wasActive) {
             setActiveProject(null);
@@ -5136,9 +5056,8 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                               const u = issuedPreviewUrl ?? (uid && activeProject ? previewProjectUrl(activeProject, uid) : "");
                               try {
                                 await navigator.clipboard.writeText(u);
-                                setTerminalOutput((prev) => [...prev, `> ${t.previewLinkCopied}`]);
                               } catch {
-                                setTerminalOutput((prev) => [...prev, u]);
+                                /* ignore */
                               }
                             }}
                             className="p-1.5 bg-black/50 hover:bg-black/70 text-white rounded-lg backdrop-blur-sm transition-colors"
@@ -5221,7 +5140,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
               </div>
               <div className="flex-1 flex flex-col min-h-0">
                 {BACKEND_URL && activeProject ? (
-                  <div className="flex-1 min-h-[120px] border-b border-[#1A1A1A]">
+                  <div className="flex-1 min-h-[120px]">
                     <WorkspacePtyTerminal
                       ref={workspacePtyRef}
                       backendOrigin={BACKEND_URL}
@@ -5231,7 +5150,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     />
                   </div>
                 ) : (
-                  <div className="flex-1 min-h-[72px] flex items-center justify-center px-3 text-[11px] text-[#52525B] border-b border-[#1A1A1A]">
+                  <div className="flex-1 min-h-[72px] flex items-center justify-center px-3 text-[11px] text-[#52525B]">
                     {BACKEND_URL
                       ? language === "ja"
                         ? "プロジェクトを開くとワークスペースシェルに接続します。"
@@ -5241,20 +5160,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                         : "Set VITE_BACKEND_URL to enable the workspace terminal."}
                   </div>
                 )}
-                <div className="shrink-0 max-h-[5.5rem] overflow-y-auto px-3 py-1.5 font-mono text-[10px] space-y-0.5 bg-[#080808] border-t border-[#141414]">
-                  <div className="text-[#52525B] uppercase tracking-wide text-[9px] mb-0.5">{t.terminalActivityLog}</div>
-                  {terminalOutput.map((line, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        line.startsWith(">") ? "text-[#38BDF8]" : line.startsWith("Error:") ? "text-red-400" : "text-[#8E9299]",
-                      )}
-                    >
-                      {line}
-                    </div>
-                  ))}
-                  <div ref={terminalEndRef} />
-                </div>
               </div>
             </div>
           </Tabs.Root>
@@ -5348,11 +5253,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                     /* ignore */
                   }
                 });
-              }}
-              onTerminalMirror={(text) => {
-                const lines = text.split("\n").filter((l) => l.length > 0);
-                if (!lines.length) return;
-                setTerminalOutput((prev) => [...prev, ...lines]);
               }}
               activeFile={activeFile}
               contextAttachments={contextAttachments}

@@ -21,6 +21,7 @@ import { pipeAgentUIStreamToResponse } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { buildSoonerWorkspaceAgent } from "./server/workspaceAgentBuilder";
+import { handleSoonerMcpHttpRequest } from "./server/mcpSoonerHttp";
 import { terminalCommandBlockedReason } from "./server/terminalSafety";
 
 dotenv.config();
@@ -410,6 +411,7 @@ async function startServer() {
         "X-Sooner-Gateway-Key",
         "X-Sooner-OpenRouter-Key",
         "X-Requested-With",
+        "X-Sooner-Project",
       ],
     }),
   );
@@ -3457,21 +3459,96 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
     }
   });
 
-  // --- MCP-style tool manifest (for external orchestrators; Sooner IDE still requires per-command user approval in the UI) ---
+  // --- MCP Streamable HTTP (tools; auth + X-Sooner-Project). Same Firebase Bearer as /api/ai/workspace-agent. ---
+  app.all("/api/mcp", async (req, res) => {
+    if (!firebaseAuth) {
+      res.status(503).json({ error: "Firebase Auth not configured" });
+      return;
+    }
+    const uid = await extractUid(req);
+    if (!uid) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const rawHeader = req.headers["x-sooner-project"];
+    const fromHeader = typeof rawHeader === "string" ? rawHeader.trim() : "";
+    const fromQuery = typeof req.query.project === "string" ? req.query.project.trim() : "";
+    const projectId = fromHeader || fromQuery;
+    if (!projectId || !isValidName(projectId)) {
+      res.status(400).json({ error: "Missing or invalid X-Sooner-Project header or ?project= query" });
+      return;
+    }
+    const root = projectFsPath(uid, projectId);
+    if (!root) {
+      res.status(400).json({ error: "Invalid project path" });
+      return;
+    }
+    await ensureUserSandbox(uid);
+    try {
+      await fs.mkdir(root, { recursive: true });
+    } catch (e: unknown) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    const safeResolveRel = (rel: string) => safePath(root, rel.replace(/^\/+/, "").replace(/\\/g, "/"));
+    const ctx = {
+      projectRoot: root,
+      uid,
+      projectId,
+      safeResolveRel,
+      uploadToStorage: (relPath: string, content: string) => storageUpload(uid, projectId, relPath, content),
+      deleteFromStorage: (relPath: string) => storageDelete(uid, projectId, relPath),
+    };
+    try {
+      await handleSoonerMcpHttpRequest(req, res, ctx);
+    } catch (e: unknown) {
+      console.error("[mcp]", e);
+      if (!res.headersSent) {
+        res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  });
+
+  // --- MCP-style tool manifest (discovery; full protocol uses POST/GET on /api/mcp) ---
   app.get("/api/mcp/tools", (_req, res) => {
     res.json({
       protocolVersion: "2024-11-05",
-      serverInfo: { name: "sooner-workspace", version: "0.0.0" },
+      serverInfo: { name: "sooner-workspace", version: "1.0.0" },
+      mcpEndpoint: "/api/mcp",
+      auth: "Authorization: Bearer <Firebase ID token>",
+      projectScope: "X-Sooner-Project: <project-id> or ?project=<id>",
       tools: [
         {
-          name: "soon_terminal_run_once",
-          description:
-            "Run one shell command in the user's project directory on the Sooner workspace. In the Sooner web IDE, each command must be approved by the user before it is executed.",
+          name: "run_terminal",
+          description: "Run one shell command in the project directory (MCP; no IDE approval step).",
+          inputSchema: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+        {
+          name: "run_terminal_pipeline",
+          description: "Run multiple shell commands sequentially.",
           inputSchema: {
             type: "object",
             properties: {
-              command: { type: "string", description: "Full shell command (single shot, not an interactive session)." },
+              commands: { type: "array", items: { type: "string" } },
+              continueOnError: { type: "boolean" },
             },
+            required: ["commands"],
+          },
+        },
+        { name: "read_file", description: "Read a UTF-8 file", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+        { name: "write_file", description: "Write a file", inputSchema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } },
+        { name: "delete_file", description: "Delete a file", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
+        { name: "list_directory", description: "List a directory", inputSchema: { type: "object", properties: { path: { type: "string" } } } },
+        {
+          name: "soon_terminal_run_once",
+          description: "Legacy alias name for a single shell command (prefer run_terminal).",
+          inputSchema: {
+            type: "object",
+            properties: { command: { type: "string" } },
             required: ["command"],
           },
         },
