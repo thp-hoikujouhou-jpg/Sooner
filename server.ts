@@ -16,6 +16,11 @@ import * as esbuild from "esbuild";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import admin from "firebase-admin";
+import { pipeAgentUIStreamToResponse } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { buildSoonerWorkspaceAgent } from "./server/workspaceAgentBuilder";
+import { terminalCommandBlockedReason } from "./server/terminalSafety";
 
 dotenv.config();
 
@@ -407,7 +412,7 @@ async function startServer() {
       ],
     }),
   );
-  app.use(bodyParser.json({ limit: "32mb" }));
+  app.use(bodyParser.json({ limit: "64mb" }));
 
   /** Browser-safe proxy: Vercel AI Gateway does not send CORS for arbitrary web origins. */
   const DEFAULT_AI_GATEWAY_ORIGIN = (process.env.AI_GATEWAY_PROXY_ORIGIN || "https://ai-gateway.vercel.sh/v1").replace(/\/$/, "");
@@ -652,23 +657,6 @@ async function startServer() {
   /** Dev servers keyed per Firebase user + project (avoids cross-account collisions). */
   function workspaceRunKey(uid: string, projectId: string): string {
     return `${uid}::${projectId}`;
-  }
-
-  function terminalCommandBlockedReason(cmd: string): string | null {
-    const t = cmd.trim();
-    if (!t) return "empty command";
-    if (t.length > 20000) return "command too long";
-    const patterns = [
-      /rm\s+(-[a-zA-Z]*f|--force)\s+[/~]/i,
-      /rm\s+(-[a-zA-Z]*r[a-zA-Z\s]*f|--recursive)\s+[/~]/i,
-      /:\(\)\s*\{\s*:\|:&\s*\};:/,
-      /mkfs\.[a-z]+/i,
-      /dd\s+if=/i,
-      />\s*\/dev\/[sh]d/i,
-      /curl\s+[^|]*\|\s*(ba)?sh/i,
-    ];
-    if (patterns.some((re) => re.test(t))) return "blocked dangerous pattern";
-    return null;
   }
 
   function attachProjectPtyWebSocket(ws: WebSocket, uid: string, project: string): void {
@@ -3343,6 +3331,112 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
     } catch (e: any) {
       console.error("upload-image:", e);
       res.status(500).json({ error: e.message || "Upload failed" });
+    }
+  });
+
+  // --- AI SDK agent stream (ToolLoopAgent: write_file, delete_file, run_command w/ approval) ---
+  app.post("/api/ai/workspace-agent", async (req, res) => {
+    const uid = await extractUid(req);
+    if (!uid) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const body = req.body as {
+      messages?: unknown[];
+      projectId?: string;
+      provider?: string;
+      selectedModel?: string;
+      language?: string;
+      geminiKey?: string;
+      gatewayKey?: string;
+      customKey?: string;
+      openrouterBase?: string;
+    };
+    const projectId = typeof body.projectId === "string" ? body.projectId : "";
+    if (!projectId || !isValidName(projectId)) {
+      res.status(400).json({ error: "Invalid project" });
+      return;
+    }
+    const root = projectFsPath(uid, projectId);
+    if (!root) {
+      res.status(400).json({ error: "Invalid path" });
+      return;
+    }
+    await ensureUserSandbox(uid);
+
+    const mapGem = (m: string) => {
+      if (!m) return "gemini-2.5-flash";
+      if (m.includes("/")) {
+        const seg = m.split("/").pop();
+        return seg && seg.length > 0 ? seg : m;
+      }
+      return m;
+    };
+
+    const provider = body.provider === "vercel-ai-gateway" || body.provider === "custom" ? body.provider : "gemini";
+    let model;
+    if (provider === "gemini") {
+      const key = String(body.geminiKey || "").trim();
+      if (!key) {
+        res.status(400).json({ error: "Missing Gemini API key" });
+        return;
+      }
+      const google = createGoogleGenerativeAI({ apiKey: key });
+      model = google(mapGem(String(body.selectedModel || "gemini-2.5-flash")));
+    } else if (provider === "vercel-ai-gateway") {
+      const key = String(body.gatewayKey || "").trim();
+      if (!key) {
+        res.status(400).json({ error: "Missing gateway API key" });
+        return;
+      }
+      const o = createOpenAI({
+        baseURL: "https://ai-gateway.vercel.sh/v1",
+        apiKey: key,
+      });
+      model = o.chat(String(body.selectedModel || "google/gemini-2.5-flash"));
+    } else {
+      const key = String(body.customKey || "").trim();
+      if (!key) {
+        res.status(400).json({ error: "Missing API key" });
+        return;
+      }
+      const baseRaw =
+        typeof body.openrouterBase === "string" && body.openrouterBase.trim()
+          ? body.openrouterBase.trim()
+          : OPENROUTER_DEFAULT_BASE;
+      const o = createOpenAI({
+        baseURL: baseRaw.replace(/\/$/, ""),
+        apiKey: key,
+        headers: {
+          "HTTP-Referer": (process.env.OPENROUTER_HTTP_REFERER || "https://sooner.sh").trim() || "https://sooner.sh",
+          "X-Title": "Sooner",
+        },
+      });
+      model = o.chat(String(body.selectedModel || "google/gemini-2.5-flash"));
+    }
+
+    const safeResolveRel = (rel: string) => safePath(root, rel.replace(/^\/+/, "").replace(/\\/g, "/"));
+    const ctx = {
+      projectRoot: root,
+      uid,
+      projectId,
+      safeResolveRel,
+      uploadToStorage: (relPath: string, content: string) => storageUpload(uid, projectId, relPath, content),
+      deleteFromStorage: (relPath: string) => storageDelete(uid, projectId, relPath),
+    };
+    const lang = body.language === "ja" ? "ja" : "en";
+    const agent = buildSoonerWorkspaceAgent(model, ctx, lang);
+    try {
+      await pipeAgentUIStreamToResponse({
+        response: res as unknown as import("http").ServerResponse,
+        agent,
+        uiMessages: body.messages as import("ai").UIMessage[],
+      });
+    } catch (e: unknown) {
+      console.error("[workspace-agent]", e);
+      if (!res.headersSent) {
+        res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+      }
     }
   });
 

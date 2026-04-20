@@ -7,20 +7,16 @@ import {
   Plus, 
   MessageSquare, 
   Settings as SettingsIcon, 
-  Zap, 
-  CheckCircle2, 
-  Circle, 
+  Zap,
   AlertCircle,
   ChevronRight,
   ChevronDown,
   FileCode,
   Folder,
-  Send,
   Loader2,
   X,
   Upload,
   Key,
-  History,
   RefreshCw,
   Eye,
   Download,
@@ -49,7 +45,6 @@ import {
   CloudDownload,
   Copy,
   Link2,
-  Paperclip,
 } from "lucide-react";
 
 function CodeIcon({ className }: { className?: string }) {
@@ -90,7 +85,7 @@ import html2canvas from "html2canvas";
 import { GoogleGenAI, Type } from "@google/genai";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { FileNode, Project, AgentStep, ChatMessage } from "./types";
+import { FileNode, Project, ChatMessage } from "./types";
 import { applyDocumentSeo } from "./seo";
 import { readStoredLanguage, writeStoredLanguage } from "./language";
 import { clsx, type ClassValue } from "clsx";
@@ -112,14 +107,9 @@ import {
   openAiCompatibleModelsListUrl,
   parseOpenAiCompatibleModelsResponse,
 } from "./openAiModels";
-import { geminiStreamGenerateContent, listGeminiGenerateContentModelIds } from "./geminiModels";
+import { listGeminiGenerateContentModelIds } from "./geminiModels";
 import { WorkspacePtyTerminal, type WorkspacePtyTerminalHandle } from "./WorkspacePtyTerminal";
-import {
-  buildPlanFileSnippets,
-  computeAgentPlanCharBudget,
-  stringifyFileTreeForAgent,
-  truncateAgentHistory,
-} from "./agentModelBudget";
+import { SoonerAiAgentPanel, type SoonerAiAgentPanelHandle } from "./SoonerAiAgentPanel";
 import { LEGAL_DOCUMENT_VERSION_ID } from "./legalContent";
 import { legalDocHref, legalArchiveIndexHref, navigateToSubdomain, navigateToAuthPage } from "./shared";
 import {
@@ -2034,21 +2024,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     }
   }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
   /** Local files / snippets appended to the next agent request (Cursor-style @-attachments). */
   const [contextAttachments, setContextAttachments] = useState<{ name: string; text: string }[]>([]);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
-  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
-  /** Step-by-step agent log (file reads, API phases) shown while the agent runs. */
-  const [agentTrace, setAgentTrace] = useState("");
-  /** Streaming assistant text (Gemini SSE) while generating the latest reply. */
-  const [streamingAssistant, setStreamingAssistant] = useState("");
-  /** Sticky summary after Code / Fix applies files (also duplicated in chat). */
-  const [lastAgentApplySummary, setLastAgentApplySummary] = useState<{
-    headline: string;
-    lines: string[];
-  } | null>(null);
+  /** Bumps when chat history finished loading so `SoonerAiAgentPanel` remounts with correct `messages` init. */
+  const [aiChatMountKey, setAiChatMountKey] = useState(0);
+  const [agentDraftPrefillSeq, setAgentDraftPrefillSeq] = useState(0);
+  const [agentDraftPrefillText, setAgentDraftPrefillText] = useState("");
+  const agentPanelRef = useRef<SoonerAiAgentPanelHandle | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
   const [isChatOpen, setIsChatOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
@@ -2124,14 +2107,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [githubNewRepoPrivate, setGithubNewRepoPrivate] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
 
-  const promptCacheRef = useRef<{ name: string; model: string; provider: string; expiresAt: number } | null>(null);
   const [gitError, setGitError] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [activeTab, setActiveTab] = useState<"editor" | "preview">("editor");
-  /** Next send acts as chat-only (no plan/execute), e.g. Git "AI commit message" assist. */
-  const nextSubmitChatOnlyRef = useRef(false);
   const [language, setLanguage] = useState<"en" | "ja">(() => {
     const paramLang = new URLSearchParams(window.location.search).get("lang");
     if (paramLang === "ja" || paramLang === "en") {
@@ -2159,7 +2139,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   const [newPkgVersion, setNewPkgVersion] = useState("");
   const [projectRunning, setProjectRunning] = useState(false);
   const [projectType, setProjectType] = useState<string>("static");
-  const abortControllerRef = useRef<AbortController | null>(null);
   const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [renameDialog, setRenameDialog] = useState<
@@ -2209,8 +2188,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     setFiles([]);
     setMessages([]);
     setContextAttachments([]);
-    setAgentSteps([]);
-    setLastAgentApplySummary(null);
+    setAiChatMountKey((k) => k + 1);
     setIssuedPreviewUrl(null);
     setTerminalMap({});
     setRunningPort(null);
@@ -2271,6 +2249,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       lastApplySummaryEmpty:
         "No writes, deletes, or recorded shell commands ran. Check the chat reply and terminal for skipped steps.",
       thinkingLog: "Stream & activity",
+      agentPanelYou: "You",
+      agentPanelAssistant: "Sooner",
+      agentPanelDeny: "Deny",
+      agentPanelApproveRun: "Approve & run",
+      agentNoProject:
+        "Open a project in the sidebar. The workspace agent reads and edits files in that project on the server.",
+      agentNoApiKey:
+        "Add an API key in Settings (Gemini, Vercel AI Gateway, or OpenRouter) to use the agent.",
+      agentNoBackendChat:
+        "The streaming workspace agent needs VITE_BACKEND_URL (Sooner API). You can still edit files and use Download here.",
       idle: "Idle",
       active: "Active",
       noProjects: "No projects found",
@@ -2477,6 +2465,16 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       lastApplySummaryEmpty:
         "ファイルの書き込み・削除・記録されたコマンドはありません。スキップはチャットとターミナルを確認してください。",
       thinkingLog: "ストリーム・作業ログ",
+      agentPanelYou: "あなた",
+      agentPanelAssistant: "Sooner",
+      agentPanelDeny: "拒否",
+      agentPanelApproveRun: "承認して実行",
+      agentNoProject:
+        "サイドバーでプロジェクトを開いてください。エージェントはサーバー上のそのプロジェクト内のファイルを読み書きします。",
+      agentNoApiKey:
+        "エージェントを使うには設定で API キー（Gemini / Vercel AI Gateway / OpenRouter）を入力してください。",
+      agentNoBackendChat:
+        "ストリーミングのワークスペースエージェントには VITE_BACKEND_URL（Sooner API）が必要です。この環境ではファイル編集とダウンロードは利用できます。",
       idle: "待機中",
       active: "実行中",
       noProjects: "プロジェクトが見つかりません",
@@ -2719,40 +2717,9 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
   };
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const clearChat = () => {
-    setMessages([]);
-    setLastAgentApplySummary(null);
-    setAgentTrace("");
-    setStreamingAssistant("");
-    if (activeProject && uid) {
-      storageSaveChatHistory(uid, activeProject, []).catch(() => {});
-    }
-  };
-
   const ATTACHMENT_TOTAL_BUDGET = 200_000;
-  const onAttachmentFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fl = e.target.files;
-    if (!fl?.length) return;
-    let budget = ATTACHMENT_TOTAL_BUDGET - contextAttachments.reduce((s, a) => s + a.text.length, 0);
-    const next = [...contextAttachments];
-    for (let i = 0; i < fl.length && budget > 0; i++) {
-      const f = fl[i];
-      if (f.size > 2_000_000) continue;
-      try {
-        const raw = await f.text();
-        const slice = raw.slice(0, Math.min(120_000, budget));
-        budget -= slice.length;
-        next.push({ name: f.name, text: slice });
-      } catch {
-        /* binary or unreadable */
-      }
-    }
-    setContextAttachments(next);
-    e.target.value = "";
-  };
 
   const attachOpenEditorBuffer = () => {
     if (!activeFile) return;
@@ -2816,7 +2783,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
 
   useEffect(() => {
     if (activeProject && uid) {
-      setLastAgentApplySummary(null);
       // Clear stale tree from the previous project so the user doesn't see old files while the new list loads.
       setFiles([]);
       setActiveFile(null);
@@ -2825,8 +2791,14 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       const pid = activeProject;
       void fetchFiles(pid);
       storageLoadChatHistory(uid, activeProject)
-        .then(data => setMessages(Array.isArray(data) ? data as ChatMessage[] : []))
-        .catch(() => setMessages([]));
+        .then((data) => {
+          setMessages(Array.isArray(data) ? (data as ChatMessage[]) : []);
+          setAiChatMountKey((k) => k + 1);
+        })
+        .catch(() => {
+          setMessages([]);
+          setAiChatMountKey((k) => k + 1);
+        });
       void storageLoadTerminalLog(uid, pid)
         .then((loaded) => {
           setTerminalMap((prev) => ({
@@ -2852,7 +2824,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     } else {
       setFiles([]);
       setMessages([]);
-      setLastAgentApplySummary(null);
+      setAiChatMountKey((k) => k + 1);
       setProjectType("static");
       setProjectRunning(false);
     }
@@ -2920,21 +2892,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       cancelled = true;
     };
   }, [BACKEND_URL, activeProject, uid]);
-
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, streamingAssistant, agentTrace, lastAgentApplySummary]);
-
-  useEffect(() => {
-    if (!activeProject || !uid || messages.length === 0) return;
-    const timer = setTimeout(() => {
-      storageSaveChatHistory(uid, activeProject, messages)
-        .catch(err => console.error("Failed to save chat", err));
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [messages, activeProject, uid]);
 
   useEffect(() => {
     if (!uid) return;
@@ -4017,51 +3974,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return typeof m === "string" && m.trim() ? m.trim() : "";
   }
 
-  /** @google/genai throws `ApiError` with `message` = JSON.stringify(body) on HTTP errors — unpack for UI. */
-  function humanizeCaughtAiError(e: unknown): string {
-    const fromAxios = openAiHttpErrorDetail(e);
-    if (fromAxios) return fromAxios;
-    if (!(e instanceof Error)) return typeof e === "string" ? e : String(e);
-    const ex = e as unknown as { status?: number };
-    const status = typeof ex.status === "number" ? ex.status : undefined;
-    const rawMsg = e.message?.trim() || "";
-    if (rawMsg.startsWith("{")) {
-      try {
-        const j = JSON.parse(rawMsg) as Record<string, unknown>;
-        const nested = j.error;
-        if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-          const err = nested as Record<string, unknown>;
-          const parts: string[] = [];
-          if (typeof err.message === "string" && err.message.trim()) parts.push(err.message.trim());
-          if (typeof err.status === "string" && err.status.trim()) {
-            const st = err.status.trim();
-            if (!parts.some((p) => p.includes(st))) parts.push(`(${st})`);
-          }
-          if (typeof err.code === "number" && err.code && !parts.join(" ").includes(String(err.code))) {
-            parts.push(`code ${err.code}`);
-          }
-          if (parts.length) {
-            const body = parts.join(" ");
-            return status != null && !body.includes(`HTTP ${status}`) ? `${body} [HTTP ${status}]` : body;
-          }
-        }
-        if (typeof j.message === "string" && j.message.trim()) {
-          const body = j.message.trim();
-          return status != null ? `${body} [HTTP ${status}]` : body;
-        }
-      } catch {
-        /* ignore */
-      }
-      if (rawMsg.length > 800) {
-        return language === "ja"
-          ? "API がエラーを返しました（本文が長いため省略。コンソールの Network / Console を確認してください）。"
-          : "The API returned an error (body omitted here—check the browser console or Network tab).";
-      }
-    }
-    if (rawMsg && status != null && !rawMsg.includes(`HTTP ${status}`)) return `${rawMsg} [HTTP ${status}]`;
-    return rawMsg || (status != null ? `Request failed [HTTP ${status}]` : "Unknown error");
-  }
-
   /** Workspace API returns `{ error: \"Unauthorized\" }` when Firebase token is missing/invalid. */
   function isWorkspaceApiUnauthorized(e: unknown): boolean {
     const d = (e as { response?: { data?: { error?: unknown } } }).response?.data;
@@ -4367,43 +4279,6 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
     return () => window.clearInterval(id);
   }, [previewLiveAssist, activeTab, BACKEND_URL, activeProject, uid, language, selectedModel, apiProvider]);
 
-  const CODE_SYSTEM_INSTRUCTION = `You are a world-class software developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
-Use the exact language/framework the user requests. For React, use modular .tsx files and Tailwind CSS. For Flutter, use Dart with proper project structure. Follow best practices for the chosen technology. NEVER force a specific framework unless the user asks for it.`;
-
-  /** Gemini explicit prompt caches only (Google GenAI `caches.create`). Skipped for Vercel gateway, custom/OpenRouter, and custom Gemini proxy bases. Not used when system text is below Gemini minimum size (~1024 tokens). */
-  const getOrCreatePromptCache = async (ai: InstanceType<typeof GoogleGenAI>, model: string): Promise<string | undefined> => {
-    if (apiProvider === "vercel-ai-gateway") return undefined;
-    if (isCustomOpenAiChatBase()) return undefined;
-    // Gemini explicit caches require ~1024+ tokens; our CODE_SYSTEM_INSTRUCTION is tiny — skip create() to avoid 400 INVALID_ARGUMENT.
-    if (CODE_SYSTEM_INSTRUCTION.length < 4500) return undefined;
-    try {
-      const cached = promptCacheRef.current;
-      if (cached && cached.model === model && cached.provider === apiProvider && cached.expiresAt > Date.now()) {
-        return cached.name;
-      }
-      const result = await ai.caches.create({
-        model,
-        config: {
-          contents: [{ role: "user", parts: [{ text: CODE_SYSTEM_INSTRUCTION }] }],
-          displayName: "sooner-code-system",
-          ttl: "300s",
-        },
-      });
-      if (result.name) {
-        promptCacheRef.current = {
-          name: result.name,
-          model,
-          provider: apiProvider,
-          expiresAt: Date.now() + 270_000,
-        };
-        return result.name;
-      }
-    } catch (e) {
-      console.warn("Prompt cache creation failed (using inline system instruction):", e);
-    }
-    return undefined;
-  };
-
   const fetchModels = async () => {
     const key = getActiveApiKey();
     if (!key) return;
@@ -4536,14 +4411,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
       alert(language === "ja" ? `接続テストに失敗しました: ${e.message}` : `API Key test failed: ${e.message}`);
     } finally {
       setIsTestingKey(false);
-    }
-  };
-
-  const stopAgent = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setIsAgentRunning(false);
-      updateLastStep("failed", "Stopped by user");
     }
   };
 
@@ -4765,696 +4632,6 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
     }
   };
 
-  const handleAgentAction = async (overrideInput?: string) => {
-    const effectiveInput = overrideInput ?? input;
-    const attachmentBlock =
-      contextAttachments.length === 0
-        ? ""
-        : "\n\n<<<USER-ATTACHED-FILES>>>\n" +
-          contextAttachments.map((a) => `=== ${a.name} ===\n${a.text}`).join("\n\n") +
-          "\n<<<END-ATTACHED>>>\n";
-    const modelUserPayload =
-      (effectiveInput.trim() ||
-        (contextAttachments.length
-          ? language === "ja"
-            ? "（添付ファイルのみ — 内容を主に参照してください）"
-            : "(Attached files only — use them as primary context.)"
-          : "")) + attachmentBlock;
-    if (!modelUserPayload.trim()) return;
-
-    const currentKey = getActiveApiKey();
-    if (!currentKey) {
-      setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIキーが設定されていません。設定画面でAPIキーを入力してください。" : "API Key is missing. Please set it in Settings." }]);
-      setIsSettingsOpen(true);
-      return;
-    }
-    
-    const ai =
-      apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase() ? createAiClient() : null;
-    const userMsg: ChatMessage = { role: "user", content: modelUserPayload };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    const keywordSource = effectiveInput.trim() || contextAttachments[0]?.text.slice(0, 400) || "";
-    const currentInput = keywordSource;
-    setInput("");
-    setContextAttachments([]);
-    setIsAgentRunning(true);
-    setAgentSteps([]);
-    setAgentTrace("");
-    setStreamingAssistant("");
-    setLastAgentApplySummary(null);
-    abortControllerRef.current = new AbortController();
-
-    const appendTrace = (line: string) => {
-      setAgentTrace((prev) => (prev ? `${prev}\n` : "") + line);
-    };
-    const geminiNativeChat = apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase();
-
-    // Context selection (not Gemini Prompt Caching API — uses last messages + keyword heuristics only)
-    // We pick the last 10 messages + any messages containing keywords from the current input
-    // To prevent token limit errors, we strictly limit the total content length
-    const keywords = currentInput.toLowerCase().split(/\s+/).filter(k => k.length > 3);
-    let totalLength = 0;
-    const MAX_HISTORY_LENGTH = 100000; // Safe limit to avoid 1M token error
-
-    const relevantHistory = messages.slice().reverse().filter((m, idx) => {
-      if (totalLength > MAX_HISTORY_LENGTH) return false;
-      
-      const isRelevant = idx < 10 || keywords.some(k => m.content.toLowerCase().includes(k));
-      if (isRelevant) {
-        totalLength += m.content.length;
-        return true;
-      }
-      return false;
-    }).reverse();
-
-    // Also truncate newMessages if they are too long
-    const cappedMessages = newMessages.slice(-20); // Keep only last 20 for the direct contents field
-
-    const historyContext = relevantHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
-
-    // Language instructions
-    const langInstruction = language === "ja" ? "回答は日本語で行ってください。ただし技術用語やコード内のコメントは英語でも構いません。" : "Respond in English.";
-
-    try {
-      // 1. Decide: chat-only vs workspace (plan + execute)
-      addStep("plan", "Analyzing request and history...");
-
-      const chatOnlyThisSend = nextSubmitChatOnlyRef.current;
-      if (nextSubmitChatOnlyRef.current) nextSubmitChatOnlyRef.current = false;
-      const preferChat = !activeProject || chatOnlyThisSend;
-      const decisionType: "chat" | "code" = preferChat ? "chat" : "code";
-
-      if (decisionType === "chat") {
-
-        updateLastStep("completed", "Generating response...");
-        const chatSystemInstruction = `You are Sooner. You are helpful, technical, and concise. 
-              ${langInstruction}
-              Conversation History Context:
-              ${historyContext}
-              
-              Use this context to maintain continuity. If the user asks about a previous plan, refer to it.`;
-        let chatResponse: { text?: string };
-        try {
-          if (apiProvider === "vercel-ai-gateway") {
-            appendTrace(
-              language === "ja"
-                ? `Vercel AI Gateway: ${selectedModel} へリクエスト中…（ブラウザは VITE_BACKEND_URL 経由でプロキシ）`
-                : `Calling Vercel AI Gateway (${selectedModel})… (proxied via VITE_BACKEND_URL)`,
-            );
-            chatResponse = {
-              text: await vercelGatewayChatCompletion({
-                model: selectedModel,
-                messages: [
-                  { role: "system", content: chatSystemInstruction },
-                  ...cappedMessages.map((m) => ({
-                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-                    content: m.content,
-                  })),
-                ],
-              }),
-            };
-          } else if (isCustomOpenAiChatBase()) {
-            appendTrace(
-              language === "ja"
-                ? `OpenRouter: ${selectedModel} へリクエスト中…`
-                : `Calling OpenRouter (${selectedModel})…`,
-            );
-            chatResponse = {
-              text: await customOpenAiChatCompletion({
-                model: selectedModel,
-                messages: [
-                  { role: "system", content: chatSystemInstruction },
-                  ...cappedMessages.map((m) => ({
-                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-                    content: m.content,
-                  })),
-                ],
-              }),
-            };
-          } else if (geminiNativeChat) {
-            appendTrace(
-              language === "ja"
-                ? `Gemini: ${modelIdForGeminiRequest(selectedModel)} でストリーミング応答…（モデル内部の思考テキストは API では提供されません）`
-                : `Gemini streaming (${modelIdForGeminiRequest(selectedModel)})… (internal chain-of-thought is not exposed by the API)`,
-            );
-            const contents = cappedMessages.map((m) => ({
-              role: (m.role === "assistant" ? "model" : "user") as "model" | "user",
-              parts: [{ text: m.content }],
-            }));
-            try {
-              const text = await geminiStreamGenerateContent({
-                apiKey: currentKey,
-                baseUrl: undefined,
-                model: modelIdForGeminiRequest(selectedModel),
-                body: {
-                  contents,
-                  systemInstruction: { parts: [{ text: chatSystemInstruction }] },
-                },
-                onText: (acc) => setStreamingAssistant(acc),
-                signal: abortControllerRef.current?.signal,
-              });
-              setStreamingAssistant("");
-              chatResponse = { text };
-            } catch (streamErr: unknown) {
-              setStreamingAssistant("");
-              const sm = streamErr instanceof Error ? streamErr.message : String(streamErr);
-              appendTrace(
-                language === "ja" ? `ストリーミング不可、通常生成に切替: ${sm}` : `Stream unavailable, using non-stream: ${sm}`,
-              );
-              chatResponse = await ai!.models.generateContent({
-                model: modelIdForGeminiRequest(selectedModel),
-                contents: cappedMessages.map((m) => ({
-                  role: m.role === "assistant" ? "model" : "user",
-                  parts: [{ text: m.content }],
-                })),
-                config: {
-                  systemInstruction: chatSystemInstruction,
-                },
-              });
-            }
-          }
-        } catch (e: any) {
-          const isRate = e.message?.includes("429") || e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("rate");
-          if (apiProvider === "vercel-ai-gateway" && isRate) {
-            chatResponse = {
-              text: await vercelGatewayChatCompletion({
-                model: selectedModel,
-                messages: [
-                  {
-                    role: "system",
-                    content:
-                      "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
-                  },
-                  ...newMessages.map((m) => ({
-                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-                    content: m.content,
-                  })),
-                ],
-              }),
-            };
-          } else if (isCustomOpenAiChatBase() && isRate) {
-            chatResponse = {
-              text: await customOpenAiChatCompletion({
-                model: selectedModel,
-                messages: [
-                  {
-                    role: "system",
-                    content:
-                      "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
-                  },
-                  ...newMessages.map((m) => ({
-                    role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
-                    content: m.content,
-                  })),
-                ],
-              }),
-            };
-          } else if (apiProvider !== "vercel-ai-gateway" && !isCustomOpenAiChatBase() && isRate) {
-            chatResponse = await ai!.models.generateContent({
-              model: modelIdForGeminiRequest(selectedModel),
-              contents: newMessages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-              config: {
-                systemInstruction:
-                  "You are Sooner. You are helpful, technical, and concise. You MUST use the provided conversation history to maintain context.",
-              },
-            });
-          } else {
-            throw e;
-          }
-        }
-        if (!abortControllerRef.current?.signal.aborted) {
-          const rawAssistant = chatResponse.text || "";
-          const assistantOut =
-            isCustomOpenAiChatBase()
-              ? sanitizeOpenRouterBoilerplateAssistantReply(rawAssistant, language === "ja" ? "ja" : "en")
-              : rawAssistant;
-          setMessages(prev => [...prev, { role: "assistant", content: assistantOut }]);
-          updateLastStep("completed", "Answered.");
-        }
-      } else {
-        // 2. Plan for Code
-        updateLastStep("completed", "Creating execution plan…");
-        let planResponse;
-
-        const backendServerSection = BACKEND_URL
-          ? `
-        BACKEND PROJECTS:
-        - The preview can run backend servers (Node.js, Python, Go, Rust).
-        - For Node.js: Create package.json with "scripts": { "start": "node server.js" } or "dev" script. The server MUST listen on the port from process.env.PORT.
-        - For Python (Flask/FastAPI): Create app.py or main.py + requirements.txt. Use port from os.environ.get("PORT", 4001).
-        - For Go: Create go.mod + main.go. Read port from os.Getenv("PORT").
-        - CRITICAL: The server MUST use the PORT environment variable, not a hardcoded port.
-        - Backend servers are auto-detected and started when the user clicks Preview.
-`
-          : `
-        NO WORKSPACE BACKEND IN THIS SESSION:
-        - run_command steps do not execute (only write_file saves files). Do not rely on npm install, pip install, flutter build, or shell commands.
-        - Do not plan server-side backends (Node/Python/Go APIs) for this user unless they only need static client assets.
-        - Prefer browser-side stacks; keep package.json for dependency metadata; bare imports can target esm.sh when preview is available on a self-hosted workspace.
-`;
-
-        const depsInstruction = BACKEND_URL
-          ? `1. If the request involves new libraries or dependencies, include a 'run_command' step (e.g., 'npm install <package>', 'flutter pub get', 'pip install <package>').`
-          : `1. Do not use 'run_command' for installs or builds. Use write_file only; list packages in package.json and use bare imports suitable for browser preview (esm.sh).`;
-
-        const updateReadLabel = (msg: string) => {
-          setAgentSteps((prev) => {
-            if (prev.length === 0) return prev;
-            const next = [...prev];
-            next[next.length - 1] = { ...next[next.length - 1], message: msg };
-            return next;
-          });
-        };
-
-        appendTrace(
-          language === "ja"
-            ? "ワークスペース: ストレージからソースを読み取ります（エディタタブは切り替えません）。"
-            : "Workspace: reading sources from storage (editor tab unchanged).",
-        );
-        addStep(
-          "read",
-          language === "ja" ? "プロジェクトファイルを読み取り中…" : "Reading project files…",
-        );
-
-        const planModelId =
-          apiProvider === "vercel-ai-gateway" || isCustomOpenAiChatBase()
-            ? selectedModel
-            : modelIdForGeminiRequest(selectedModel);
-        const planBudget = computeAgentPlanCharBudget(planModelId);
-        appendTrace(
-          language === "ja"
-            ? `モデル想定コンテキスト: 約 ${planBudget.contextTokens.toLocaleString()} トークン → プラン用にファイル抜粋上限 ~${planBudget.maxCharsForFiles.toLocaleString()} 文字、履歴 ~${planBudget.maxHistoryChars.toLocaleString()} 文字`
-            : `Model budget (~${planBudget.contextTokens.toLocaleString()} tokens): file excerpts ~${planBudget.maxCharsForFiles.toLocaleString()} chars, history ~${planBudget.maxHistoryChars.toLocaleString()} chars`,
-        );
-
-        const flattenSourcePaths = (nodes: FileNode[]): string[] => {
-          const out: string[] = [];
-          const walk = (list: FileNode[]) => {
-            for (const n of list) {
-              if (
-                n.type === "file" &&
-                !n.path.startsWith(".sooner_") &&
-                !n.path.startsWith(".aether_") &&
-                n.path !== ".sooner_project"
-              ) {
-                out.push(n.path);
-              } else if (n.children) walk(n.children);
-            }
-          };
-          walk(nodes);
-          return out;
-        };
-
-        const paths = flattenSourcePaths(files);
-        const maxPathsToRead = Math.min(paths.length, Math.max(120, planBudget.maxFiles * 5));
-        if (paths.length > maxPathsToRead) {
-          appendTrace(
-            language === "ja"
-              ? `読み取りパスを ${maxPathsToRead}/${paths.length} に制限（モデル用コンテキストと速度のため）`
-              : `Reading ${maxPathsToRead} of ${paths.length} paths (model context & speed cap)`,
-          );
-        }
-        const existingCode: { path: string; content: string }[] = [];
-        for (let i = 0; i < maxPathsToRead; i++) {
-          const p = paths[i];
-          if (abortControllerRef.current?.signal.aborted) break;
-          const c = uid && activeProject ? await storageDownloadFile(uid, activeProject, p) : null;
-          if (c === null) continue;
-          existingCode.push({ path: p, content: c });
-          appendTrace(`${i + 1}/${maxPathsToRead}  ${p}  (${c.length} chars)`);
-          updateReadLabel(language === "ja" ? `読み取り: ${p}` : `Read: ${p}`);
-        }
-        updateLastStep(
-          "completed",
-          language === "ja"
-            ? `${existingCode.length} ファイルを読み込みました`
-            : `Loaded ${existingCode.length} file(s)`,
-        );
-
-        const planModelLabel = planModelId;
-        appendTrace(
-          language === "ja"
-            ? `AI にプランを依頼しています（${planModelLabel}）…`
-            : `Requesting plan from model (${planModelLabel})…`,
-        );
-        addStep("plan", language === "ja" ? "プラン生成中…" : "Generating plan…");
-
-        const planHistoryContext = truncateAgentHistory(historyContext, planBudget.maxHistoryChars, language);
-        const treeForPlan = stringifyFileTreeForAgent(files, planBudget.maxTreeChars);
-        const existingFilesSummary = buildPlanFileSnippets(existingCode, planBudget, language);
-
-        const planPrompt = `
-        You are an expert developer proficient in ALL programming languages and frameworks including React, Vue, Angular, Flutter, Swift, Kotlin, Python, Go, Rust, and more.
-        You MUST follow the conversation history and the user's request to determine the correct language/framework.
-        
-        CONVERSATION HISTORY:
-        ${planHistoryContext}
-
-        CURRENT REQUEST: ${modelUserPayload}
- 
-        CURRENT PROJECT STATE:
-        Active Project: ${activeProject}
-        File tree: ${treeForPlan}
-
-        EXISTING FILE CONTENTS (read these carefully before generating):
-        ${existingFilesSummary}
-
-        CRITICAL — INCREMENTAL DEVELOPMENT RULES:
-        - If the project already has files, you MUST build on top of the existing code. DO NOT rewrite files from scratch.
-        - When modifying an existing file, include the FULL updated file content (not just a diff), but preserve all existing functionality, imports, styles, and structure that the user did not ask to change.
-        - Only create new files when they don't already exist.
-        - If the user asks to "improve" or "add a feature", merge it into the existing code.
-        
-        UNIFIED WORKSPACE MODE:
-        - The entire response must be one JSON array only: the first character you output must be "[". No markdown, no code fences (no \`\`\`), no text before or after the array.
-        - Use full, production-ready file contents in every "write_file" "content" string unless the user explicitly asked for a high-level outline only.
-        - Prefer minimal, targeted edits when the user is fixing a bug or small error; avoid rewriting unrelated files.
-        
-        FRAMEWORK DETECTION:
-        - Detect the framework/language from the user's request and existing project files.
-        - Use EXACTLY the framework the user asks for. Do NOT default to React unless the user asks for it.
-        - For Flutter: Use Dart, create lib/main.dart, pubspec.yaml, and web/index.html. The web/index.html MUST use the new Flutter loader API: _flutter.loader.load() (NOT the deprecated loadEntrypoint).
-        - For React: Use .tsx files, create index.html with <script type="module" src="./src/main.tsx"></script>, use Tailwind CDN.
-        - For Vue: Use .vue SFC files with <template>, <script>, <style>. Create index.html with <script type="module" src="./src/main.js"></script>. Import from "vue".
-        - For Svelte: Use .svelte files. Create index.html with appropriate setup.
-        - For Angular: Use .ts files with standard Angular structure.
-        - For Python: Create .py files and appropriate project structure.
-        - For plain HTML/CSS/JS: Create standard web files.
-
-        PREVIEW ENVIRONMENT (for web-based projects):
-        - The preview serves index.html from the project root (or build/web/, public/, dist/).
-        - ON-THE-FLY transpilation is available for .ts, .tsx, .jsx, .vue, .svelte files.
-        - IMPORTANT: npm packages are resolved via esm.sh CDN automatically. Any bare import (e.g. "three", "gsap", "chart.js") works in preview without npm install.
-        - If using npm packages, create a package.json with dependencies listed so the preview can build an import map.
-        - For React projects: ESM imports for react, react-dom are pre-mapped to CDNs. Tailwind CDN is auto-injected.
-        - For Vue projects: "vue" is pre-mapped to CDN. Use Vue 3 composition API or options API.
-        - For Three.js/GSAP/etc: Just import them normally (e.g. import * as THREE from "three"). They resolve to esm.sh automatically.
-        - Always use RELATIVE paths (e.g., './src/main.tsx', not '/src/main.tsx').
-        - For Flutter web: create web/index.html as the entry point.
-        ${backendServerSection}
-        INSTRUCTIONS:
-        - Provide full, production-ready code in 'content' for 'write_file' when creating or substantially changing files.
-        - Read the user's latest message, conversation history, and any USER-ATTACHED FILES blocks literally. For bugfixes, return minimal targeted write_file / delete_file steps (do not rewrite unrelated files).
-        - AGENT TOOLS: You may use delete_file to remove obsolete/conflicting files; use run_command for installs, tests, flutter pub get, flutter build web, etc. Do not delete .sooner_* / .aether_* / .sooner_project paths.
-        
-        IMPORTANT: 
-        ${depsInstruction}
-        2. Check existing files for missing dependencies or imports and fix them.
-        3. If the user previously discussed a plan in conversation (without applying it yet), EXECUTE that plan now when they ask to apply or build it.
-        4. Use the language/framework the user explicitly requests. NEVER force React if not asked.
-        5. JSON ONLY: In every write_file "content" string, escape double-quotes as \\". Never put markdown code fences (triple backticks) inside JSON — use plain indented text in README strings instead.
- 
-        Return a JSON array of actions:
-        { action: "write_file" | "run_command" | "delete_file", path?: string, content?: string, command?: string, description: string }[]
-        
-        Allowed action values ONLY: write_file, delete_file, run_command. Never use read_file, list_dir, or other tool names — file contents are already in this prompt.
-        Return ONLY the JSON array (or a single object of one step, which the app will wrap). No markdown, no extra text.`;
-
-        if (apiProvider === "vercel-ai-gateway") {
-          planResponse = {
-            text: await vercelGatewayChatCompletion({
-              model: selectedModel,
-              messages: [
-                { role: "system", content: CODE_SYSTEM_INSTRUCTION },
-                { role: "user", content: planPrompt },
-              ],
-              temperature: 0.3,
-            }),
-          };
-        } else if (isCustomOpenAiChatBase()) {
-          planResponse = {
-            text: await customOpenAiChatCompletion({
-              model: selectedModel,
-              messages: [
-                { role: "system", content: CODE_SYSTEM_INSTRUCTION },
-                { role: "user", content: planPrompt },
-              ],
-              temperature: 0.3,
-              maxTokens: 8192,
-            }),
-          };
-        } else {
-          const geminiModel = modelIdForGeminiRequest(selectedModel);
-          let cacheName: string | undefined;
-          try {
-            cacheName = await getOrCreatePromptCache(ai!, geminiModel);
-          } catch {}
-
-          try {
-            planResponse = await ai!.models.generateContent({
-              model: geminiModel,
-              contents: planPrompt,
-              config: {
-                responseMimeType: "application/json",
-                ...(cacheName ? { cachedContent: cacheName } : { systemInstruction: CODE_SYSTEM_INSTRUCTION }),
-              },
-            });
-          } catch {
-            planResponse = await ai!.models.generateContent({
-              model: geminiModel,
-              contents: planPrompt,
-              config: {
-                responseMimeType: "application/json",
-                systemInstruction: CODE_SYSTEM_INSTRUCTION,
-              },
-            });
-          }
-        }
-        
-        let plan;
-        try {
-          plan = parseAgentPlanJson(planResponse.text);
-        } catch (e) {
-          console.error("JSON Parse Error", e, planResponse.text);
-          throw new Error("Failed to parse AI plan. The response was not valid JSON array.");
-        }
-        updateLastStep("completed", "Plan generated based on history.");
-
-        const lang = language === "ja" ? "ja" : "en";
-        if (plan.length === 0) {
-          if (!abortControllerRef.current?.signal.aborted) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content:
-                  lang === "ja"
-                    ? "ワークスペース向けのステップが 0 件でした（モデルが [] を返した可能性があります）。ファイルやコマンドを明示するか、説明だけならプロジェクトを閉じるか、Git の「AI コミット案」から開いたチャットのように次の 1 回だけ会話モードになる操作を使ってください。"
-                    : "The model returned no workspace steps (possibly an empty JSON array []). Be explicit about files or commands; for pure Q&A, work without an active project, or use flows that mark the next send as chat-only.",
-              },
-            ]);
-          }
-          updateLastStep("completed", "No workspace actions.");
-          fetchFiles();
-        } else {
-          // 3. Execute plan
-          const resultLines: string[] = [];
-          for (const step of plan) {
-            if (abortControllerRef.current?.signal.aborted) break;
-            const act = step.action as string;
-            addStep(
-              act === "write_file" ? "code" : act === "delete_file" ? "fix" : "test",
-              typeof step.description === "string" ? step.description : act,
-            );
-
-            if (step.action === "write_file") {
-              if (uid && activeProject) await storageUploadFile(uid, activeProject, step.path, step.content);
-              if (BACKEND_URL && activeProject) {
-                await axios.post(projectApi(activeProject, "file"), { filePath: step.path, content: step.content }).catch(() => {});
-              }
-              setDirtyPaths((prev) => {
-                const next = { ...prev };
-                delete next[typeof step.path === "string" ? step.path : ""];
-                return next;
-              });
-              setTerminalOutput((prev) => [...prev, `Agent: Wrote ${step.path}`]);
-              resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
-            } else if (step.action === "delete_file") {
-              const p = typeof step.path === "string" ? step.path : "";
-              if (uid && activeProject && p && isAgentDeletablePath(p)) {
-                try {
-                  if (BACKEND_URL) {
-                    await axios.delete(apiUrl(`/api/projects/${encodeURIComponent(activeProject)}/file`), {
-                      data: { filePath: p },
-                    });
-                  } else {
-                    await storageDeleteFile(uid, activeProject, p);
-                  }
-                  setTerminalOutput((prev) => [...prev, `Agent: Deleted ${p}`]);
-                  resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
-                  if (activeFile === p) {
-                    setActiveFile(null);
-                    setFileContent("");
-                  }
-                } catch {
-                  setTerminalOutput((prev) => [...prev, `Agent: Failed to delete ${p}`]);
-                }
-              } else {
-                setTerminalOutput((prev) => [...prev, `Agent: Skipped delete (reserved or invalid path)`]);
-              }
-            } else if (step.action === "run_command") {
-              const cmdRaw = typeof step.command === "string" ? step.command : "";
-              const cmd = cmdRaw.trim();
-              if (BACKEND_URL && activeProject && cmd) {
-                const approved = await waitForTerminalCommandApproval(cmd);
-                if (!approved) {
-                  setTerminalOutput((prev) => [
-                    ...prev,
-                    lang === "ja"
-                      ? `Agent: コマンドはユーザーが拒否しました: ${cmd}`
-                      : `Agent: Command skipped (user declined): ${cmd}`,
-                  ]);
-                  resultLines.push(
-                    lang === "ja" ? `・コマンド（拒否） ${cmd}` : `・Command (declined) ${cmd}`,
-                  );
-                } else {
-                  try {
-                    const res = await axios.post(projectApi(activeProject, "terminal"), { command: cmd });
-                    setTerminalOutput((prev) =>
-                      [...prev, `Agent: Ran ${cmd}`, res.data.stdout, res.data.stderr].filter(Boolean),
-                    );
-                    const code = res.data.exitCode;
-                    if (typeof code === "number" && code !== 0) {
-                      setTerminalOutput((prev) => [...prev, `[exit ${code}]`]);
-                    }
-                    const mirror: string[] = [];
-                    if (res.data.stdout) mirror.push(String(res.data.stdout));
-                    if (res.data.stderr) mirror.push(String(res.data.stderr));
-                    if (typeof code === "number") mirror.push(`[exit ${code}]`);
-                    if (mirror.length) workspacePtyRef.current?.appendExternalOutput(mirror.join("\n"));
-                    resultLines.push(formatPlanStepSummary(step as Record<string, unknown>, lang));
-                  } catch {
-                    setTerminalOutput((prev) => [...prev, `Agent: Failed to run ${cmd}`]);
-                  }
-                }
-              } else if (!cmd) {
-                setTerminalOutput((prev) => [
-                  ...prev,
-                  lang === "ja" ? "Agent: run_command に空のコマンドがありました。" : "Agent: run_command had an empty command.",
-                ]);
-              } else {
-                setTerminalOutput((prev) => [...prev, `Agent: ${cmdRaw} (backend not configured)`]);
-              }
-            } else if (step.action === "read_file" || step.action === "list_dir" || step.action === "list_directory") {
-              const p = typeof step.path === "string" ? step.path : "";
-              setTerminalOutput((prev) => [
-                ...prev,
-                lang === "ja"
-                  ? `Agent: 「${step.action}」はこの環境では使いません（${p || "—"}）。プランに write_file / delete_file / run_command のみ含めてください。`
-                  : `Agent: Skipped unsupported action "${step.action}" (${p || "—"}). Use only write_file, delete_file, or run_command in the plan JSON.`,
-              ]);
-            } else {
-              setTerminalOutput((prev) => [
-                ...prev,
-                lang === "ja"
-                  ? `Agent: 未対応のアクション「${String(step.action)}」をスキップしました。`
-                  : `Agent: Skipped unknown action "${String(step.action)}".`,
-              ]);
-            }
-
-            updateLastStep("completed", `Done: ${step.description}`);
-          }
-
-          fetchFiles();
-
-          if (!abortControllerRef.current?.signal.aborted) {
-            const head =
-              lang === "ja"
-                ? `【ワークスペース】実行結果（${resultLines.length} 件）`
-                : `【Workspace】Done (${resultLines.length} action(s))`;
-            const detail = resultLines.length ? `\n\n${resultLines.join("\n")}` : "";
-            const tail =
-              lang === "ja"
-                ? "\n\nエディタ・プレビュー・ターミナルで確認してください。"
-                : "\n\nCheck the editor, preview, and terminal.";
-            setMessages((prev) => [...prev, { role: "assistant", content: `${head}${detail}${tail}` }]);
-            setLastAgentApplySummary({
-              headline: head,
-              lines: resultLines,
-            });
-          }
-        }
-      }
-    } catch (error: any) {
-      const humane = humanizeCaughtAiError(error);
-      const humaneLower = humane.toLowerCase();
-      console.error(error);
-      if (
-        humane.includes("429") ||
-        humaneLower.includes("resource_exhausted") ||
-        humaneLower.includes("api key not valid") ||
-        humaneLower.includes("quota")
-      ) {
-        updateLastStep("failed", "Paused.");
-        if (!abortControllerRef.current?.signal.aborted) {
-          setMessages(prev => [...prev, { role: "assistant", content: language === "ja" ? "APIの制限に達しました。しばらくしてから再試行してください。" : "API rate limit reached. Please try again shortly." }]);
-        }
-        return; 
-      }
-      
-      let errorMsg: string;
-      if (humane.includes("INVALID_ARGUMENT") || humaneLower.includes("token count exceeds")) {
-        errorMsg =
-          apiProvider === "custom"
-            ? language === "ja"
-              ? "入力が長すぎるか、このモデルでは受け付けられません。Clear・短いメッセージ・別モデル（OpenRouter の表記）を試してください。"
-              : "The prompt may be too long or rejected by this model. Clear chat, shorten input, or try another OpenRouter model id."
-            : language === "ja"
-              ? "会話や添付が長すぎてモデル上限を超えています。Clear で履歴を消すか、短いメッセージで試してください。"
-              : "The conversation history has become too large for the AI to process. I've attempted to truncate it, but it's still exceeding limits. Please use the 'Clear' button to start a fresh session.";
-      } else if (humaneLower.includes("provider returned error")) {
-        const base = humane.trim();
-        if (apiProvider === "custom") {
-          errorMsg =
-            language === "ja"
-              ? `${base}\n\nOpenRouter またはその先のモデル提供者（Minimax など）が返す汎用メッセージです。Google 限定ではありません。モデル ID の表記（例: minimax のスラッグ）・OpenRouter の残高・:free の混雑・別モデル・Clear を確認してください。`
-              : `${base}\n\nGeneric message from OpenRouter or the upstream host (e.g. Minimax)—not Google-specific. Check the exact model slug, OpenRouter credits, :free tier congestion, another model, or Clear.`;
-        } else if (apiProvider === "vercel-ai-gateway") {
-          errorMsg =
-            language === "ja"
-              ? `${base}\n\nVercel AI Gateway またはその上流からのエラーです。キー・モデル・利用枠を確認してください。`
-              : `${base}\n\nThis came from Vercel AI Gateway (or its upstream). Check your key, model, and limits.`;
-        } else {
-          errorMsg =
-            language === "ja"
-              ? `${base}\n\nGoogle（Gemini）API の汎用エラーです（理由は返らないことがあります）。別モデル・Clear・短い入力、または Google AI Studio で利用枠・課金を確認してください。`
-              : `${base}\n\nGeneric error from the Google Gemini API (details are often omitted). Try another model, Clear chat, a shorter prompt, or check quota/billing in Google AI Studio.`;
-        }
-      } else {
-        errorMsg =
-          humane.trim() ||
-          (language === "ja" ? "エラーが発生しました。" : "An error occurred.");
-      }
-      updateLastStep("failed", "Execution failed.");
-      if (!abortControllerRef.current?.signal.aborted) {
-        setMessages(prev => [...prev, { role: "assistant", content: errorMsg }]);
-      }
-    } finally {
-      setIsAgentRunning(false);
-      setStreamingAssistant("");
-    }
-  };
-
-  const addStep = (type: AgentStep["type"], message: string) => {
-    setAgentSteps(prev => [...prev, {
-      id: Math.random().toString(36).substring(2, 11),
-      type,
-      status: "running",
-      message,
-      timestamp: Date.now()
-    }]);
-  };
-
-  const updateLastStep = (status: AgentStep["status"], message: string) => {
-    setAgentSteps(prev => {
-      const next = [...prev];
-      if (next.length > 0) {
-        next[next.length - 1] = { ...next[next.length - 1], status, message };
-      }
-      return next;
-    });
-  };
 
   return (
     <ErrorBoundary>
@@ -6097,8 +5274,9 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
             )} />
             <span className="text-[10px] text-[#8E9299]">{isAgentRunning ? t.active : t.idle}</span>
             {isAgentRunning && (
-              <button 
-                onClick={stopAgent}
+              <button
+                type="button"
+                onClick={() => agentPanelRef.current?.stop()}
                 className="p-1 hover:bg-[#1A1A1A] rounded text-red-500 ml-2"
                 title={t.stop}
               >
@@ -6113,209 +5291,77 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
           </div>
         </div>
 
-        {/* Chat & Steps */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Chat Messages */}
-          <div className="space-y-4">
-            {messages.map((msg, i) => (
-              <React.Fragment key={i}>
-                <div className={cn(
-                  "p-3 rounded-lg text-sm break-words",
-                  msg.role === "user" ? "bg-[#1A1A1A] ml-4" : "bg-[#151515] mr-4 border border-[#1A1A1A]"
-                )}>
-                  <div
-                    className={cn(
-                      "text-[10px] tracking-widest text-[#8E9299] mb-1",
-                      msg.role === "user" ? "uppercase" : "normal-case",
-                    )}
-                  >
-                    {msg.role === "user" ? (language === "ja" ? "あなた" : "You") : "Sooner"}
-                  </div>
-                  <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
-                </div>
-                
-                {/* Render Pipeline after the user message if it's the last one and agent is running */}
-                {msg.role === "user" &&
-                  i === messages.length - 1 &&
-                  isAgentRunning &&
-                  (agentSteps.length > 0 || agentTrace || streamingAssistant) && (
-                  <div className="space-y-3 py-2 ml-4">
-                    <label className="text-[10px] uppercase tracking-widest text-[#8E9299] flex items-center gap-2">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      {t.pipeline}
-                    </label>
-                    <div className="space-y-2 border-l border-[#1A1A1A] pl-4 min-w-0">
-                      {agentSteps.map((step) => (
-                        <div key={step.id} className="flex items-start gap-3 group min-w-0">
-                          <div className="mt-1 shrink-0">
-                            {step.status === "running" ? (
-                              <Loader2 className="w-3 h-3 text-[#38BDF8] animate-spin" />
-                            ) : step.status === "completed" ? (
-                              <CheckCircle2 className="w-3 h-3 text-green-500" />
-                            ) : step.status === "failed" ? (
-                              <AlertCircle className="w-3 h-3 text-red-500" />
-                            ) : (
-                              <Circle className="w-3 h-3 text-[#1A1A1A]" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[10px] uppercase tracking-wider text-[#52525B] mb-0.5">
-                              {step.type === "read"
-                                ? language === "ja"
-                                  ? "読取"
-                                  : "Read"
-                                : step.type === "plan"
-                                  ? language === "ja"
-                                    ? "計画"
-                                    : "Plan"
-                                  : step.type}
-                            </div>
-                            <div
-                              className="text-[11px] font-medium text-[#E4E3E0] leading-snug break-words whitespace-normal line-clamp-2"
-                              title={step.message}
-                            >
-                              {step.message}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {(agentTrace || streamingAssistant) && (
-                      <div className="mt-3 rounded-md border border-[#252525] bg-[#0A0A0A]/80 p-3 space-y-2">
-                        <div className="text-[10px] uppercase tracking-widest text-[#8E9299] font-bold">{t.thinkingLog}</div>
-                        {streamingAssistant ? (
-                          <div className="text-[11px] leading-relaxed text-[#C4C4C0] whitespace-pre-wrap font-mono max-h-48 overflow-y-auto border-l-2 border-[#38BDF8]/50 pl-2">
-                            {streamingAssistant}
-                          </div>
-                        ) : null}
-                        {agentTrace ? (
-                          <pre className="text-[10px] leading-snug text-[#8E9299] whitespace-pre-wrap break-words font-mono max-h-40 overflow-y-auto min-w-0">
-                            {agentTrace}
-                          </pre>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-              </React.Fragment>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
-        </div>
-
-        {lastAgentApplySummary && (
-          <div className="shrink-0 px-4 py-3 border-t border-[#252525] bg-[#0C0C0C] space-y-2 max-h-[40vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 space-y-1">
-                <div className="text-[10px] uppercase tracking-widest font-bold text-[#38BDF8]">
-                  {t.lastApplySummaryTitle}
-                </div>
-                <div className="text-[11px] font-semibold text-[#E4E3E0] leading-snug break-words">
-                  {lastAgentApplySummary.headline}
-                </div>
-                <p className="text-[10px] text-[#52525B] leading-snug">{t.lastApplySummaryHint}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLastAgentApplySummary(null)}
-                className="shrink-0 p-1 rounded hover:bg-[#1A1A1A] text-[#8E9299] hover:text-white"
-                title={t.lastApplySummaryDismiss}
-                aria-label={t.lastApplySummaryDismiss}
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            {lastAgentApplySummary.lines.length > 0 ? (
-              <div className="text-[11px] leading-relaxed text-[#C4C4C0] whitespace-pre-wrap break-words border-l-2 border-[#38BDF8]/35 pl-2.5">
-                {lastAgentApplySummary.lines.join("\n")}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[#8E9299] leading-relaxed">{t.lastApplySummaryEmpty}</p>
-            )}
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A]">
-          <div className="flex flex-wrap gap-1 mb-3 items-center">
-            <button
-              type="button"
-              onClick={clearChat}
-              className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold text-[#8E9299] hover:text-white transition-colors"
-            >
-              <History className="w-3 h-3" />
-              {t.clear}
-            </button>
-          </div>
-          <input ref={attachmentInputRef} type="file" multiple className="hidden" onChange={onAttachmentFilesSelected} />
-          <div className="flex flex-wrap items-center gap-2 mb-2">
-            <button
-              type="button"
-              onClick={() => attachmentInputRef.current?.click()}
-              disabled={isAgentRunning}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40"
-            >
-              <Paperclip className="w-3 h-3" />
-              {t.attachFiles}
-            </button>
-            <button
-              type="button"
-              onClick={() => attachOpenEditorBuffer()}
-              disabled={isAgentRunning || !activeFile}
-              aria-pressed={!!activeFile && contextAttachments.some((a) => a.name === activeFile)}
-              className={cn(
-                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40 transition-colors",
-                activeFile && contextAttachments.some((a) => a.name === activeFile) && "border-[#38BDF8]/45 text-[#38BDF8] bg-[#38BDF8]/10",
-              )}
-            >
-              <FileCode className="w-3 h-3" />
-              {t.attachOpenFile}
-            </button>
-            {contextAttachments.map((a, i) => (
-              <span
-                key={`${i}:${a.name}:${a.text.length}`}
-                className="inline-flex items-center gap-1 text-[10px] pl-2 pr-1 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[min(180px,calc(100vw-8rem))]"
-                title={a.name}
-              >
-                <span className="truncate min-w-0">{a.name}</span>
-                <button
-                  type="button"
-                  disabled={isAgentRunning}
-                  onClick={() => setContextAttachments((prev) => prev.filter((_, j) => j !== i))}
-                  className="shrink-0 p-0.5 rounded-full text-[#71717A] hover:text-white hover:bg-white/10 disabled:opacity-40 transition-colors"
-                  aria-label={t.attachRemoveAria}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <p className="text-[9px] text-[#555] mb-1">{t.attachmentsHint}</p>
-          <div className="relative">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleAgentAction();
-                }
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {BACKEND_URL ? (
+            <SoonerAiAgentPanel
+              ref={agentPanelRef}
+              key={`${uid || "anon"}-${activeProject || "none"}-${aiChatMountKey}`}
+              backendUrl={BACKEND_URL}
+              language={language}
+              uid={uid}
+              activeProject={activeProject}
+              apiProvider={apiProvider}
+              selectedModel={selectedModel}
+              geminiKey={geminiKey}
+              vercelKey={vercelKey}
+              customKey={customKey}
+              openrouterBase={customOpenAiRoot()}
+              getIdToken={getWorkspaceIdToken}
+              initialPersistedMessages={messages}
+              onPersistMessages={(m) => {
+                setMessages(m);
+                if (uid && activeProject) void storageSaveChatHistory(uid, activeProject, m);
               }}
-              placeholder={t.placeholderUnified}
-              className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl p-3 pr-12 text-sm focus:outline-none focus:border-[#38BDF8] transition-colors resize-none h-24"
+              onWorkspaceChanged={() => {
+                void fetchFiles().then(async () => {
+                  if (!activeFile || !activeProject || !uid) return;
+                  try {
+                    const content = await storageDownloadFile(uid, activeProject, activeFile);
+                    if (content !== null) {
+                      skipNextAutosaveRef.current = true;
+                      setFileContent(content);
+                      setDirtyPaths((prev) => {
+                        const next = { ...prev };
+                        delete next[activeFile];
+                        return next;
+                      });
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                });
+              }}
+              onTerminalMirror={(text) => {
+                const lines = text.split("\n").filter((l) => l.length > 0);
+                if (!lines.length) return;
+                setTerminalOutput((prev) => [...prev, ...lines]);
+              }}
+              activeFile={activeFile}
+              contextAttachments={contextAttachments}
+              onSetContextAttachments={setContextAttachments}
+              attachOpenEditorBuffer={attachOpenEditorBuffer}
+              draftPrefillSeq={agentDraftPrefillSeq}
+              draftPrefillText={agentDraftPrefillText}
+              onBusyChange={setIsAgentRunning}
+              translations={{
+                placeholderUnified: t.placeholderUnified,
+                attachFiles: t.attachFiles,
+                attachOpenFile: t.attachOpenFile,
+                attachRemoveAria: t.attachRemoveAria,
+                attachmentsHint: t.attachmentsHint,
+                clear: t.clear,
+                stop: t.stop,
+                you: t.agentPanelYou,
+                assistantLabel: t.agentPanelAssistant,
+                noProjectHint: t.agentNoProject,
+                noApiKeyHint: t.agentNoApiKey,
+                deny: t.agentPanelDeny,
+                approveRun: t.agentPanelApproveRun,
+              }}
             />
-            <button 
-              onClick={() => handleAgentAction()}
-              disabled={(!input.trim() && contextAttachments.length === 0) || isAgentRunning}
-              className="absolute bottom-3 right-3 p-2 bg-[#38BDF8] text-white rounded-lg hover:bg-[#0EA5E9] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="mt-2 text-[10px] text-[#8E9299] text-center">
-            {language === "ja" ? "Enterキーで送信" : "Press Enter to send."}
-          </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4 text-xs text-[#8E9299] leading-relaxed">{t.agentNoBackendChat}</div>
+          )}
         </div>
       </div>
       {/* Modals */}
@@ -7199,13 +6245,13 @@ Use the exact language/framework the user requests. For React, use modular .tsx 
                         className="text-[10px] text-[#38BDF8] hover:underline text-left w-full"
                         onClick={() => {
                           setIsGitOpen(false);
-                          nextSubmitChatOnlyRef.current = true;
                           setIsChatOpen(true);
-                          setInput(
+                          setAgentDraftPrefillText(
                             language === "ja"
                               ? "未コミットの変更を要約し、適切な1行の git commit メッセージ案（英語推奨）を提案してください。"
                               : "Summarize what should go in the next git commit and propose a concise one-line commit message (English preferred).",
                           );
+                          setAgentDraftPrefillSeq((n) => n + 1);
                         }}
                       >
                         {t.gitAiCommitAssist}
