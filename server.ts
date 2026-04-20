@@ -3457,18 +3457,36 @@ ${sections || '<p style="color:#f97316">No readable text files found in the proj
     const { agent, dispose } = await buildSoonerWorkspaceAgent(model, ctx, lang, {
       ephemeralSecrets,
     });
+    const abort = new AbortController();
+    const abortOnDisconnect = () => {
+      try {
+        abort.abort();
+      } catch {
+        /* ignore */
+      }
+    };
+    req.once("close", abortOnDisconnect);
+    res.once("close", abortOnDisconnect);
     try {
       await pipeAgentUIStreamToResponse({
         response: res as unknown as import("http").ServerResponse,
         agent,
         uiMessages: body.messages as import("ai").UIMessage[],
+        abortSignal: abort.signal,
       });
     } catch (e: unknown) {
-      console.error("[workspace-agent]", e);
-      if (!res.headersSent) {
+      const aborted =
+        abort.signal.aborted ||
+        (e instanceof Error && (e.name === "AbortError" || e.message.toLowerCase().includes("abort")));
+      if (!aborted) {
+        console.error("[workspace-agent]", e);
+      }
+      if (!res.headersSent && !aborted) {
         res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
       }
     } finally {
+      req.removeListener("close", abortOnDisconnect);
+      res.removeListener("close", abortOnDisconnect);
       await dispose();
     }
   });

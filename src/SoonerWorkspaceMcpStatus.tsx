@@ -83,6 +83,14 @@ function SoonerWorkspaceMcpStatusInner({
           {language === "ja" ? "再接続" : "Reconnect"}
         </button>
       </div>
+      {state === "ready" && tools.length > 0 ? (
+        <p className="text-[9px] text-[#71717A] font-mono leading-relaxed break-words">
+          <span className="text-[#52525B] not-italic font-sans mr-1">
+            {language === "ja" ? "名前:" : "Names:"}
+          </span>
+          {tools.map((x) => x.name).join(" · ")}
+        </p>
+      ) : null}
       <p className="text-[9px] text-[#52525B] leading-snug">{mcpHint}</p>
     </div>
   );

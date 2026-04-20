@@ -19,5 +19,8 @@ export interface AgentStep {
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
+  /** Plain-text summary (searchable); tool transcripts may live only in `parts`. */
   content: string;
+  /** When set (AI SDK UI parts), chat restores tool cards and approval buttons instead of CLI-like text. */
+  parts?: unknown[];
 }

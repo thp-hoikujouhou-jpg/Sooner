@@ -1,6 +1,17 @@
 import type { UIMessage } from "ai";
 import type { ChatMessage } from "./types";
 
+function cloneUiParts(parts: UIMessage["parts"]): unknown[] {
+  return JSON.parse(JSON.stringify(parts)) as unknown[];
+}
+
+function uiMessageTextSummary(m: UIMessage): string {
+  return m.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+}
+
 type ToolLike = {
   type: string;
   state?: string;
@@ -115,20 +126,35 @@ export function formatWorkspaceToolPayload(part: ToolLike, mode: "persistence" |
   return lines.join("\n");
 }
 
-/** Restore persisted simple chat into AI SDK UI messages (best-effort). */
+/** Restore persisted chat: prefer structured `parts` when saved (full GUI); else legacy plain `content`. */
 export function chatMessagesToUi(messages: ChatMessage[]): UIMessage[] {
-  return messages.map((m, i) => ({
-    id: `hist-${i}-${m.role}`,
-    role: m.role === "assistant" ? "assistant" : "user",
-    parts: [{ type: "text", text: m.content }],
-  })) as UIMessage[];
+  return messages.map((m, i) => {
+    const id = `hist-${i}-${m.role}`;
+    if (Array.isArray(m.parts) && m.parts.length > 0) {
+      return {
+        id,
+        role: m.role === "user" ? "user" : "assistant",
+        parts: m.parts as UIMessage["parts"],
+      } as UIMessage;
+    }
+    return {
+      id,
+      role: m.role === "assistant" ? "assistant" : "user",
+      parts: [{ type: "text" as const, text: m.content || "" }],
+    } as UIMessage;
+  });
 }
 
-/** Flatten UI messages back to legacy storage format. */
+/**
+ * Persist chat for storage: keep `parts` for round-trip UI (tool cards, approvals).
+ * `content` holds text-only summary for older readers and search.
+ */
 export function uiMessagesToChat(messages: UIMessage[]): ChatMessage[] {
-  return messages.map((m) => ({
-    role: m.role === "user" ? "user" : "assistant",
-    content: m.parts
+  return messages.map((m) => {
+    const role = m.role === "user" ? "user" : "assistant";
+    const hasStructured = m.parts.some((p) => p.type !== "text");
+    const textSummary = uiMessageTextSummary(m);
+    const legacyFlat = m.parts
       .map((p) => {
         if (p.type === "text") return p.text;
         if (typeof p.type === "string" && p.type.startsWith("tool-")) {
@@ -137,6 +163,12 @@ export function uiMessagesToChat(messages: UIMessage[]): ChatMessage[] {
         return "";
       })
       .filter(Boolean)
-      .join("\n"),
-  }));
+      .join("\n");
+
+    return {
+      role,
+      content: textSummary || (hasStructured ? "" : legacyFlat),
+      parts: m.parts.length > 0 ? cloneUiParts(m.parts) : undefined,
+    };
+  });
 }

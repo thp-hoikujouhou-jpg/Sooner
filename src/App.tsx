@@ -2303,7 +2303,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       mcpReadyPrefix: "Tools on /api/mcp",
       mcpFailed: "MCP unavailable",
       mcpHint:
-        "The agent also loads tools from mcp-config.json in the project (names prefixed mcp__). This status uses use-mcp against /api/mcp.",
+        "Count above = built-in /api/mcp tools (same project shell as the Terminal). The workspace agent can also load mcp-config.json tools (names prefixed mcp__).",
       mcpAwaitingAuth: "Waiting for sign-in…",
       openRouterApiKey: "OpenRouter API Key",
       model: "Model",
@@ -2387,6 +2387,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       attachFiles: "Attach files",
       attachOpenFile: "Attach open file",
       attachmentsHint: "Attached context is sent with your next message only.",
+      tooltipEphemeralSecrets:
+        "Ephemeral secrets: sent only in the request body for this turn; not shown in chat or saved in history.",
+      tooltipMcpPanel: "Workspace MCP: connection status and built-in tools for this project.",
+      tooltipAttachFiles: "Attach files: add local files as context for your next message.",
+      tooltipAttachOpenFile: "Attach open file: add the currently open editor file as context.",
       attachRemoveAria: "Remove attachment",
       copyPreviewLink: "Copy preview URL",
       previewLinkCopied: "Preview link copied",
@@ -2530,7 +2535,7 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       mcpReadyPrefix: "/api/mcp のツール",
       mcpFailed: "MCP に接続できません",
       mcpHint:
-        "エージェントはプロジェクト直下の mcp-config.json からもツールを読み込みます（名前は mcp__ 始まり）。この表示は use-mcp で /api/mcp を監視しています。",
+        "件数は組み込みの /api/mcp ツール（ターミナルと同じプロジェクトでシェル実行）。エージェントは mcp-config.json のツールも併用できます（名前は mcp__ 始まり）。",
       mcpAwaitingAuth: "サインイン待ち…",
       openRouterApiKey: "OpenRouter API キー",
       model: "モデル",
@@ -2615,6 +2620,11 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
       attachFiles: "ファイルを添付",
       attachOpenFile: "開いているファイルを添付",
       attachmentsHint: "添付は次の送信まで有効です。",
+      tooltipEphemeralSecrets:
+        "一時シークレット: この送信のAPIボディにのみ含まれ、チャット表示や履歴には保存されません。",
+      tooltipMcpPanel: "ワークスペースMCP: このプロジェクトの接続状態と組み込みツールです。",
+      tooltipAttachFiles: "ファイル添付: ローカルファイルを次のメッセージの文脈として追加します。",
+      tooltipAttachOpenFile: "開いているファイルを添付: エディタで開いているファイルを文脈に追加します。",
       attachRemoveAria: "添付を解除",
       copyPreviewLink: "プレビューURLをコピー",
       previewLinkCopied: "プレビューURLをコピーしました",
@@ -5310,6 +5320,10 @@ function Sooner({ user, onSignOut }: { user: User | null; onSignOut: () => void 
                 mcpFailed: t.mcpFailed,
                 mcpHint: t.mcpHint,
                 mcpAwaitingAuth: t.mcpAwaitingAuth,
+                tooltipEphemeralSecrets: t.tooltipEphemeralSecrets,
+                tooltipMcpPanel: t.tooltipMcpPanel,
+                tooltipAttachFiles: t.tooltipAttachFiles,
+                tooltipAttachOpenFile: t.tooltipAttachOpenFile,
               }}
             />
           ) : (

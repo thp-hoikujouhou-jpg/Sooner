@@ -4,7 +4,8 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalRespons
 import type { UIMessage } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { FileCode, History, Loader2, Lock, Paperclip, Send, Square, X } from "lucide-react";
+import * as Tooltip from "@radix-ui/react-tooltip";
+import { FileCode, History, Loader2, Lock, Paperclip, PlugZap, Send, Square, X } from "lucide-react";
 import { chatMessagesToUi, formatWorkspaceToolPayload, uiMessagesToChat } from "./soonerAgentChatAdapters";
 import type { ChatMessage } from "./types";
 import { SoonerWorkspaceMcpStatus } from "./SoonerWorkspaceMcpStatus";
@@ -57,6 +58,10 @@ export type SoonerAiAgentPanelProps = {
     mcpFailed: string;
     mcpHint: string;
     mcpAwaitingAuth: string;
+    tooltipEphemeralSecrets: string;
+    tooltipMcpPanel: string;
+    tooltipAttachFiles: string;
+    tooltipAttachOpenFile: string;
   };
   onBusyChange?: (busy: boolean) => void;
   /** When this counter changes, the draft textarea is filled with `draftPrefillText` (e.g. Git → chat assist). */
@@ -103,6 +108,7 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
 ) {
   const [draft, setDraft] = useState("");
   const [ephemeralOpen, setEphemeralOpen] = useState(false);
+  const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
   const [ephemeralDraft, setEphemeralDraft] = useState("");
   /** Sent in HTTP body only; not part of UIMessage / persisted chat. Cleared in onFinish. */
   const ephemeralForBodyRef = useRef("");
@@ -231,6 +237,27 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
     ephemeralForBodyRef.current = "";
     onSetContextAttachments([]);
   }, [setMessages, onPersistMessages, onSetContextAttachments]);
+
+  const openAttachmentFilePicker = useCallback(() => {
+    const el = document.createElement("input");
+    el.type = "file";
+    el.multiple = true;
+    el.onchange = () => {
+      const files = el.files;
+      if (!files) return;
+      void (async () => {
+        const next: { name: string; text: string }[] = [];
+        for (const f of Array.from(files)) {
+          next.push({ name: f.name, text: await f.text() });
+        }
+        onSetContextAttachments((prev) => [...prev, ...next]);
+      })();
+    };
+    el.click();
+  }, [onSetContextAttachments]);
+
+  const iconBarBtn =
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#2a2a2a] bg-[#141414] text-[#8E9299] hover:border-[#38BDF8]/45 hover:bg-[#0c1422] hover:text-[#38BDF8] disabled:opacity-35 disabled:pointer-events-none transition-colors";
 
   const renderPart = useCallback(
     (message: UIMessage, part: unknown, idx: number) => {
@@ -399,151 +426,230 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
         <div ref={scrollRef} />
       </div>
 
-      <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A] shrink-0">
-        <div className="rounded-lg border border-[#252525] bg-[#080808] overflow-hidden mb-3">
-          <button
-            type="button"
-            onClick={() => setEphemeralOpen((o) => !o)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wide text-[#8E9299] hover:bg-[#141414] hover:text-[#E4E3E0]"
-          >
-            <Lock className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
-            {t.ephemeralSecretsTitle}
-            <span className="ml-auto text-[9px] opacity-80" aria-hidden>
-              {ephemeralOpen ? "▼" : "▶"}
-            </span>
-          </button>
-          {ephemeralOpen && (
-            <div className="px-3 pb-3 space-y-2 border-t border-[#1A1A1A] pt-2">
+      <Tooltip.Provider delayDuration={400}>
+        <div className="p-4 border-t border-[#1A1A1A] bg-[#0A0A0A] shrink-0">
+          <div className="flex flex-wrap gap-1 mb-2 items-center">
+            <button
+              type="button"
+              onClick={clearLocal}
+              className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold text-[#8E9299] hover:text-white transition-colors"
+            >
+              <History className="w-3 h-3" />
+              {t.clear}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-[#252525] bg-[#0A0A0A] overflow-hidden">
+            {contextAttachments.length > 0 ? (
+              <div className="flex flex-wrap gap-1 px-2 py-2 border-b border-[#1A1A1A] bg-[#080808]">
+                {contextAttachments.map((a, i) => (
+                  <span
+                    key={`${i}:${a.name}:${a.text.length}`}
+                    className="inline-flex items-center gap-1 text-[10px] pl-2 pr-1 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[min(180px,calc(100vw-8rem))]"
+                    title={a.name}
+                  >
+                    <span className="truncate min-w-0">{a.name}</span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onSetContextAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      className="shrink-0 p-0.5 rounded-full text-[#71717A] hover:text-white hover:bg-white/10 disabled:opacity-40"
+                      aria-label={t.attachRemoveAria}
+                    >
+                      <X className="w-3 h-3" aria-hidden />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {ephemeralOpen ? (
+              <div className="px-2 py-2 space-y-1.5 border-b border-[#1A1A1A] bg-[#080808]">
+                <div className="text-[9px] font-bold uppercase tracking-wide text-[#52525B]">{t.ephemeralSecretsTitle}</div>
+                <textarea
+                  value={ephemeralDraft}
+                  onChange={(e) => setEphemeralDraft(e.target.value)}
+                  placeholder={t.ephemeralSecretsPlaceholder}
+                  spellCheck={false}
+                  autoComplete="off"
+                  rows={3}
+                  className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg p-2 text-xs font-mono text-[#E4E3E0] focus:outline-none focus:border-[#38BDF8] resize-y min-h-[4.5rem] max-h-32"
+                />
+                <p className="text-[9px] text-[#52525B] leading-snug">{t.ephemeralSecretsHint}</p>
+              </div>
+            ) : null}
+
+            {mcpPanelOpen && uid && activeProject ? (
+              <div className="border-b border-[#1A1A1A] max-h-[min(40vh,280px)] overflow-y-auto bg-[#080808]">
+                <SoonerWorkspaceMcpStatus
+                  backendUrl={backendUrl}
+                  activeProject={activeProject}
+                  getIdToken={getIdToken}
+                  language={language}
+                  mcpTitle={t.mcpTitle}
+                  mcpConnecting={t.mcpConnecting}
+                  mcpReadyPrefix={t.mcpReadyPrefix}
+                  mcpFailed={t.mcpFailed}
+                  mcpHint={t.mcpHint}
+                  mcpAwaitingAuth={t.mcpAwaitingAuth}
+                />
+              </div>
+            ) : null}
+
+            <div className="relative bg-[#1A1A1A]">
               <textarea
-                value={ephemeralDraft}
-                onChange={(e) => setEphemeralDraft(e.target.value)}
-                placeholder={t.ephemeralSecretsPlaceholder}
-                spellCheck={false}
-                autoComplete="off"
-                rows={4}
-                className="w-full bg-[#1A1A1A] border border-[#252525] rounded-lg p-2 text-xs font-mono text-[#E4E3E0] focus:outline-none focus:border-[#38BDF8] resize-y min-h-[5rem] max-h-40"
-              />
-              <p className="text-[9px] text-[#52525B] leading-snug">{t.ephemeralSecretsHint}</p>
-            </div>
-          )}
-        </div>
-        {uid && activeProject ? (
-          <SoonerWorkspaceMcpStatus
-            backendUrl={backendUrl}
-            activeProject={activeProject}
-            getIdToken={getIdToken}
-            language={language}
-            mcpTitle={t.mcpTitle}
-            mcpConnecting={t.mcpConnecting}
-            mcpReadyPrefix={t.mcpReadyPrefix}
-            mcpFailed={t.mcpFailed}
-            mcpHint={t.mcpHint}
-            mcpAwaitingAuth={t.mcpAwaitingAuth}
-          />
-        ) : null}
-        <div className="flex flex-wrap gap-1 mb-3 items-center">
-          <button
-            type="button"
-            onClick={clearLocal}
-            className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold text-[#8E9299] hover:text-white transition-colors"
-          >
-            <History className="w-3 h-3" />
-            {t.clear}
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <button
-            type="button"
-            disabled={busy || !activeProject}
-            onClick={() => {
-              const el = document.createElement("input");
-              el.type = "file";
-              el.multiple = true;
-              el.onchange = () => {
-                const files = el.files;
-                if (!files) return;
-                void (async () => {
-                  const next: { name: string; text: string }[] = [];
-                  for (const f of Array.from(files)) {
-                    next.push({ name: f.name, text: await f.text() });
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void submit();
                   }
-                  onSetContextAttachments((prev) => [...prev, ...next]);
-                })();
-              };
-              el.click();
-            }}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40"
-          >
-            <Paperclip className="w-3 h-3" />
-            {t.attachFiles}
-          </button>
-          <button
-            type="button"
-            disabled={busy || !activeFile}
-            onClick={() => attachOpenEditorBuffer()}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border border-[#252525] text-[#8E9299] hover:text-[#38BDF8] hover:border-[#38BDF8]/40 disabled:opacity-40",
-              activeFile && contextAttachments.some((a) => a.name === activeFile) && "border-[#38BDF8]/45 text-[#38BDF8] bg-[#38BDF8]/10",
-            )}
-          >
-            <FileCode className="w-3 h-3" />
-            {t.attachOpenFile}
-          </button>
-          {contextAttachments.map((a, i) => (
-            <span
-              key={`${i}:${a.name}:${a.text.length}`}
-              className="inline-flex items-center gap-1 text-[10px] pl-2 pr-1 py-0.5 rounded-full bg-[#1A1A1A] border border-[#252525] text-[#8E9299] max-w-[min(180px,calc(100vw-8rem))]"
-              title={a.name}
-            >
-              <span className="truncate min-w-0">{a.name}</span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onSetContextAttachments((prev) => prev.filter((_, j) => j !== i))}
-                className="shrink-0 p-0.5 rounded-full text-[#71717A] hover:text-white hover:bg-white/10 disabled:opacity-40"
-                aria-label={t.attachRemoveAria}
-              >
-                <X className="w-3 h-3" aria-hidden />
-              </button>
-            </span>
-          ))}
+                }}
+                placeholder={t.placeholderUnified}
+                disabled={!activeProject || !hasApiKey || busy}
+                className="w-full min-h-[96px] resize-y bg-transparent px-3 pt-3 pb-11 pr-[4.5rem] text-sm text-[#E4E3E0] placeholder:text-[#52525B] focus:outline-none disabled:opacity-50"
+              />
+              <div className="absolute bottom-2 left-2 z-10 flex items-center gap-0.5">
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setEphemeralOpen((o) => !o)}
+                      title={t.tooltipEphemeralSecrets}
+                      aria-label={t.ephemeralSecretsTitle}
+                      aria-pressed={ephemeralOpen}
+                      className={cn(
+                        iconBarBtn,
+                        ephemeralOpen && "border-[#38BDF8]/60 bg-[#0c1422] text-[#38BDF8]",
+                      )}
+                    >
+                      <Lock className="w-4 h-4" aria-hidden />
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      className="z-[300] max-w-[min(260px,85vw)] rounded-lg border border-[#333] bg-[#111] px-2.5 py-2 text-[11px] leading-snug text-[#E4E3E0] shadow-xl select-none"
+                      sideOffset={6}
+                      side="top"
+                    >
+                      {t.tooltipEphemeralSecrets}
+                      <Tooltip.Arrow className="fill-[#111]" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy || !uid || !activeProject}
+                      onClick={() => setMcpPanelOpen((o) => !o)}
+                      title={t.tooltipMcpPanel}
+                      aria-label={t.mcpTitle}
+                      aria-pressed={mcpPanelOpen}
+                      className={cn(
+                        iconBarBtn,
+                        mcpPanelOpen && "border-[#38BDF8]/60 bg-[#0c1422] text-[#38BDF8]",
+                      )}
+                    >
+                      <PlugZap className="w-4 h-4" aria-hidden />
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      className="z-[300] max-w-[min(260px,85vw)] rounded-lg border border-[#333] bg-[#111] px-2.5 py-2 text-[11px] leading-snug text-[#E4E3E0] shadow-xl select-none"
+                      sideOffset={6}
+                      side="top"
+                    >
+                      {t.tooltipMcpPanel}
+                      <Tooltip.Arrow className="fill-[#111]" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy || !activeProject}
+                      onClick={() => openAttachmentFilePicker()}
+                      title={t.tooltipAttachFiles}
+                      aria-label={t.attachFiles}
+                      className={iconBarBtn}
+                    >
+                      <Paperclip className="w-4 h-4" aria-hidden />
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      className="z-[300] max-w-[min(260px,85vw)] rounded-lg border border-[#333] bg-[#111] px-2.5 py-2 text-[11px] leading-snug text-[#E4E3E0] shadow-xl select-none"
+                      sideOffset={6}
+                      side="top"
+                    >
+                      {t.tooltipAttachFiles}
+                      <Tooltip.Arrow className="fill-[#111]" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={busy || !activeFile}
+                      onClick={() => attachOpenEditorBuffer()}
+                      title={t.tooltipAttachOpenFile}
+                      aria-label={t.attachOpenFile}
+                      className={cn(
+                        iconBarBtn,
+                        activeFile &&
+                          contextAttachments.some((a) => a.name === activeFile) &&
+                          "border-[#38BDF8]/50 bg-[#0c1422] text-[#38BDF8]",
+                      )}
+                    >
+                      <FileCode className="w-4 h-4" aria-hidden />
+                    </button>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      className="z-[300] max-w-[min(260px,85vw)] rounded-lg border border-[#333] bg-[#111] px-2.5 py-2 text-[11px] leading-snug text-[#E4E3E0] shadow-xl select-none"
+                      sideOffset={6}
+                      side="top"
+                    >
+                      {t.tooltipAttachOpenFile}
+                      <Tooltip.Arrow className="fill-[#111]" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              </div>
+
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={() => stop()}
+                  className="absolute bottom-2 right-2 z-10 p-2.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+                  title={t.stop}
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={(!draft.trim() && contextAttachments.length === 0) || !activeProject || !hasApiKey}
+                  className="absolute bottom-2 right-2 z-10 p-2.5 bg-[#38BDF8] text-white rounded-lg hover:bg-[#0EA5E9] disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={language === "ja" ? "送信" : "Send"}
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="text-[9px] text-[#555] mt-1.5 leading-snug">{t.attachmentsHint}</p>
         </div>
-        <p className="text-[9px] text-[#555] mb-1">{t.attachmentsHint}</p>
-        <div className="relative">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder={t.placeholderUnified}
-            disabled={!activeProject || !hasApiKey || busy}
-            className="w-full bg-[#1A1A1A] border border-[#252525] rounded-xl p-3 pr-20 text-sm focus:outline-none focus:border-[#38BDF8] transition-colors resize-none h-24 text-[#E4E3E0]"
-          />
-          {busy ? (
-            <button
-              type="button"
-              onClick={() => stop()}
-              className="absolute bottom-3 right-3 p-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-              title={t.stop}
-            >
-              <Square className="w-4 h-4 fill-current" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void submit()}
-              disabled={(!draft.trim() && contextAttachments.length === 0) || !activeProject || !hasApiKey}
-              className="absolute bottom-3 right-3 p-2 bg-[#38BDF8] text-white rounded-lg hover:bg-[#0EA5E9] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </div>
+      </Tooltip.Provider>
     </div>
   );
 });
