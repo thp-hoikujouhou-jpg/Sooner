@@ -120,13 +120,22 @@ export async function storageUploadFile(uid: string, project: string, filePath: 
 
 export async function storageDownloadFile(uid: string, project: string, filePath: string): Promise<string | null> {
   if (!storage) return null;
-  try {
-    const fileRef = ref(storage, userStoragePath(uid, project, filePath));
-    const bytes = await getBytes(fileRef);
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return null;
+  const fileRef = ref(storage, userStoragePath(uid, project, filePath));
+  const max = 4;
+  let last: unknown;
+  for (let attempt = 0; attempt < max; attempt++) {
+    try {
+      const bytes = await getBytes(fileRef);
+      return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    } catch (e) {
+      last = e;
+      if (attempt === max - 1) break;
+      const base = 800 * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, Math.min(20000, base)));
+    }
   }
+  console.warn("[firebase storage] download failed after retries", filePath, last);
+  return null;
 }
 
 export async function storageDeleteFile(uid: string, project: string, filePath: string): Promise<void> {
@@ -166,11 +175,35 @@ function trimMessagesForStorage(messages: unknown[]): unknown[] {
   return list;
 }
 
+const lastSavedChatJson = new Map<string, string>();
+
+async function storageWriteWithRetry(upload: () => Promise<unknown>, label: string): Promise<void> {
+  const max = 5;
+  let last: unknown;
+  for (let attempt = 0; attempt < max; attempt++) {
+    try {
+      await upload();
+      return;
+    } catch (e) {
+      last = e;
+      if (attempt === max - 1) break;
+      const base = 1500 * Math.pow(2, attempt);
+      const jitter = Math.floor(Math.random() * 400);
+      await new Promise((r) => setTimeout(r, Math.min(45000, base + jitter)));
+    }
+  }
+  console.warn(`[firebase storage] ${label} failed after retries`, last);
+}
+
 export async function storageSaveChatHistory(uid: string, project: string, messages: unknown[]): Promise<void> {
   if (!storage) return;
   const fileRef = ref(storage, userStoragePath(uid, project, ".sooner_chat.json"));
   const toSave = trimMessagesForStorage(messages);
-  await uploadString(fileRef, JSON.stringify(toSave));
+  const json = JSON.stringify(toSave);
+  const dedupeKey = `${uid}::${project}`;
+  if (lastSavedChatJson.get(dedupeKey) === json) return;
+  await storageWriteWithRetry(() => uploadString(fileRef, json), "save chat");
+  lastSavedChatJson.set(dedupeKey, json);
 }
 
 export async function storageLoadChatHistory(uid: string, project: string): Promise<unknown[]> {

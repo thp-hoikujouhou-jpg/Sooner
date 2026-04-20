@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import type { UIMessage } from "ai";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -149,6 +149,8 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
     onFinish: () => {
       onWorkspaceChanged();
     },
+    /** Required or `run_command` / `run_command_pipeline` stall after Approve — client must POST again with approval. */
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
   useImperativeHandle(ref, () => ({ stop: () => stop() }), [stop]);
@@ -165,15 +167,18 @@ export const SoonerAiAgentPanel = React.forwardRef<SoonerAiAgentPanelHandle, Soo
     onBusyChange?.(busy);
   }, [busy, onBusyChange]);
 
+  /** Avoid hammering Storage during streaming (429). Only persist when idle + debounced. */
+  const CHAT_PERSIST_DEBOUNCE_MS = 2500;
   useEffect(() => {
     if (persistTimer.current) clearTimeout(persistTimer.current);
+    if (status !== "ready") return;
     persistTimer.current = setTimeout(() => {
       onPersistMessages(uiMessagesToChat(messages));
-    }, 500);
+    }, CHAT_PERSIST_DEBOUNCE_MS);
     return () => {
       if (persistTimer.current) clearTimeout(persistTimer.current);
     };
-  }, [messages, onPersistMessages]);
+  }, [messages, onPersistMessages, status]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
